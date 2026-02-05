@@ -75,9 +75,11 @@ func run(ctx context.Context, cfg *config.Config) error {
 
 	gitCli := fork.NewGitCli()
 	ghAdapter := &ghForkAdapter{cli: ghCli}
+	useFork := (cfg.GitHubAuthMode == "token") // Fork mode for PAT, direct for app
 	fm := fork.NewManager(
 		gitCli, ghAdapter, cfg.WorkDir,
 		"upstream", "origin", agentUsername,
+		useFork,
 	)
 
 	claudeRunner := agent.NewClaudeRunner(30*time.Minute, cfg.ClaudeModel)
