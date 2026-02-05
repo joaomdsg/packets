@@ -1,22 +1,33 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when
+working with code in this repository.
 
 ## Project Overview
 
-agntpr is an autonomous Claude Code agent orchestrator that safely monitors GitHub repositories for issues and PRs, then addresses them through a structured TDD workflow with maintainer collaboration.
+agntpr is an autonomous Claude Code agent orchestrator that safely
+monitors GitHub repositories for issues and PRs, then addresses them
+through a structured TDD workflow with maintainer collaboration.
 
 ## Core Workflow
 
-1. **Fork & Watch** - Create/maintain a fork of a target repo, watch for issues assigned to the authenticated GitHub user
-2. **Plan** - Sync fork with upstream, read issue, respond with a plan including test descriptions, wait for maintainer approval
-3. **Refine** - Iterate on plan based on maintainer feedback until approved (maintainer can skip planning)
-4. **Implement** - Sync fork with upstream, create branch from latest, use TDD to address the issue
+1. **Fork & Watch** - Create/maintain a fork of a target repo, watch
+   for issues assigned to the authenticated GitHub user
+2. **Plan** - Sync fork with upstream, read issue, respond with a plan
+   including test descriptions, wait for maintainer approval
+3. **Refine** - Iterate on plan based on maintainer feedback until
+   approved (maintainer can skip planning)
+4. **Implement** - Sync fork with upstream, create branch from latest,
+   use TDD to address the issue
 5. **PR** - Create PR highlighting key changes for review
-6. **Review Cycle** - Address maintainer comments on existing branch, iterate until merged/rejected
+6. **Review Cycle** - Address maintainer comments on existing branch,
+   iterate until merged/rejected
 7. **PR Mentions** - Respond to `@ai-r-sentry` mentions in PR comments
 
-**Note**: The fork is automatically synced with upstream (via `git fetch` + `git reset --hard`) before planning and implementation to ensure plans and branches are based on current code. Review responses work on the existing branch without syncing.
+**Note**: The fork is automatically synced with upstream (via
+`git fetch` + `git reset --hard`) before planning and implementation
+to ensure plans and branches are based on current code. Review
+responses work on the existing branch without syncing.
 
 ## Architecture
 
@@ -36,11 +47,13 @@ GitHub API (via gh CLI)
 
 Issues progress through states (`internal/state/machine.go`):
 
-- **new** → **planning** → **plan_review** → **implementing** → **pr_created** → **pr_review** → **done/rejected**
+- **new** → **planning** → **plan_review** → **implementing** →
+  **pr_created** → **pr_review** → **done/rejected**
 - Can skip planning: **new** → **implementing**
 - Terminal states: **done**, **rejected**, **errored**
 
-Transitions triggered by events like `plan_approved`, `implementation_complete`, `pr_merged`.
+Transitions triggered by events like `plan_approved`,
+`implementation_complete`, `pr_merged`.
 
 ### Key Components
 
@@ -60,7 +73,7 @@ Transitions triggered by events like `plan_approved`, `implementation_complete`,
 **ForkManager** (`internal/fork/manager.go`):
 - Manages fork lifecycle and work directories
 - Creates/syncs forks with upstream
-- Syncs with upstream before every action (planning, implementation, review response)
+- Syncs with upstream before every action (planning, implementation)
 - Creates feature branches per issue
 - Pushes changes back to fork
 
@@ -69,7 +82,8 @@ Transitions triggered by events like `plan_approved`, `implementation_complete`,
 - Builds specialized prompts for each phase
 - `Invoker` handles prompt construction
 - `ClaudeRunner` executes `claude` CLI with flags
-- Five agent modes: Plan, Implement, RespondToReview, SummarizeChanges, EvaluateIntent, AnswerQuestion
+- Five agent modes: Plan, Implement, RespondToReview,
+  SummarizeChanges, EvaluateIntent, AnswerQuestion
 
 **Context** (`internal/context/context.go`):
 - Writes `.agntpr-context.md` in work directories
@@ -87,21 +101,27 @@ Transitions triggered by events like `plan_approved`, `implementation_complete`,
 
 Agent phases correspond to state machine transitions:
 
-1. **Planning** - Analyzes issue, proposes implementation plan with tests
+1. **Planning** - Analyzes issue, proposes implementation plan with
+   tests
 2. **Implementation** - Uses TDD to implement approved plan
 3. **Review Response** - Addresses PR review comments
 4. **Summarization** - Creates PR description from git diff
-5. **Intent Evaluation** - Parses maintainer comments as structured JSON to determine next action
-6. **Question Answering** - Responds to questions without making code changes
+5. **Intent Evaluation** - Parses maintainer comments as structured
+   JSON to determine next action
+6. **Question Answering** - Responds to questions without making code
+   changes
 
-Each phase runs Claude Code CLI in the work directory with a specialized prompt from `agent/invoker.go`.
+Each phase runs Claude Code CLI in the work directory with a
+specialized prompt from `agent/invoker.go`.
 
 ### Agent Prompt Design
 
 All agent prompts follow these principles:
 
-**Structured Formats**: Each prompt provides clear sections and expected output format
-- Planning: 4-section structure (Analysis, Implementation, Tests, Risks), 300-500 words
+**Structured Formats**: Each prompt provides clear sections and
+expected output format
+- Planning: 4-section structure (Analysis, Implementation, Tests,
+  Risks), 300-500 words
 - Implementation: RED-GREEN-REFACTOR-REPEAT cycle
 - Intent Evaluation: 5 categories with single-line JSON output
 
@@ -117,9 +137,12 @@ All agent prompts follow these principles:
 - Document interpretations in commit messages
 - 30-minute execution timeout
 
-**Context Awareness**: All prompts reference `.agntpr-context.md` file containing issue details, comments, PR feedback, and plan history. This file is never committed to git.
+**Context Awareness**: All prompts reference `.agntpr-context.md` file
+containing issue details, comments, PR feedback, and plan history.
+This file is never committed to git.
 
-Prompts are optimized for token efficiency (~1,700 tokens total) while maintaining clarity and effectiveness.
+Prompts are optimized for token efficiency (~1,700 tokens total) while
+maintaining clarity and effectiveness.
 
 ## Build & Development Commands
 
@@ -160,16 +183,19 @@ docker-compose down -v
 Copy `.env.example` to `.env` and configure:
 
 - `GITHUB_TOKEN` - GitHub PAT with repo scope
-- `CLAUDE_API_KEY` - Anthropic API key (set as `ANTHROPIC_API_KEY` in docker-compose)
+- `CLAUDE_API_KEY` - Anthropic API key (set as `ANTHROPIC_API_KEY` in
+  docker-compose)
 - `TARGET_REPO` - Repository to watch (format: `owner/repo`)
-- `CLAUDE_MODEL` - Model name (default: `sonnet`, also `haiku` or `opus`)
+- `CLAUDE_MODEL` - Model name (default: `sonnet`, also `haiku` or
+  `opus`)
 - `POLL_INTERVAL` - Polling interval in seconds (default: `60`)
 - `RESET_DB` - Reset database on startup (default: `false`)
 - `DEBUG` - Enable debug logging (default: `false`)
 
 ### GitHub Authentication
 
-The agent uses GitHub CLI (`gh`) for repository operations. In Docker, the `GITHUB_TOKEN` env var is used. Locally, authenticate:
+The agent uses GitHub CLI (`gh`) for repository operations. In Docker,
+the `GITHUB_TOKEN` env var is used. Locally, authenticate:
 
 ```bash
 gh auth login
@@ -177,7 +203,8 @@ gh auth login
 
 ### Database
 
-Uses SQLite (default: `/data/agntpr.db` in Docker, configurable via `DATABASE_PATH`). Reset with `RESET_DB=true`.
+Uses SQLite (default: `/data/agntpr.db` in Docker, configurable via
+`DATABASE_PATH`). Reset with `RESET_DB=true`.
 
 ## Security Considerations
 

@@ -1,15 +1,22 @@
 # agntpr
 
-A sandboxed, semi-autonomous coding agent controlled from GitHub ― forks, plans, implements, and submits pull requests.
+A sandboxed, semi-autonomous coding agent controlled from GitHub ―
+forks, plans, implements, and submits pull requests.
 
 ## Features
 
-- **GitHub-Driven Workflow**: Assign issues by mentioning the agent, receive implementation plans for approval
-- **Fork-Based Safety**: All work happens in a fork with PR-based review before merging
-- **Test-Driven Development**: Enforces RED-GREEN-REFACTOR cycle for quality code
-- **State Machine**: Tracks issues through planning → implementation → PR review → done
-- **Maintainer Control**: Plan approval required, can skip planning, maintains authority throughout
-- **Intent Classification**: Automatically determines if comments are approvals, revisions, questions, or clarifications
+- **GitHub-Driven Workflow**: Assign issues by mentioning the agent,
+  receive implementation plans for approval
+- **Fork-Based Safety**: All work happens in a fork with PR-based
+  review before merging
+- **Test-Driven Development**: Enforces RED-GREEN-REFACTOR cycle for
+  quality code
+- **State Machine**: Tracks issues through planning → implementation →
+  PR review → done
+- **Maintainer Control**: Plan approval required, can skip planning,
+  maintains authority throughout
+- **Intent Classification**: Automatically determines if comments are
+  approvals, revisions, questions, or clarifications
 
 ## Quick Start
 
@@ -49,9 +56,11 @@ docker-compose logs -f agntpr
 ### Usage
 
 1. **Create an issue** in your target repository
-2. **Mention the agent** in a comment (e.g., `@ai-r-sentry please implement this`)
+2. **Mention the agent** in a comment (e.g.,
+   `@ai-r-sentry please implement this`)
 3. **Review the plan** posted by the agent
-4. **Approve with** `@ai-r-sentry approve` or request changes with `@ai-r-sentry revise: <feedback>`
+4. **Approve with** `@ai-r-sentry approve` or request changes with
+   `@ai-r-sentry revise: <feedback>`
 5. **Review the PR** created by the agent
 6. **Merge** when satisfied
 
@@ -81,7 +90,7 @@ Skip planning for simple issues: `@ai-r-sentry just implement this directly`
        │
        ▼
 ┌─────────────┐
-│ Implement   │ ← TDD: RED → GREEN → REFACTOR → COMMIT
+│ Implement   │ ← TDD: RED → GREEN → REFACTOR
 └──────┬──────┘
        │
        ▼
