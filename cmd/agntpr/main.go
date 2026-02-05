@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -62,6 +63,17 @@ func run(ctx context.Context, cfg *config.Config) error {
 	}
 
 	agentMention := "@" + agentUsername
+
+	// Create work directory if it doesn't exist
+	if err := os.MkdirAll(cfg.WorkDir, 0755); err != nil {
+		return fmt.Errorf("failed to create work directory: %w", err)
+	}
+
+	// Create database directory if it doesn't exist
+	dbDir := filepath.Dir(cfg.DatabasePath)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
+	}
 
 	database, err := db.Open(cfg.DatabasePath)
 	if err != nil {
