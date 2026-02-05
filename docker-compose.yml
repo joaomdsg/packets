@@ -1,0 +1,35 @@
+services:
+  agntpr:
+    build: .
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - TARGET_REPO=${TARGET_REPO}
+      - ANTHROPIC_API_KEY=${CLAUDE_API_KEY}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-opusplan}
+      - POLL_INTERVAL=${POLL_INTERVAL:-60}
+      - RESET_DB=${RESET_DB:-false}
+      - DEBUG=${DEBUG:-false}
+      - WORK_DIR=/work
+      - DATABASE_PATH=/data/agntpr.db
+      - DOCKER_HOST=tcp://docker:2375
+    volumes:
+      - work-data:/work
+      - db-data:/data
+      - docker-certs:/certs/client:ro
+    depends_on:
+      - docker
+    restart: unless-stopped
+
+  docker:
+    image: docker:27-dind
+    privileged: true
+    volumes:
+      - docker-data:/var/lib/docker
+    command: ["--tls=false"]
+    restart: unless-stopped
+
+volumes:
+  work-data:
+  db-data:
+  docker-certs:
+  docker-data:
