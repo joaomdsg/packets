@@ -58,6 +58,7 @@ Transitions triggered by events like `plan_approved`,
 ### Key Components
 
 **Orchestrator** (`internal/orchestrator/orchestrator.go`):
+
 - Main business logic coordinator
 - Polls GitHub for mentioned issues/PRs
 - Manages state transitions and workflow
@@ -65,12 +66,14 @@ Transitions triggered by events like `plan_approved`,
 - Handles error states and maintainer communication
 
 **Watcher** (`internal/watcher/watcher.go`):
+
 - GitHub API wrapper using `gh` CLI
 - Fetches issues assigned to agent (via mentions)
 - Fetches/filters comments on issues and PRs
 - Posts comments and creates PRs
 
 **ForkManager** (`internal/fork/manager.go`):
+
 - Manages fork lifecycle and work directories
 - Creates/syncs forks with upstream
 - Syncs with upstream before every action (planning, implementation)
@@ -78,6 +81,7 @@ Transitions triggered by events like `plan_approved`,
 - Pushes changes back to fork
 
 **Agent** (`internal/agent/`):
+
 - Wraps Claude Code CLI invocations
 - Builds specialized prompts for each phase
 - `Invoker` handles prompt construction
@@ -86,12 +90,14 @@ Transitions triggered by events like `plan_approved`,
   SummarizeChanges, EvaluateIntent, AnswerQuestion
 
 **Context** (`internal/context/context.go`):
+
 - Writes `.agntpr-context.md` in work directories
 - Contains issue body, comments, PR feedback, plan history
 - Provides full context to Claude Code agent
 - **Never committed** to Git
 
 **Database** (`internal/db/db.go`):
+
 - SQLite persistence layer
 - Tracks issues, plans, PRs, comments
 - Schema defined in `models.go`
@@ -120,18 +126,22 @@ All agent prompts follow these principles:
 
 **Structured Formats**: Each prompt provides clear sections and
 expected output format
+
 - Planning: 4-section structure (Analysis, Implementation, Tests,
   Risks), 300-500 words
 - Implementation: RED-GREEN-REFACTOR-REPEAT cycle
 - Intent Evaluation: 5 categories with single-line JSON output
 
 **TDD Enforcement**: Strict test-first methodology across all phases
+
 - Write failing test first (RED)
 - Minimal code to pass (GREEN)
 - Refactor for clarity
 - Commit when logical units complete
 
-**Scope Boundaries**: Clear guidance on what the agent should and shouldn't do
+**Scope Boundaries**: Clear guidance on what the agent should and
+shouldn't do
+
 - Stay within approved plan
 - Maintainer has final authority
 - Document interpretations in commit messages

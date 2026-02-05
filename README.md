@@ -151,7 +151,9 @@ gh auth login
 
 ## Architecture
 
-See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation including:
+See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation
+including:
+
 - State machine transitions
 - Component interactions (Orchestrator, Watcher, ForkManager, Agent)
 - Agent prompt design
