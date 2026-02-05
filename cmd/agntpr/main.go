@@ -43,14 +43,16 @@ func main() {
 }
 
 func run(ctx context.Context, cfg *config.Config) error {
-	ghCli := watcher.NewGHCli()
-
-	agentUsername, err := ghCli.GetAuthenticatedUser(ctx)
+	// Initialize authentication
+	_, agentUsername, err := initAuth(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to get authenticated user: %w", err)
+		return fmt.Errorf("failed to initialize auth: %w", err)
 	}
 
-	log.Printf("agntpr starting as @%s, watching %s", agentUsername, cfg.TargetRepo)
+	log.Printf("agntpr starting as @%s (%s mode), watching %s",
+		agentUsername, cfg.GitHubAuthMode, cfg.TargetRepo)
+
+	ghCli := watcher.NewGHCli()
 
 	if cfg.ResetDB {
 		log.Printf("RESET_DB set, removing database at %s", cfg.DatabasePath)
