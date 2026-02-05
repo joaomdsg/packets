@@ -124,7 +124,9 @@ func TestManager_SetupWorkDir_ExistingClone(t *testing.T) {
 	gh := &mockGitHub{}
 
 	existingDir := filepath.Join(tmpDir, "owner", "repo", "issue-2")
-	os.MkdirAll(filepath.Join(existingDir, ".git"), 0755)
+	if err := os.MkdirAll(filepath.Join(existingDir, ".git"), 0755); err != nil {
+		t.Fatalf("failed to create test directory: %v", err)
+	}
 
 	mgr := fork.NewManager(git, gh, tmpDir, "upstream", "origin", "ai-r-sentry")
 
@@ -151,7 +153,9 @@ func TestManager_CreateBranch(t *testing.T) {
 	mgr := fork.NewManager(git, gh, tmpDir, "upstream", "origin", "ai-r-sentry")
 
 	workDir := filepath.Join(tmpDir, "test")
-	os.MkdirAll(workDir, 0755)
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		t.Fatalf("failed to create test directory: %v", err)
+	}
 
 	ctx := context.Background()
 	branch, err := mgr.CreateBranch(ctx, workDir, 5)

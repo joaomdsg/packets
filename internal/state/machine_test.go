@@ -66,7 +66,9 @@ func TestMachine_CurrentState(t *testing.T) {
 		t.Errorf("expected state new, got %s", machine.Current())
 	}
 
-	machine.Transition(state.EventStartPlanning)
+	if _, err := machine.Transition(state.EventStartPlanning); err != nil {
+		t.Fatalf("failed to transition: %v", err)
+	}
 	if machine.Current() != db.StatePlanning {
 		t.Errorf("expected state planning, got %s", machine.Current())
 	}

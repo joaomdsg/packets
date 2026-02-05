@@ -99,7 +99,7 @@ func (db *DB) migrate() error {
 		`ALTER TABLE plans ADD COLUMN feedback TEXT`,
 	}
 	for _, m := range migrations {
-		db.conn.Exec(m)
+		_, _ = db.conn.Exec(m) // Ignore errors - columns may already exist
 	}
 
 	return nil

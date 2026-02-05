@@ -124,8 +124,6 @@ func (m *mockForkManager) HasChanges(
 
 type mockAgent struct {
 	planResult      string
-	implResult      string
-	reviewResult    string
 	summaryResult   string
 	answerResult    string
 	intentResult    *orchestrator.Intent
@@ -235,7 +233,9 @@ func TestOrchestrator_SkipsExistingIssues(t *testing.T) {
 		Title:    "Existing",
 		State:    db.StatePlanning,
 	}
-	database.CreateIssue(ctx, existing)
+	if err := database.CreateIssue(ctx, existing); err != nil {
+		t.Fatalf("failed to create test issue: %v", err)
+	}
 
 	w := &mockWatcher{
 		issues: []*watcher.Issue{
@@ -386,7 +386,9 @@ func TestOrchestrator_QuestionNoStateChange(t *testing.T) {
 		State:    db.StatePlanReview,
 		WorkDir:  "/work/test",
 	}
-	database.CreateIssue(ctx, issue)
+	if err := database.CreateIssue(ctx, issue); err != nil {
+		t.Fatalf("failed to create test issue: %v", err)
+	}
 
 	// Create a plan
 	plan := &db.Plan{
@@ -394,7 +396,9 @@ func TestOrchestrator_QuestionNoStateChange(t *testing.T) {
 		Version: 1,
 		Content: "Test plan with caching",
 	}
-	database.CreatePlan(ctx, plan)
+	if err := database.CreatePlan(ctx, plan); err != nil {
+		t.Fatalf("failed to create test plan: %v", err)
+	}
 
 	w := &mockWatcher{
 		issues: []*watcher.Issue{
@@ -462,7 +466,9 @@ func TestOrchestrator_PRQuestionNoStateChange(t *testing.T) {
 		BranchName: "ai-r-sentry/issue-11",
 		WorkDir:    "/work/test",
 	}
-	database.CreateIssue(ctx, issue)
+	if err := database.CreateIssue(ctx, issue); err != nil {
+		t.Fatalf("failed to create test issue: %v", err)
+	}
 
 	pr := &db.PullRequest{
 		IssueID:  issue.ID,
@@ -471,7 +477,9 @@ func TestOrchestrator_PRQuestionNoStateChange(t *testing.T) {
 		Title:    "Fix #11",
 		State:    "open",
 	}
-	database.CreatePR(ctx, pr)
+	if err := database.CreatePR(ctx, pr); err != nil {
+		t.Fatalf("failed to create test PR: %v", err)
+	}
 
 	w := &mockWatcher{
 		issues: []*watcher.Issue{
@@ -542,7 +550,9 @@ func TestOrchestrator_PRMergeDetection(t *testing.T) {
 		BranchName: "ai-r-sentry/issue-6",
 		WorkDir:    "/work/test",
 	}
-	database.CreateIssue(ctx, issue)
+	if err := database.CreateIssue(ctx, issue); err != nil {
+		t.Fatalf("failed to create test issue: %v", err)
+	}
 
 	pr := &db.PullRequest{
 		IssueID:  issue.ID,
@@ -551,7 +561,9 @@ func TestOrchestrator_PRMergeDetection(t *testing.T) {
 		Title:    "Fix #6",
 		State:    "open",
 	}
-	database.CreatePR(ctx, pr)
+	if err := database.CreatePR(ctx, pr); err != nil {
+		t.Fatalf("failed to create test PR: %v", err)
+	}
 
 	// Mock returns merged PR
 	w := &mockWatcher{
@@ -611,7 +623,9 @@ func TestOrchestrator_PRBodyWithSummary(t *testing.T) {
 
 	// Simulate plan approval
 	issue, _ := database.GetIssueByGitHubID(ctx, 800)
-	orch.ProcessApproval(ctx, issue.ID)
+	if err := orch.ProcessApproval(ctx, issue.ID); err != nil {
+		t.Fatalf("failed to process approval: %v", err)
+	}
 
 	// Check PR body contains summary
 	if len(w.prBodies) == 0 {
@@ -688,7 +702,9 @@ func TestOrchestrator_PRCloseDetection(t *testing.T) {
 		BranchName: "ai-r-sentry/issue-7",
 		WorkDir:    "/work/test",
 	}
-	database.CreateIssue(ctx, issue)
+	if err := database.CreateIssue(ctx, issue); err != nil {
+		t.Fatalf("failed to create test issue: %v", err)
+	}
 
 	pr := &db.PullRequest{
 		IssueID:  issue.ID,
@@ -697,7 +713,9 @@ func TestOrchestrator_PRCloseDetection(t *testing.T) {
 		Title:    "Fix #7",
 		State:    "open",
 	}
-	database.CreatePR(ctx, pr)
+	if err := database.CreatePR(ctx, pr); err != nil {
+		t.Fatalf("failed to create test PR: %v", err)
+	}
 
 	// Mock returns closed (not merged) PR
 	w := &mockWatcher{
