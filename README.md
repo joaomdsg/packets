@@ -19,18 +19,25 @@ AgntPR takes a different approach:
 
 ## How It Works
 
-1. Mention `@ai-r-sentry` on a GitHub issue
+1. Mention the agent's GitHub account on an issue
 2. Agent forks your repo, creates a plan, waits for approval
 3. Agent implements with TDD, opens PR from fork
 4. You review, request changes, merge
 
 ```bash
-# That's it. No setup in your repo.
+# Create a dedicated GitHub account for the agent
+# Generate a fine-grained token with repo access (read/write)
+# Configure .env with GITHUB_TOKEN and CLAUDE_API_KEY
+
 docker-compose up -d
 ```
 
-Skip planning for trivial issues:
-`@ai-r-sentry just implement this directly`
+**⚠️ Security**: Use a dedicated GitHub account with a fine-grained
+personal access token. Never use your personal account token. Scope
+the token to only the repositories the agent should access.
+
+Skip planning for trivial issues by mentioning "just implement this
+directly" in your comment.
 
 ## 🚧 Experimental
 
