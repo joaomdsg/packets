@@ -216,6 +216,45 @@ gh auth login
 Uses SQLite (default: `/data/agntpr.db` in Docker, configurable via
 `DATABASE_PATH`). Reset with `RESET_DB=true`.
 
+## Markdown Standards
+
+All markdown files in this repository must follow these rules:
+
+**Line Length**: Maximum 80 characters per line
+- Wrap long lines at natural break points
+- Break list items with continuation indentation
+
+**Blank Lines**:
+- Around all headers
+- Before and after code blocks
+- Before all lists (MD032 compliance)
+- After list items with continuation text
+
+**Code Blocks**:
+- Always specify language (bash, go, text, etc.)
+- Use `text` for ASCII diagrams
+- Indent within numbered lists (3 spaces)
+
+**Lists**:
+- Consistent `-` marker for unordered lists
+- Proper indentation for nested items
+- Blank line before first item when after text
+
+**Headers**:
+- ATX style with `#` only
+- No trailing spaces
+- Blank line before and after
+
+**Tables**:
+- Proper alignment with separator row
+- Consistent column spacing
+
+When modifying markdown files, verify compliance with:
+```bash
+awk 'length > 80' file.md  # Check line length
+grep ' $' file.md           # Check trailing spaces
+```
+
 ## Security Considerations
 
 - Agent runs in isolated sandbox with limited permissions
