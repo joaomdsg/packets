@@ -38,7 +38,7 @@ func Build(
 ) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("# Issue #%d: %s\n\n", issue.Number, issue.Title))
+	fmt.Fprintf(&b, "# Issue #%d: %s\n\n", issue.Number, issue.Title)
 	b.WriteString(issue.Body)
 	b.WriteString("\n\n")
 
@@ -49,11 +49,11 @@ func Build(
 			if p.Approved {
 				status = "✅ Approved"
 			}
-			b.WriteString(fmt.Sprintf("### Plan v%d (%s)\n\n", p.Version, status))
+			fmt.Fprintf(&b, "### Plan v%d (%s)\n\n", p.Version, status)
 			b.WriteString(p.Content)
 			b.WriteString("\n\n")
 			if p.Feedback != "" {
-				b.WriteString(fmt.Sprintf("**Feedback:** %s\n\n", p.Feedback))
+				fmt.Fprintf(&b, "**Feedback:** %s\n\n", p.Feedback)
 			}
 		}
 	}
@@ -61,15 +61,15 @@ func Build(
 	if len(comments) > 0 {
 		b.WriteString("## Comments\n\n")
 		for _, c := range comments {
-			b.WriteString(fmt.Sprintf("**@%s**: %s\n\n", c.Author, c.Body))
+			fmt.Fprintf(&b, "**@%s**: %s\n\n", c.Author, c.Body)
 		}
 	}
 
 	if len(prComments) > 0 {
 		b.WriteString("## Code Review Comments\n\n")
 		for _, c := range prComments {
-			b.WriteString(fmt.Sprintf("**@%s** on %s:%d\n", c.Author, c.Path, c.Line))
-			b.WriteString(fmt.Sprintf("> %s\n\n", c.Body))
+			fmt.Fprintf(&b, "**@%s** on %s:%d\n", c.Author, c.Path, c.Line)
+			fmt.Fprintf(&b, "> %s\n\n", c.Body)
 		}
 	}
 
