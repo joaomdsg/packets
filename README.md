@@ -1,176 +1,59 @@
-# agntpr
+# 🤖 AgntPR
 
-A sandboxed, semi-autonomous coding agent controlled from GitHub ―
-forks, plans, implements, and submits pull requests.
+An AI agent that lives in your GitHub. Watches issues. Ships PRs.
 
-## Features
+## Why AgntPR?
 
-- **GitHub-Driven Workflow**: Assign issues by mentioning the agent,
-  receive implementation plans for approval
-- **Fork-Based Safety**: All work happens in a fork with PR-based
-  review before merging
-- **Test-Driven Development**: Enforces RED-GREEN-REFACTOR cycle for
-  quality code
-- **State Machine**: Tracks issues through planning → implementation →
-  PR review → done
-- **Maintainer Control**: Plan approval required, can skip planning,
-  maintains authority throughout
-- **Intent Classification**: Automatically determines if comments are
-  approvals, revisions, questions, or clarifications
+AI coding assistants sit in your IDE waiting for commands. Copy-paste
+workflows. Context switching. Babysitting.
 
-## Quick Start
+AgntPR takes a different approach:
 
-### Prerequisites
-
-- Docker and docker-compose
-- GitHub Personal Access Token with `repo` scope
-- Anthropic API key for Claude
-
-### Setup
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/yourusername/agntpr.git
-   cd agntpr
-   ```
-
-2. Create `.env` file:
-
-   ```bash
-   GITHUB_TOKEN=ghp_your_token_here
-   CLAUDE_API_KEY=sk-ant-your_key_here
-   TARGET_REPO=owner/repo
-   CLAUDE_MODEL=sonnet
-   POLL_INTERVAL=60
-   ```
-
-3. Run with docker-compose:
-
-   ```bash
-   docker-compose up -d
-   ```
-
-4. View logs:
-
-   ```bash
-   docker-compose logs -f agntpr
-   ```
-
-### Usage
-
-1. **Create an issue** in your target repository
-2. **Mention the agent** in a comment (e.g.,
-   `@ai-r-sentry please implement this`)
-3. **Review the plan** posted by the agent
-4. **Approve with** `@ai-r-sentry approve` or request changes with
-   `@ai-r-sentry revise: <feedback>`
-5. **Review the PR** created by the agent
-6. **Merge** when satisfied
-
-Skip planning for simple issues: `@ai-r-sentry just implement this directly`
+- **No IDE plugins.** Just GitHub issues.
+- **No copy-paste prompts.** Natural language in comments.
+- **No babysitting.** Agent runs autonomously.
+- **No direct repo access.** Fork-based isolation.
+- **Plan-first workflow.** See the strategy before code changes.
+- **TDD enforcement.** RED-GREEN-REFACTOR cycle baked in.
+- **You stay in control.** Approve plans. Review PRs. Merge when ready.
 
 ## How It Works
 
-```text
-┌─────────────┐
-│ GitHub Issue│ ← Agent watches for mentions
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│Create Fork  │ ← Isolated work environment
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│Create Plan  │ ← 4-section implementation plan
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│Wait Approval│ ← Maintainer reviews plan
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ Implement   │ ← TDD: RED → GREEN → REFACTOR
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ Create PR   │ ← PR from fork to upstream
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│Review Cycle │ ← Address feedback, iterate
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│   Merged    │
-└─────────────┘
-```
-
-## Environment Variables
-
-| Variable         | Description                      | Default           |
-| ---------------- | -------------------------------- | ----------------- |
-| `GITHUB_TOKEN`   | GitHub PAT with repo scope       | Required          |
-| `CLAUDE_API_KEY` | Anthropic API key                | Required          |
-| `TARGET_REPO`    | Repository to watch (owner/repo) | Required          |
-| `CLAUDE_MODEL`   | Claude model (sonnet/haiku/opus) | `sonnet`          |
-| `POLL_INTERVAL`  | Polling interval in seconds      | `60`              |
-| `RESET_DB`       | Reset database on startup        | `false`           |
-| `DEBUG`          | Enable debug logging             | `false`           |
-| `DATABASE_PATH`  | SQLite database path             | `/data/agntpr.db` |
-| `WORK_DIR`       | Working directory for forks      | `/work`           |
-
-## Local Development
-
-Build and run locally without Docker:
+1. Mention `@ai-r-sentry` on a GitHub issue
+2. Agent forks your repo, creates a plan, waits for approval
+3. Agent implements with TDD, opens PR from fork
+4. You review, request changes, merge
 
 ```bash
-# Install dependencies
-go mod download
-
-# Build
-go build -o agntpr ./cmd/agntpr
-
-# Run tests
-go test ./...
-
-# Run with environment variables
-export GITHUB_TOKEN=ghp_...
-export CLAUDE_API_KEY=sk-ant-...
-export TARGET_REPO=owner/repo
-./agntpr
+# That's it. No setup in your repo.
+docker-compose up -d
 ```
 
-GitHub CLI must be authenticated:
+Skip planning for trivial issues:
+`@ai-r-sentry just implement this directly`
 
-```bash
-gh auth login
-```
+## 🚧 Experimental
 
-## Architecture
+AgntPR is young and opinionated.
 
-See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation
-including:
+- Expect rough edges
+- Expect strong opinions about TDD
+- Built for developers who value process
 
-- State machine transitions
-- Component interactions (Orchestrator, Watcher, ForkManager, Agent)
-- Agent prompt design
-- Database schema
+## Contributing
 
-## Security
+AgntPR is minimal by design.
 
-- Agent executes in isolated sandbox with limited permissions
-- Fork-based workflow prevents direct changes to target repository
-- All changes require maintainer approval via PR
-- No credentials exposed to agent execution environment
-- Context files (`.agntpr-context.md`) never committed to git
+If you love Go, GitHub workflows, and AI that knows its place — join
+in. Fork, hack, PR. Keep it simple.
+
+See [CLAUDE.md](CLAUDE.md) for architecture details.
+
+## Built With
+
+- 🧠 [Claude Code](https://claude.ai/code) - The brain
+- 🐙 GitHub CLI - The hands
+- 🗄️ SQLite - The memory
 
 ## License
 
