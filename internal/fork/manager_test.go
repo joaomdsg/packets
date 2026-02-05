@@ -11,7 +11,7 @@ import (
 
 func TestBranchName(t *testing.T) {
 	name := fork.BranchName(42)
-	expected := "ai-r-sentry/issue-42"
+	expected := "agntpr/issue-42"
 
 	if name != expected {
 		t.Errorf("expected %s, got %s", expected, name)
@@ -163,8 +163,8 @@ func TestManager_CreateBranch(t *testing.T) {
 		t.Fatalf("failed to create branch: %v", err)
 	}
 
-	if branch != "ai-r-sentry/issue-5" {
-		t.Errorf("expected branch ai-r-sentry/issue-5, got %s", branch)
+	if branch != "agntpr/issue-5" {
+		t.Errorf("expected branch agntpr/issue-5, got %s", branch)
 	}
 
 	if !git.checkedOut {

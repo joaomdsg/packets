@@ -1,5 +1,8 @@
 FROM debian:bookworm-slim
 
+# Build argument for AI backend selection
+ARG AI_BACKEND=opencode
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates \
@@ -19,7 +22,7 @@ RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
   | tar -C /usr/local -xzf -
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Install Node.js (required for Claude Code)
+# Install Node.js (required for Claude Code and OpenCode)
 ARG NODE_VERSION=22
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
   && apt-get install -y nodejs \
@@ -48,8 +51,12 @@ RUN curl -fsSL https://download.docker.com/linux/debian/gpg \
   && apt-get install -y docker-ce-cli \
   && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI via npm
-RUN npm install -g @anthropic-ai/claude-code
+# Install AI backend CLI based on build arg
+RUN if [ "$AI_BACKEND" = "claude" ]; then \
+      npm install -g @anthropic-ai/claude-code; \
+    else \
+      npm install -g opencode-ai; \
+    fi
 
 # Create work directory
 RUN mkdir -p /work

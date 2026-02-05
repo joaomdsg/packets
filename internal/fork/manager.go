@@ -46,7 +46,7 @@ func NewManager(
 }
 
 func BranchName(issueNum int) string {
-	return fmt.Sprintf("ai-r-sentry/issue-%d", issueNum)
+	return fmt.Sprintf("agntpr/issue-%d", issueNum)
 }
 
 func WorkDirPath(baseDir, owner, repo string, issueNum int) string {

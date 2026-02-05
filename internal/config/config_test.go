@@ -143,3 +143,66 @@ func TestLoad_ClaudeModel(t *testing.T) {
 		}
 	})
 }
+
+func TestLoad_GitHubAppAuth(t *testing.T) {
+	t.Run("app auth with installation ID", func(t *testing.T) {
+		t.Setenv("GITHUB_APP_INSTALLATION_ID", "789")
+		t.Setenv("TARGET_REPO", "owner/repo")
+
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if cfg.GitHubAuthMode != "app" {
+			t.Errorf("expected auth mode 'app', got %s", cfg.GitHubAuthMode)
+		}
+
+		if cfg.GitHubAppInstallationID != 789 {
+			t.Errorf("expected installation ID 789, got %d", cfg.GitHubAppInstallationID)
+		}
+	})
+
+	t.Run("token auth when no installation ID set", func(t *testing.T) {
+		t.Setenv("GITHUB_TOKEN", "ghp_test")
+		t.Setenv("TARGET_REPO", "owner/repo")
+
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if cfg.GitHubAuthMode != "token" {
+			t.Errorf("expected auth mode 'token', got %s", cfg.GitHubAuthMode)
+		}
+	})
+
+	t.Run("fails without installation ID in app mode", func(t *testing.T) {
+		t.Setenv("GITHUB_AUTH_MODE", "app")
+		t.Setenv("TARGET_REPO", "owner/repo")
+
+		_, err := config.Load()
+		if err == nil {
+			t.Fatal("expected error for missing GITHUB_APP_INSTALLATION_ID")
+		}
+	})
+
+	t.Run("fails with invalid installation ID", func(t *testing.T) {
+		t.Setenv("GITHUB_APP_INSTALLATION_ID", "not-a-number")
+		t.Setenv("TARGET_REPO", "owner/repo")
+
+		_, err := config.Load()
+		if err == nil {
+			t.Fatal("expected error for invalid installation ID")
+		}
+	})
+
+	t.Run("fails without any auth", func(t *testing.T) {
+		t.Setenv("TARGET_REPO", "owner/repo")
+
+		_, err := config.Load()
+		if err == nil {
+			t.Fatal("expected error when no auth configured")
+		}
+	})
+}

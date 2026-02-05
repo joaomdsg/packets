@@ -11,7 +11,13 @@ import (
 )
 
 type Config struct {
-	GitHubToken  string
+	// GitHub authentication
+	// For app mode: App ID and private key are embedded at build time
+	// Only installation ID is configurable at runtime
+	GitHubToken             string // For token mode (legacy)
+	GitHubAppInstallationID int64  // For app mode (runtime configurable)
+	GitHubAuthMode          string // "token" or "app", auto-detected
+
 	ClaudeAPIKey string
 	ClaudeModel  string
 	TargetRepo   string
@@ -26,15 +32,45 @@ type Config struct {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		GitHubToken:  os.Getenv("GITHUB_TOKEN"),
-		ClaudeAPIKey: os.Getenv("CLAUDE_API_KEY"),
-		TargetRepo:   os.Getenv("TARGET_REPO"),
-		WorkDir:      os.Getenv("WORK_DIR"),
-		DatabasePath: os.Getenv("DATABASE_PATH"),
+		GitHubToken:    os.Getenv("GITHUB_TOKEN"),
+		GitHubAuthMode: os.Getenv("GITHUB_AUTH_MODE"),
+		ClaudeAPIKey:   os.Getenv("CLAUDE_API_KEY"),
+		TargetRepo:     os.Getenv("TARGET_REPO"),
+		WorkDir:        os.Getenv("WORK_DIR"),
+		DatabasePath:   os.Getenv("DATABASE_PATH"),
 	}
 
-	if cfg.GitHubToken == "" {
-		return nil, fmt.Errorf("GITHUB_TOKEN is required")
+	// Parse installation ID if set (for app mode)
+	if installIDStr := os.Getenv("GITHUB_APP_INSTALLATION_ID"); installIDStr != "" {
+		installID, err := strconv.ParseInt(installIDStr, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GITHUB_APP_INSTALLATION_ID: %w", err)
+		}
+		cfg.GitHubAppInstallationID = installID
+	}
+
+	// Auto-detect auth mode if not specified
+	if cfg.GitHubAuthMode == "" {
+		if cfg.GitHubAppInstallationID > 0 {
+			cfg.GitHubAuthMode = "app"
+		} else if cfg.GitHubToken != "" {
+			cfg.GitHubAuthMode = "token"
+		} else {
+			return nil, fmt.Errorf(
+				"either GITHUB_TOKEN or GITHUB_APP_INSTALLATION_ID is required")
+		}
+	}
+
+	// Validate auth config based on mode
+	if cfg.GitHubAuthMode == "app" {
+		if cfg.GitHubAppInstallationID == 0 {
+			return nil, fmt.Errorf(
+				"GITHUB_APP_INSTALLATION_ID is required for app auth")
+		}
+	} else {
+		if cfg.GitHubToken == "" {
+			return nil, fmt.Errorf("GITHUB_TOKEN is required for token auth")
+		}
 	}
 
 	if cfg.TargetRepo == "" {

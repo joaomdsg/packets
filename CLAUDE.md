@@ -190,7 +190,7 @@ docker-compose down -v
 
 ### Environment Configuration
 
-Copy `.env.example` to `.env` and configure:
+Copy `example.env` to `.env` and configure:
 
 - `GITHUB_TOKEN` - GitHub PAT with repo scope
 - `CLAUDE_API_KEY` - Anthropic API key (set as `ANTHROPIC_API_KEY` in
