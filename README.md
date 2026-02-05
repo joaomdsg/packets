@@ -29,29 +29,33 @@ forks, plans, implements, and submits pull requests.
 ### Setup
 
 1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/agntpr.git
-cd agntpr
-```
+
+   ```bash
+   git clone https://github.com/yourusername/agntpr.git
+   cd agntpr
+   ```
 
 2. Create `.env` file:
-```bash
-GITHUB_TOKEN=ghp_your_token_here
-CLAUDE_API_KEY=sk-ant-your_key_here
-TARGET_REPO=owner/repo
-CLAUDE_MODEL=sonnet
-POLL_INTERVAL=60
-```
+
+   ```bash
+   GITHUB_TOKEN=ghp_your_token_here
+   CLAUDE_API_KEY=sk-ant-your_key_here
+   TARGET_REPO=owner/repo
+   CLAUDE_MODEL=sonnet
+   POLL_INTERVAL=60
+   ```
 
 3. Run with docker-compose:
-```bash
-docker-compose up -d
-```
+
+   ```bash
+   docker-compose up -d
+   ```
 
 4. View logs:
-```bash
-docker-compose logs -f agntpr
-```
+
+   ```bash
+   docker-compose logs -f agntpr
+   ```
 
 ### Usage
 
@@ -68,7 +72,7 @@ Skip planning for simple issues: `@ai-r-sentry just implement this directly`
 
 ## How It Works
 
-```
+```text
 ┌─────────────┐
 │ GitHub Issue│ ← Agent watches for mentions
 └──────┬──────┘
@@ -111,17 +115,17 @@ Skip planning for simple issues: `@ai-r-sentry just implement this directly`
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `GITHUB_TOKEN` | GitHub PAT with repo scope | Required |
-| `CLAUDE_API_KEY` | Anthropic API key | Required |
-| `TARGET_REPO` | Repository to watch (owner/repo) | Required |
-| `CLAUDE_MODEL` | Claude model (sonnet/haiku/opus) | `sonnet` |
-| `POLL_INTERVAL` | Polling interval in seconds | `60` |
-| `RESET_DB` | Reset database on startup | `false` |
-| `DEBUG` | Enable debug logging | `false` |
-| `DATABASE_PATH` | SQLite database path | `/data/agntpr.db` |
-| `WORK_DIR` | Working directory for forks | `/work` |
+| Variable         | Description                      | Default           |
+| ---------------- | -------------------------------- | ----------------- |
+| `GITHUB_TOKEN`   | GitHub PAT with repo scope       | Required          |
+| `CLAUDE_API_KEY` | Anthropic API key                | Required          |
+| `TARGET_REPO`    | Repository to watch (owner/repo) | Required          |
+| `CLAUDE_MODEL`   | Claude model (sonnet/haiku/opus) | `sonnet`          |
+| `POLL_INTERVAL`  | Polling interval in seconds      | `60`              |
+| `RESET_DB`       | Reset database on startup        | `false`           |
+| `DEBUG`          | Enable debug logging             | `false`           |
+| `DATABASE_PATH`  | SQLite database path             | `/data/agntpr.db` |
+| `WORK_DIR`       | Working directory for forks      | `/work`           |
 
 ## Local Development
 
@@ -145,6 +149,7 @@ export TARGET_REPO=owner/repo
 ```
 
 GitHub CLI must be authenticated:
+
 ```bash
 gh auth login
 ```

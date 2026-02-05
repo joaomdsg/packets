@@ -33,7 +33,7 @@ responses work on the existing branch without syncing.
 
 ### High-Level Flow
 
-```
+```text
 main.go → Orchestrator → State Machine → Agent (Claude Code)
    ↓           ↓              ↓              ↓
  Config    Database      Transitions    Fork/WorkDir
