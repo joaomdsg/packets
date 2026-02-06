@@ -2,6 +2,7 @@ package watcher_test
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -185,10 +186,18 @@ func TestComment_IsRevision(t *testing.T) {
 	}
 }
 
+// mockTokenProvider provides a fake token for testing
+type mockTokenProvider struct{}
+
+func (m *mockTokenProvider) GetToken(ctx context.Context) (string, error) {
+	// Return empty token - the test will skip if gh is not authenticated
+	return os.Getenv("GH_TOKEN"), nil
+}
+
 func TestGetAuthenticatedUser(t *testing.T) {
 	// This test requires gh CLI to be authenticated
 	// Skip if not in CI/testing environment with gh auth
-	ghCli := watcher.NewGHCli()
+	ghCli := watcher.NewGHCli(&mockTokenProvider{})
 	ctx := context.Background()
 
 	username, err := ghCli.GetAuthenticatedUser(ctx)

@@ -64,24 +64,54 @@ func (c *Comment) Context() string {
 }
 
 func (c *Comment) MentionsAgent(mention string) bool {
-	return strings.Contains(c.Body, mention)
+	// Accept both @user[bot] and @user mentions
+	if strings.Contains(c.Body, mention) {
+		return true
+	}
+	// If mention has [bot] suffix, also check without it
+	if strings.HasSuffix(mention, "[bot]") {
+		baseUser := strings.TrimSuffix(mention, "[bot]")
+		return strings.Contains(c.Body, baseUser)
+	}
+	return false
 }
 
 func (c *Comment) IsApproval(mention string) bool {
 	body := strings.ToLower(c.Body)
+	// Check with full mention (e.g., @agntpr[bot])
 	pattern := strings.ToLower(mention + " approve")
-	return strings.Contains(body, pattern)
+	if strings.Contains(body, pattern) {
+		return true
+	}
+	// If mention has [bot], also check without it (e.g., @agntpr)
+	if strings.HasSuffix(mention, "[bot]") {
+		baseUser := strings.TrimSuffix(mention, "[bot]")
+		pattern = strings.ToLower(baseUser + " approve")
+		return strings.Contains(body, pattern)
+	}
+	return false
 }
 
 func (c *Comment) IsRevision(mention string) (bool, string) {
 	body := c.Body
+	// Check with full mention (e.g., @agntpr[bot])
 	pattern := mention + " revise:"
 	idx := strings.Index(strings.ToLower(body), strings.ToLower(pattern))
-	if idx == -1 {
-		return false, ""
+	if idx != -1 {
+		feedback := strings.TrimSpace(body[idx+len(pattern):])
+		return true, feedback
 	}
-	feedback := strings.TrimSpace(body[idx+len(pattern):])
-	return true, feedback
+	// If mention has [bot], also check without it (e.g., @agntpr)
+	if strings.HasSuffix(mention, "[bot]") {
+		baseUser := strings.TrimSuffix(mention, "[bot]")
+		pattern = baseUser + " revise:"
+		idx = strings.Index(strings.ToLower(body), strings.ToLower(pattern))
+		if idx != -1 {
+			feedback := strings.TrimSpace(body[idx+len(pattern):])
+			return true, feedback
+		}
+	}
+	return false, ""
 }
 
 type PR struct {
