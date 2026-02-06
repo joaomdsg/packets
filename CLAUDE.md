@@ -12,22 +12,28 @@ through a structured TDD workflow with maintainer collaboration.
 ## Core Workflow
 
 1. **Fork & Watch** - Create/maintain a fork of a target repo, watch
-   for issues assigned to the authenticated GitHub user
-2. **Plan** - Sync fork with upstream, read issue, respond with a plan
-   including test descriptions, wait for maintainer approval
-3. **Refine** - Iterate on plan based on maintainer feedback until
+   for issues mentioning the agent (e.g., @agntpr)
+2. **Clarify** - If issue is ambiguous or contains questions, agent
+   asks for clarification and waits in "new" state for response
+3. **Plan** - Sync fork with upstream, read issue, respond with full
+   plan text including test descriptions, wait for maintainer approval
+4. **Refine** - Iterate on plan based on maintainer feedback until
    approved (maintainer can skip planning)
-4. **Implement** - Sync fork with upstream, create branch from latest,
+5. **Implement** - Sync fork with upstream, create branch from latest,
    use TDD to address the issue
-5. **PR** - Create PR highlighting key changes for review
-6. **Review Cycle** - Address maintainer comments on existing branch,
+6. **PR** - Create PR highlighting key changes for review
+7. **Review Cycle** - Address maintainer comments on existing branch,
    iterate until merged/rejected
-7. **PR Mentions** - Respond to `@ai-r-sentry` mentions in PR comments
 
 **Note**: The fork is automatically synced with upstream (via
 `git fetch` + `git reset --hard`) before planning and implementation
 to ensure plans and branches are based on current code. Review
 responses work on the existing branch without syncing.
+
+**Question Handling**: When a user asks a question or the agent needs
+clarification, the issue stays in "new" state. The agent waits for a
+response mentioning it before proceeding to planning. This prevents
+premature planning on unclear requirements.
 
 ## Architecture
 
@@ -64,13 +70,17 @@ Transitions triggered by events like `plan_approved`,
 - Manages state transitions and workflow
 - Coordinates between watcher, fork manager, and agent
 - Handles error states and maintainer communication
+- **Question/Clarification Flow**: Detects when agent needs
+  clarification or user asks questions, posts response, and keeps
+  issue in "new" state until maintainer responds with a mention
 
 **Watcher** (`internal/watcher/watcher.go`):
 
 - GitHub API wrapper using `gh` CLI
-- Fetches issues assigned to agent (via mentions)
+- Fetches issues mentioning agent (@username format)
 - Fetches/filters comments on issues and PRs
 - Posts comments and creates PRs
+- Detects approval and revision commands in comments
 
 **ForkManager** (`internal/fork/manager.go`):
 
@@ -82,12 +92,15 @@ Transitions triggered by events like `plan_approved`,
 
 **Agent** (`internal/agent/`):
 
-- Wraps Claude Code CLI invocations
+- Wraps AI backend CLI invocations (OpenCode or Claude Code)
 - Builds specialized prompts for each phase
 - `Invoker` handles prompt construction
 - `ClaudeRunner` executes `claude` CLI with flags
-- Five agent modes: Plan, Implement, RespondToReview,
+- `OpenCodeRunner` executes `opencode` CLI with flags
+- Six agent modes: Plan, Implement, RespondToReview,
   SummarizeChanges, EvaluateIntent, AnswerQuestion
+- **Plan Output**: Plans are returned as full text (not files) for
+  direct posting to GitHub comments
 
 **Context** (`internal/context/context.go`):
 
@@ -192,20 +205,36 @@ docker-compose down -v
 
 Copy `example.env` to `.env` and configure:
 
-- `GITHUB_TOKEN` - GitHub PAT with repo scope
-- `CLAUDE_API_KEY` - Anthropic API key (set as `ANTHROPIC_API_KEY` in
-  docker-compose)
+- `GITHUB_TOKEN` - GitHub PAT with repo scope (for token auth)
+- `GITHUB_APP_PRIVATE_KEY` - GitHub App private key (for app auth)
+- `GITHUB_APP_INSTALLATION_ID` - Installation ID (for app auth)
 - `TARGET_REPO` - Repository to watch (format: `owner/repo`)
-- `CLAUDE_MODEL` - Model name (default: `sonnet`, also `haiku` or
-  `opus`)
+- `AI_BACKEND` - AI backend (`opencode` or `claude`, default:
+  `opencode`)
+- `CLAUDE_API_KEY` - Anthropic API key (for Claude Code backend)
+- `CLAUDE_MODEL` - Claude model (`sonnet`, `haiku`, or `opus`)
+- `OPENCODE_MODEL` - OpenCode model (default: uses free Kimi K2.5)
 - `POLL_INTERVAL` - Polling interval in seconds (default: `60`)
 - `RESET_DB` - Reset database on startup (default: `false`)
 - `DEBUG` - Enable debug logging (default: `false`)
 
 ### GitHub Authentication
 
-The agent uses GitHub CLI (`gh`) for repository operations. In Docker,
-the `GITHUB_TOKEN` env var is used. Locally, authenticate:
+The agent uses GitHub CLI (`gh`) for repository operations and supports
+two authentication methods:
+
+**Token Authentication** (simpler, for personal use):
+
+- Set `GITHUB_TOKEN` with a fine-grained PAT
+- Token is used directly for all operations
+
+**GitHub App Authentication** (recommended, for organizations):
+
+- Create a GitHub App with repo permissions
+- Set `GITHUB_APP_PRIVATE_KEY` and `GITHUB_APP_INSTALLATION_ID`
+- Tokens are refreshed automatically (1-hour expiration)
+
+Locally, you can also authenticate:
 
 ```bash
 gh auth login
