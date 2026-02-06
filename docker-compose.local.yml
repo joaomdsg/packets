@@ -6,11 +6,12 @@
 # - Debug mode enabled
 # - Local volumes for easy inspection
 # - Database persisted locally
+# - Credentials embedded at build time
 #
 # Prerequisites:
-# 1. Copy example.env to .env
-# 2. Set GITHUB_TOKEN and TARGET_REPO
-# 3. Build the binary: go build -o agntpr ./cmd/agntpr
+# 1. Create internal/auth/credentials.txt with your GitHub App credentials
+# 2. Copy example.env to .env
+# 3. Set GITHUB_APP_INSTALLATION_ID and TARGET_REPO (or GITHUB_TOKEN for PAT mode)
 # 4. Choose AI_BACKEND (opencode or claude)
 
 services:
@@ -20,7 +21,9 @@ services:
       args:
         AI_BACKEND: ${AI_BACKEND:-opencode}
     environment:
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      # Auth: Use either GITHUB_TOKEN (PAT) or GITHUB_APP_INSTALLATION_ID (App)
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_APP_INSTALLATION_ID=${GITHUB_APP_INSTALLATION_ID:-}
       - TARGET_REPO=${TARGET_REPO}
       - AI_BACKEND=${AI_BACKEND:-opencode}
       - ANTHROPIC_API_KEY=${CLAUDE_API_KEY}
@@ -33,8 +36,8 @@ services:
       - DATABASE_PATH=/data/agntpr.db
       - DOCKER_HOST=tcp://docker:2375
     volumes:
-      - ./work:/work
-      - ./data:/data
+      - agntpr-work:/work
+      - agntpr-data:/data
       - docker-certs:/certs/client:ro
       # Optional: Mount OpenCode config for testing custom providers
       # - ./opencode-config:/home/agent/.config/opencode:ro
@@ -52,5 +55,7 @@ services:
     restart: "no"
 
 volumes:
+  agntpr-work:
+  agntpr-data:
   docker-certs:
   docker-data:
