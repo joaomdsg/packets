@@ -102,6 +102,11 @@ func (i *Invoker) AnswerQuestion(
 func BuildPlanningPrompt(req *Request) string {
 	var b strings.Builder
 
+	b.WriteString("CRITICAL INSTRUCTION: Output your plan directly in this response.\n")
+	b.WriteString("DO NOT create any files (no plan.md, no implementation-plan.md, nothing).\n")
+	b.WriteString("DO NOT use tools to write files. Your response text IS the plan.\n")
+	b.WriteString("The plan will be posted directly as a GitHub comment.\n\n")
+
 	b.WriteString("Create an implementation plan for a GitHub issue.\n\n")
 
 	b.WriteString("**Context**: Read `.agntpr-context.md` for full issue details, comments, and plan history. ")
@@ -140,7 +145,10 @@ func BuildPlanningPrompt(req *Request) string {
 	b.WriteString("- Present tense (\"Add function\" not \"Will add\")\n")
 	b.WriteString("- State your interpretation if unclear\n\n")
 
-	b.WriteString("Success: A developer unfamiliar with this issue can implement from your plan.\n")
+	b.WriteString("Success: A developer unfamiliar with this issue can implement from your plan.\n\n")
+
+	b.WriteString("IMPORTANT: Write your complete plan in this response text.\n")
+	b.WriteString("Do NOT create any files - respond with the plan content directly.\n")
 
 	return b.String()
 }

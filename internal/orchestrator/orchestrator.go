@@ -175,12 +175,31 @@ func (o *Orchestrator) startNewIssue(
 		issue.SkipPlanning = intent.SkipPlanning
 		issue.SkipApproval = intent.SkipApproval
 
+		// Handle questions - answer and wait for follow-up
+		if intent.IsQuestion {
+			log.Printf("issue #%d: question detected", ghIssue.Number)
+			issue.State = db.StateNew
+			if err := o.db.CreateIssue(ctx, issue); err != nil {
+				return fmt.Errorf("create issue failed: %w", err)
+			}
+			if err := o.answerQuestion(ctx, issue, intent.Question); err != nil {
+				log.Printf("warning: failed to answer question: %v", err)
+			}
+			return nil // Stay in "new" - wait for follow-up
+		}
+
+		// Handle clarifications - ask and wait for response
 		if intent.NeedsClarify {
-			// Post clarifying question
+			log.Printf("issue #%d: clarification needed", ghIssue.Number)
+			issue.State = db.StateNew
+			if err := o.db.CreateIssue(ctx, issue); err != nil {
+				return fmt.Errorf("create issue failed: %w", err)
+			}
 			if _, err := o.watcher.PostComment(ctx, ghIssue.Number,
 				fmt.Sprintf("👋 Before I start, I have a question:\n\n%s", intent.Question)); err != nil {
 				log.Printf("warning: failed to post clarifying question: %v", err)
 			}
+			return nil // Stay in "new" - wait for response
 		}
 	}
 
@@ -206,6 +225,45 @@ func (o *Orchestrator) continueIssue(ctx context.Context, issue *db.Issue) error
 
 	switch issue.State {
 	case db.StateNew:
+		// Check for new comments that might be responses to our questions
+		comments, err := o.watcher.FetchIssueComments(ctx, issue.Number)
+		if err != nil {
+			return fmt.Errorf("fetch comments failed: %w", err)
+		}
+
+		// Filter for mentions (responses to our questions)
+		mentioned := o.watcher.FilterMentionedComments(comments)
+		if len(mentioned) == 0 {
+			// No new mentions - stay in "new" state, wait for response
+			return nil
+		}
+
+		// Get latest mentioned comment
+		latest := mentioned[len(mentioned)-1]
+
+		// Evaluate intent of the response
+		intent, err := o.agent.EvaluateIntent(ctx, issue.Title, issue.Body, nil, []string{latest.Body})
+		if err != nil {
+			log.Printf("warning: failed to evaluate intent: %v", err)
+			// Proceed to planning on evaluation failure
+			return o.transitionTo(ctx, issue, state.EventStartPlanning)
+		}
+
+		// If still asking questions, answer and wait
+		if intent.IsQuestion {
+			return o.answerQuestion(ctx, issue, intent.Question)
+		}
+
+		// If needs more clarification, ask and wait
+		if intent.NeedsClarify {
+			if _, err := o.watcher.PostComment(ctx, issue.Number,
+				fmt.Sprintf("👋 I have another question:\n\n%s", intent.Question)); err != nil {
+				log.Printf("warning: failed to post question: %v", err)
+			}
+			return nil
+		}
+
+		// Response received - proceed to planning
 		return o.transitionTo(ctx, issue, state.EventStartPlanning)
 	case db.StatePlanning:
 		return o.executePlanning(ctx, issue)
