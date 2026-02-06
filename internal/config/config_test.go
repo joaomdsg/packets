@@ -11,6 +11,8 @@ import (
 func TestLoad_RequiredEnvVars(t *testing.T) {
 	t.Run("fails without GITHUB_TOKEN", func(t *testing.T) {
 		t.Setenv("GITHUB_TOKEN", "")
+		t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
+		t.Setenv("GITHUB_AUTH_MODE", "")
 		t.Setenv("TARGET_REPO", "owner/repo")
 
 		_, err := config.Load()
@@ -165,6 +167,8 @@ func TestLoad_GitHubAppAuth(t *testing.T) {
 
 	t.Run("token auth when no installation ID set", func(t *testing.T) {
 		t.Setenv("GITHUB_TOKEN", "ghp_test")
+		t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
+		t.Setenv("GITHUB_AUTH_MODE", "")
 		t.Setenv("TARGET_REPO", "owner/repo")
 
 		cfg, err := config.Load()
@@ -179,6 +183,8 @@ func TestLoad_GitHubAppAuth(t *testing.T) {
 
 	t.Run("fails without installation ID in app mode", func(t *testing.T) {
 		t.Setenv("GITHUB_AUTH_MODE", "app")
+		t.Setenv("GITHUB_TOKEN", "")
+		t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
 		t.Setenv("TARGET_REPO", "owner/repo")
 
 		_, err := config.Load()
@@ -198,6 +204,9 @@ func TestLoad_GitHubAppAuth(t *testing.T) {
 	})
 
 	t.Run("fails without any auth", func(t *testing.T) {
+		t.Setenv("GITHUB_TOKEN", "")
+		t.Setenv("GITHUB_APP_INSTALLATION_ID", "")
+		t.Setenv("GITHUB_AUTH_MODE", "")
 		t.Setenv("TARGET_REPO", "owner/repo")
 
 		_, err := config.Load()

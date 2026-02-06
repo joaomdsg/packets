@@ -45,7 +45,7 @@ func main() {
 
 func run(ctx context.Context, cfg *config.Config) error {
 	// Initialize authentication
-	_, agentUsername, err := initAuth(ctx, cfg)
+	authProvider, agentUsername, err := initAuth(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize auth: %w", err)
 	}
@@ -53,7 +53,7 @@ func run(ctx context.Context, cfg *config.Config) error {
 	log.Printf("agntpr starting as @%s (%s mode), watching %s",
 		agentUsername, cfg.GitHubAuthMode, cfg.TargetRepo)
 
-	ghCli := watcher.NewGHCli()
+	ghCli := watcher.NewGHCli(authProvider)
 
 	if cfg.ResetDB {
 		log.Printf("RESET_DB set, removing database at %s", cfg.DatabasePath)
@@ -94,13 +94,25 @@ func run(ctx context.Context, cfg *config.Config) error {
 		useFork,
 	)
 
-	claudeRunner := agent.NewClaudeRunner(30*time.Minute, cfg.ClaudeModel)
+	// Create AI runner based on backend configuration
+	var runner agent.Runner
+	if cfg.AIBackend == "claude" {
+		runner = agent.NewClaudeRunner(30*time.Minute, cfg.ClaudeModel)
+		log.Printf("using AI backend: claude (model: %s)", cfg.ClaudeModel)
+	} else {
+		runner = agent.NewOpenCodeRunner(30*time.Minute, cfg.OpenCodeModel)
+		if cfg.OpenCodeModel != "" {
+			log.Printf("using AI backend: opencode (model: %s)", cfg.OpenCodeModel)
+		} else {
+			log.Printf("using AI backend: opencode (default model)")
+		}
+	}
+
 	agentWrapper := &agentAdapter{
-		invoker: agent.NewInvoker(claudeRunner),
+		invoker: agent.NewInvoker(runner),
 		debug:   cfg.Debug,
 	}
 
-	log.Printf("using Claude model: %s", cfg.ClaudeModel)
 	if cfg.Debug {
 		log.Println("DEBUG mode enabled")
 	}

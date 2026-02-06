@@ -18,8 +18,12 @@ type Config struct {
 	GitHubAppInstallationID int64  // For app mode (runtime configurable)
 	GitHubAuthMode          string // "token" or "app", auto-detected
 
+	// AI Backend configuration
+	AIBackend    string // "claude" or "opencode"
 	ClaudeAPIKey string
 	ClaudeModel  string
+	OpenCodeModel string
+
 	TargetRepo   string
 	RepoOwner    string
 	RepoName     string
@@ -34,7 +38,9 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		GitHubToken:    os.Getenv("GITHUB_TOKEN"),
 		GitHubAuthMode: os.Getenv("GITHUB_AUTH_MODE"),
+		AIBackend:      os.Getenv("AI_BACKEND"),
 		ClaudeAPIKey:   os.Getenv("CLAUDE_API_KEY"),
+		OpenCodeModel:  os.Getenv("OPENCODE_MODEL"),
 		TargetRepo:     os.Getenv("TARGET_REPO"),
 		WorkDir:        os.Getenv("WORK_DIR"),
 		DatabasePath:   os.Getenv("DATABASE_PATH"),
@@ -108,6 +114,16 @@ func Load() (*Config, error) {
 
 	debug := os.Getenv("DEBUG")
 	cfg.Debug = debug == "1" || debug == "true"
+
+	// Default to opencode if not specified
+	if cfg.AIBackend == "" {
+		cfg.AIBackend = "opencode"
+	}
+
+	// Validate AI backend
+	if cfg.AIBackend != "claude" && cfg.AIBackend != "opencode" {
+		return nil, fmt.Errorf("AI_BACKEND must be 'claude' or 'opencode', got: %s", cfg.AIBackend)
+	}
 
 	cfg.ClaudeModel = os.Getenv("CLAUDE_MODEL")
 	if cfg.ClaudeModel == "" {

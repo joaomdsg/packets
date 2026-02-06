@@ -4,19 +4,27 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
 
-type GHCli struct{}
+// TokenProvider provides fresh GitHub tokens
+type TokenProvider interface {
+	GetToken(ctx context.Context) (string, error)
+}
 
-func NewGHCli() *GHCli {
-	return &GHCli{}
+type GHCli struct {
+	auth TokenProvider
+}
+
+func NewGHCli(auth TokenProvider) *GHCli {
+	return &GHCli{auth: auth}
 }
 
 func (g *GHCli) GetAuthenticatedUser(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "api", "/user", "-q", ".login")
-	output, err := runCmd(cmd)
+	output, err := g.runCmdWithAuth(ctx, cmd)
 	if err != nil {
 		return "", err
 	}
@@ -35,7 +43,7 @@ func (g *GHCli) GetUserPermission(
 	cmd := exec.CommandContext(ctx, "gh", "api",
 		fmt.Sprintf("/repos/%s/%s/collaborators/%s/permission", owner, repo, username),
 		"-q", ".permission")
-	output, err := runCmd(cmd)
+	output, err := g.runCmdWithAuth(ctx, cmd)
 	if err == nil {
 		return string(bytes.TrimSpace(output)), nil
 	}
@@ -45,7 +53,7 @@ func (g *GHCli) GetUserPermission(
 	cmd = exec.CommandContext(ctx, "gh", "api",
 		fmt.Sprintf("/orgs/%s/memberships/%s", owner, username),
 		"-q", ".role")
-	output, err = runCmd(cmd)
+	output, err = g.runCmdWithAuth(ctx, cmd)
 	if err == nil {
 		role := strings.TrimSpace(string(output))
 		if role == "admin" {
@@ -63,14 +71,14 @@ func (g *GHCli) GetUserPermission(
 func (g *GHCli) CloneRepo(ctx context.Context, owner, repo, dest string) error {
 	cmd := exec.CommandContext(ctx, "gh", "repo", "clone",
 		fmt.Sprintf("%s/%s", owner, repo), dest)
-	_, err := runCmd(cmd)
+	_, err := g.runCmdWithAuth(ctx, cmd)
 	return err
 }
 
 func (g *GHCli) ForkRepo(ctx context.Context, owner, repo string) error {
 	cmd := exec.CommandContext(ctx, "gh", "repo", "fork",
 		fmt.Sprintf("%s/%s", owner, repo), "--clone=false")
-	_, err := runCmd(cmd)
+	_, err := g.runCmdWithAuth(ctx, cmd)
 	return err
 }
 
@@ -80,7 +88,7 @@ func (g *GHCli) ListOpenIssues(
 	cmd := exec.CommandContext(ctx, "gh", "api",
 		fmt.Sprintf("/repos/%s/%s/issues?state=open", owner, repo),
 		"--paginate")
-	return runCmd(cmd)
+	return g.runCmdWithAuth(ctx, cmd)
 }
 
 func (g *GHCli) ListIssueComments(
@@ -89,7 +97,7 @@ func (g *GHCli) ListIssueComments(
 	cmd := exec.CommandContext(ctx, "gh", "api",
 		fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, issueNum),
 		"--paginate")
-	return runCmd(cmd)
+	return g.runCmdWithAuth(ctx, cmd)
 }
 
 func (g *GHCli) ListPRComments(
@@ -98,7 +106,7 @@ func (g *GHCli) ListPRComments(
 	cmd := exec.CommandContext(ctx, "gh", "api",
 		fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, prNum),
 		"--paginate")
-	return runCmd(cmd)
+	return g.runCmdWithAuth(ctx, cmd)
 }
 
 func (g *GHCli) ListPRReviewComments(
@@ -107,7 +115,7 @@ func (g *GHCli) ListPRReviewComments(
 	cmd := exec.CommandContext(ctx, "gh", "api",
 		fmt.Sprintf("/repos/%s/%s/pulls/%d/comments", owner, repo, prNum),
 		"--paginate")
-	return runCmd(cmd)
+	return g.runCmdWithAuth(ctx, cmd)
 }
 
 func (g *GHCli) ListOpenPRs(
@@ -116,7 +124,7 @@ func (g *GHCli) ListOpenPRs(
 	cmd := exec.CommandContext(ctx, "gh", "api",
 		fmt.Sprintf("/repos/%s/%s/pulls?state=open", owner, repo),
 		"--paginate")
-	return runCmd(cmd)
+	return g.runCmdWithAuth(ctx, cmd)
 }
 
 func (g *GHCli) GetPR(
@@ -124,7 +132,7 @@ func (g *GHCli) GetPR(
 ) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "gh", "api",
 		fmt.Sprintf("/repos/%s/%s/pulls/%d", owner, repo, prNum))
-	return runCmd(cmd)
+	return g.runCmdWithAuth(ctx, cmd)
 }
 
 func (g *GHCli) PostComment(
@@ -133,7 +141,7 @@ func (g *GHCli) PostComment(
 	cmd := exec.CommandContext(ctx, "gh", "api",
 		fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, num),
 		"-f", fmt.Sprintf("body=%s", body))
-	return runCmd(cmd)
+	return g.runCmdWithAuth(ctx, cmd)
 }
 
 func (g *GHCli) CreatePR(
@@ -146,7 +154,7 @@ func (g *GHCli) CreatePR(
 		"--body", body,
 		"--head", head,
 		"--base", base)
-	output, err := runCmd(cmd)
+	output, err := g.runCmdWithAuth(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +171,7 @@ func (g *GHCli) CreatePR(
 	cmd = exec.CommandContext(ctx, "gh", "pr", "view", prNum,
 		"-R", fmt.Sprintf("%s/%s", owner, repo),
 		"--json", "number,title,state")
-	return runCmd(cmd)
+	return g.runCmdWithAuth(ctx, cmd)
 }
 
 func runCmd(cmd *exec.Cmd) ([]byte, error) {
@@ -175,4 +183,23 @@ func runCmd(cmd *exec.Cmd) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	return stdout.Bytes(), nil
+}
+
+// runCmdWithAuth gets a fresh token and runs the command with it
+func (g *GHCli) runCmdWithAuth(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
+	// Get fresh token from auth provider
+	token, err := g.auth.GetToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token: %w", err)
+	}
+
+	// Set fresh token in command environment
+	env := os.Environ()
+	env = append(env,
+		"GH_TOKEN="+token,
+		"GITHUB_TOKEN="+token,
+	)
+	cmd.Env = env
+
+	return runCmd(cmd)
 }

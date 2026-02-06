@@ -10,10 +10,15 @@ import (
 
 type OpenCodeRunner struct {
 	timeout time.Duration
+	model   string
 }
 
-func NewOpenCodeRunner(timeout time.Duration) *OpenCodeRunner {
-	return &OpenCodeRunner{timeout: timeout}
+func NewOpenCodeRunner(timeout time.Duration, model string) *OpenCodeRunner {
+	return &OpenCodeRunner{timeout: timeout, model: model}
+}
+
+func (o *OpenCodeRunner) Model() string {
+	return o.model
 }
 
 func (o *OpenCodeRunner) Run(
@@ -22,9 +27,12 @@ func (o *OpenCodeRunner) Run(
 	ctx, cancel := context.WithTimeout(ctx, o.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "opencode",
-		"-p", prompt,
-		"-q")
+	// OpenCode run subcommand with prompt as positional argument
+	args := []string{"run", prompt}
+	if o.model != "" {
+		args = append(args, "-m", o.model)
+	}
+	cmd := exec.CommandContext(ctx, "opencode", args...)
 	cmd.Dir = workDir
 
 	var stdout, stderr bytes.Buffer

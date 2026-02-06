@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewOpenCodeRunner(t *testing.T) {
-	runner := agent.NewOpenCodeRunner(30 * time.Second)
+	runner := agent.NewOpenCodeRunner(30*time.Second, "opencode/kimi-k2.5-free")
 
 	if runner == nil {
 		t.Error("expected non-nil runner")
