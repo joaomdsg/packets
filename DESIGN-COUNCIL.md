@@ -241,9 +241,16 @@ resolution, **the experiment that settles it**, and a blank verdict.
   and the mutant-killed definition works end-to-end. Cost shape
   confirmed: **one test-run per mutant per changed-line operator site**
   — bounded by diff size, exactly as predicted. A 1-operator file ran in
-  ~0.03–0.09s incl. compile. STILL OPEN: latency at realistic diff sizes
-  (dozens of sites → dozens of test runs) and whether to parallelize
-  mutants; needs a larger benchmark before wiring into the settle loop.
+  ~0.03–0.09s incl. compile.
+- **Verdict (post-build, round 4 — latency benchmark):** RESOLVED for
+  serial viability. A 30-site fixture (`testdata/bench_many`,
+  `BenchmarkRunManySites`): **cold 3.24s (~108 ms/mutant), warm 0.91s
+  (~30 ms/mutant)** — warm is the relevant figure since the settle loop
+  keeps the build cache hot. A realistic 10–40-site diff ≈ 0.3–1.2s
+  warm. Mutants are independent → trivially parallelizable (run K
+  concurrently → ÷K) if needed. Conclusion: cheap enough to run every
+  settle for normal diffs; add mutant-level parallelism only for
+  pathologically large diffs. No fallback oracle needed.
 
 ### Clash G — One unified review model, or a refactor fork?
 
@@ -289,7 +296,7 @@ The signature bets, and their status. Fill `Validated?` after builds.
 
 | Swing                              | By        | Status        | Validated? |
 |------------------------------------|-----------|---------------|------------|
-| Mutation-driven adversarial review | TDD       | high conviction | **core mechanism validated in miniature** (weak→finding, strong→silent); UI `question:` thread + scale pending |
+| Mutation-driven adversarial review | TDD       | high conviction | **validated**: weak→finding/strong→silent; survivor→`question:` thread artifact built (`internal/review`, data layer); latency benchmarked (~30 ms/mutant warm). Pending: UI rendering + harness wiring |
 | Trust Ledger (calibrated delegation)| Game     | spine, framing-risk (Clash H) | _TBD_ |
 | Merge-queue-as-integrator          | CI/CD     | low-risk, standard practice | _TBD_ |
 | Focus as central resource          | Systems   | adopted, render-risk (Clash A) | _TBD_ |
@@ -352,6 +359,29 @@ Verdicts updated: B, F (see §3).
 New clashes opened: none yet. Likely next: mutation *latency budget* in
 the settle loop, and the survived-mutant → `question:`-thread UX.
 Decisions: no VISION/DESIGN text changed; this is evidence, not redesign.
+
+### Round 4 — latency + the question-thread artifact
+
+Trigger: closing the two threads round 3 left open.
+New evidence:
+
+- **Latency benchmark** (`BenchmarkRunManySites`, 30-site fixture):
+  cold 3.24s (~108 ms/mutant), warm 0.91s (~30 ms/mutant). Settle-loop
+  viable; parallelizable if needed. → **Clash F resolved** for serial
+  viability (see §3).
+- **Question-thread artifact** (`internal/review`): a surviving mutant
+  now converts to an open `question:` thread authored by `agntpr`,
+  anchored to the line, rendering as a Conventional Comment
+  ("question: …"). The full chain mutation→finding→thread→render is
+  proven at the unit level. Still a data layer — no UI, no harness
+  wiring yet.
+
+Clashes touched: F (resolved on feasibility). Verdicts updated: F, and
+the mutation swing in §4.
+New clashes opened: none. Next likely: rendering threads in the actual
+review surface (Via), and wiring the oracle to run at settle against a
+real diff (needs the §17 pipe).
+Decisions: no VISION/DESIGN redesign; evidence only.
 
 ---
 
