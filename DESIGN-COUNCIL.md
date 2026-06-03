@@ -177,7 +177,14 @@ resolution, **the experiment that settles it**, and a blank verdict.
 - **Experiment:** on a real changeset corpus, measure correlation between
   agent self-flag density and mutation-discovered weak spots. If low,
   demote self-flags to decoration.
-- **Verdict (post-build):** _TBD_
+- **Verdict (post-build, slice 2025 — mutation oracle):** PARTIAL. The
+  *independent* oracle the resolution depends on now exists and works
+  (`internal/mutation`): on a weak test it surfaces the surviving mutant
+  as a finding; on a strong test it stays silent. So self-confidence no
+  longer *has* to be the spine — there's a real signal to lean on. The
+  self-flag↔mutation *correlation* experiment still needs a corpus.
+  STILL OPEN, but the baseline (a trustworthy independent signal) is
+  established.
 
 ### Clash C — Is it fair to score a human on downstream CI truth?
 
@@ -228,7 +235,15 @@ resolution, **the experiment that settles it**, and a blank verdict.
   every settle without wrecking the loop's latency or token budget?
 - **Experiment:** measure mutation latency & cost on real diffs in the
   settle step. If too slow, what's the fallback oracle?
-- **Verdict (post-build):** _TBD_
+- **Verdict (post-build, slice 2025 — mutation oracle):** MOSTLY
+  RESOLVED on feasibility. Diff-scoped mutation is buildable with the
+  Go stdlib alone (`go/ast`+`go/parser`+`os/exec`), no external deps,
+  and the mutant-killed definition works end-to-end. Cost shape
+  confirmed: **one test-run per mutant per changed-line operator site**
+  — bounded by diff size, exactly as predicted. A 1-operator file ran in
+  ~0.03–0.09s incl. compile. STILL OPEN: latency at realistic diff sizes
+  (dozens of sites → dozens of test runs) and whether to parallelize
+  mutants; needs a larger benchmark before wiring into the settle loop.
 
 ### Clash G — One unified review model, or a refactor fork?
 
@@ -274,7 +289,7 @@ The signature bets, and their status. Fill `Validated?` after builds.
 
 | Swing                              | By        | Status        | Validated? |
 |------------------------------------|-----------|---------------|------------|
-| Mutation-driven adversarial review | TDD       | high conviction, untested | _TBD_ |
+| Mutation-driven adversarial review | TDD       | high conviction | **core mechanism validated in miniature** (weak→finding, strong→silent); UI `question:` thread + scale pending |
 | Trust Ledger (calibrated delegation)| Game     | spine, framing-risk (Clash H) | _TBD_ |
 | Merge-queue-as-integrator          | CI/CD     | low-risk, standard practice | _TBD_ |
 | Focus as central resource          | Systems   | adopted, render-risk (Clash A) | _TBD_ |
@@ -307,6 +322,37 @@ New clashes opened: <…>
 Decisions: <what changed in VISION/DESIGN as a result>
 ```
 
+### Round 3 — first build evidence (mutation oracle slice)
+
+Trigger: built the keystone "mutation-as-question-thread" slice
+(`internal/mutation`, validating slice #2).
+Panelists present: none re-convened yet — this logs the *evidence* the
+next round will argue over.
+New evidence on the table:
+
+- A diff-scoped mutation oracle exists, Go-stdlib-only, TDD-built
+  (RYGBA per unit; audit caught a real restore-error-swallowing bug).
+- The validating experiment passes: a weak/tautological test (`IsAdult`
+  checked only at 25) lets the `>=`→`>` mutant SURVIVE → exactly one
+  finding on the right line; a strong test (pins 17/18) KILLS it → zero
+  findings. **Test-theater is made to visibly fail, in miniature.**
+
+Per panelist (the relevant ones, to argue next round):
+
+- TDD: core thesis vindicated at the unit level — mutation is the
+  independent oracle, and it discriminates weak from strong tests. Wants
+  the next slice to redefine "confirmed catch" against survived→killed
+  and to render survivors as real `question:` threads.
+- Systems: feasibility confirmed; flags the cost model (one test-run per
+  mutant) for the settle-loop budget — see Clash F.
+
+Clashes touched: B (PARTIAL — independent signal now exists),
+F (MOSTLY RESOLVED on feasibility; latency-at-scale still open).
+Verdicts updated: B, F (see §3).
+New clashes opened: none yet. Likely next: mutation *latency budget* in
+the settle loop, and the survived-mutant → `question:`-thread UX.
+Decisions: no VISION/DESIGN text changed; this is evidence, not redesign.
+
 ---
 
 ## 6. The validating slices these clashes are waiting on
@@ -318,6 +364,9 @@ From the build plan — the slices most likely to produce verdicts:
    review-vs-chat feel.
 2. **Mutation-as-`question:`-thread** (D §29.4) → informs Clash B, F, and
    the central "does it ship good software" question.
+   **BUILT & TESTED** (`internal/mutation`, slice 2025) — logic layer
+   only (produces `Finding`s, not yet rendered as UI threads). Verdicts
+   logged in Clash B & F and the round below.
 3. **Two-agent Board with queue-to-zero loop** (VISION §11) → informs
    Clash A, D, E, H — the whole "does it feel like a shop" thesis.
 4. **A real refactor through the Invariant View** → informs Clash G.
