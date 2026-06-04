@@ -134,4 +134,41 @@ func TestRunCatchCycle_refusesCatchWhenFixEditsAnchoredLine(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, catch.Catch, res.Outcome, "an edited anchored line must never mint a phantom catch")
 	assert.Equal(t, catch.NoOracleSignal, res.Outcome, "the reanchor gate outdates the edited line before Detect runs")
+	assert.Equal(t, pipe.ReasonAnchorEdited, res.Reason,
+		"the card must say the line was EDITED, never the false 'no mutable operator' — the keystone against a confidently-wrong quiet verdict")
+}
+
+func TestRunCatchCycle_renamedAnchorReportsFileRenamedReason(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module adultpipe\n\ngo 1.23\n")
+	write(t, dir, "adult.go", adultGo)
+	write(t, dir, "adult_test.go", weakTest)
+	base := commitAll(t, dir, "base")
+	runGit(t, dir, "mv", "adult.go", "grown.go") // identical content → detected rename
+	fix := commitAll(t, dir, "rename adult.go -> grown.go")
+
+	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, adultAnchor(), goTestCmd)
+	require.NoError(t, err)
+	assert.Equal(t, catch.NoOracleSignal, res.Outcome, "a lost-via-rename anchor mints no catch")
+	assert.Equal(t, pipe.ReasonFileRenamed, res.Reason,
+		"the quiet verdict is BECAUSE the file was renamed — the surface must not claim the line had no operators")
+}
+
+func TestRunCatchCycle_operatorFreeLineReportsNoMutableOperatorReason(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module idpipe\n\ngo 1.23\n")
+	write(t, dir, "id.go", "package idp\n\nfunc Id(n int) int {\n\treturn n\n}\n") // line 4 `return n` has no mutable operator
+	write(t, dir, "id_test.go", "package idp\n\nimport \"testing\"\n\nfunc TestId(t *testing.T) {\n\tif Id(3) != 3 {\n\t\tt.Fatal(\"3\")\n\t}\n}\n")
+	base := commitAll(t, dir, "base")
+	write(t, dir, "id_test.go", "package idp\n\nimport \"testing\"\n\nfunc TestId(t *testing.T) {\n\tif Id(3) != 3 {\n\t\tt.Fatal(\"3\")\n\t}\n\tif Id(0) != 0 {\n\t\tt.Fatal(\"0\")\n\t}\n}\n")
+	fix := commitAll(t, dir, "strengthen the test; id.go unchanged (Same)")
+
+	anchor := reanchor.Anchor{Path: "id.go", Start: 4, End: 4, LineHash: reanchor.HashLines("\treturn n")}
+	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, anchor, goTestCmd)
+	require.NoError(t, err)
+	assert.Equal(t, catch.NoOracleSignal, res.Outcome, "a line with no mutable operator yields no oracle signal")
+	assert.Equal(t, pipe.ReasonNoMutableOperator, res.Reason,
+		"here 'no mutable operator' is the TRUE reason — the split must not regress the one honest case")
 }

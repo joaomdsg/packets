@@ -69,9 +69,10 @@ func TestCatchAcross_refusesPhantomCatchOnNeutralRename(t *testing.T) {
 	// A direct Detect would mint a phantom Catch on this very data:
 	require.Equal(t, catch.Catch, catch.Detect(before, after))
 
-	got, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("orig.go"), base, head, before, after)
+	got, reason, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("orig.go"), base, head, before, after)
 	require.NoError(t, err)
 	assert.Equal(t, catch.NoOracleSignal, got)
+	assert.Equal(t, pipe.ReasonFileRenamed, reason, "a renamed anchor is quiet BECAUSE the file was renamed, not for lack of operators")
 }
 
 func TestCatchAcross_mintsCatchWhenAnchorSurvivesAsMoved(t *testing.T) {
@@ -85,9 +86,10 @@ func TestCatchAcross_mintsCatchWhenAnchorSurvivesAsMoved(t *testing.T) {
 	before := catch.LineState{Inventory: []string{">="}, Survivors: []string{">="}}
 	after := catch.LineState{Inventory: []string{">="}, Survivors: nil}
 
-	got, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("f.go"), base, head, before, after)
+	got, reason, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("f.go"), base, head, before, after)
 	require.NoError(t, err)
 	assert.Equal(t, catch.Catch, got)
+	assert.Equal(t, pipe.ReasonNone, reason, "a minted catch carries its meaning in the Outcome, not a quiet reason")
 }
 
 func TestCatchAcross_refusesCatchWhenEditOverlapsAnchor(t *testing.T) {
@@ -101,9 +103,10 @@ func TestCatchAcross_refusesCatchWhenEditOverlapsAnchor(t *testing.T) {
 	before := catch.LineState{Inventory: []string{">="}, Survivors: []string{">="}}
 	after := catch.LineState{Inventory: []string{">="}, Survivors: nil}
 
-	got, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("f.go"), base, head, before, after)
+	got, reason, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("f.go"), base, head, before, after)
 	require.NoError(t, err)
 	assert.Equal(t, catch.NoOracleSignal, got)
+	assert.Equal(t, pipe.ReasonAnchorEdited, reason, "an edited anchor is quiet BECAUSE the line changed, not for lack of operators")
 }
 
 func TestCatchAcross_delegatesToDetectWhenFileUnchanged(t *testing.T) {
@@ -118,7 +121,7 @@ func TestCatchAcross_delegatesToDetectWhenFileUnchanged(t *testing.T) {
 	before := catch.LineState{Inventory: []string{">="}, Survivors: []string{">="}}
 	after := catch.LineState{Inventory: []string{">="}, Survivors: nil}
 
-	got, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("f.go"), base, head, before, after)
+	got, _, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("f.go"), base, head, before, after)
 	require.NoError(t, err)
 	assert.Equal(t, catch.Catch, got)
 }
@@ -135,7 +138,7 @@ func TestCatchAcross_delegatesNoCatchWhenNothingWasWeak(t *testing.T) {
 	before := catch.LineState{Inventory: []string{">="}, Survivors: nil}
 	after := catch.LineState{Inventory: []string{">="}, Survivors: nil}
 
-	got, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("f.go"), base, head, before, after)
+	got, _, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("f.go"), base, head, before, after)
 	require.NoError(t, err)
 	assert.Equal(t, catch.NoCatch, got)
 }
@@ -146,7 +149,7 @@ func TestCatchAcross_returnsErrorOnUnknownRevision(t *testing.T) {
 	write(t, dir, "f.go", gte)
 	head := commitAll(t, dir, "base")
 
-	_, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("f.go"), "deadbeefdeadbeef", head,
+	_, _, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("f.go"), "deadbeefdeadbeef", head,
 		catch.LineState{Inventory: []string{">="}, Survivors: []string{">="}}, catch.LineState{})
 	require.Error(t, err)
 }

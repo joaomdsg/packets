@@ -30,6 +30,11 @@ const Unintegrated LandState = "unintegrated"
 // of the beats the cycle emitted (the catch appears as exactly one beat).
 type CycleResult struct {
 	Outcome catch.Outcome
+	// Reason is the orthogonal cause behind a quiet Outcome (NoOracleSignal): why
+	// the oracle is silent — no mutable operator vs the anchor edited vs the file
+	// renamed — so the surface states a true cause instead of one overloaded
+	// token. It is ReasonNone for an Outcome that carries its own meaning.
+	Reason  Reason
 	Path    string
 	Line    int
 	Land    LandState
@@ -88,14 +93,14 @@ func RunCatchCycle(ctx context.Context, repoDir, baseRev, fixRev string, anchor 
 		trace = append(trace, fmt.Sprintf("settled fix %s (anchor %s)", short(fixRev), ra.State))
 	}
 
-	outcome, err := CatchAcross(ctx, repoDir, anchor, baseRev, fixRev, beforeLS, afterLS)
+	outcome, reason, err := CatchAcross(ctx, repoDir, anchor, baseRev, fixRev, beforeLS, afterLS)
 	if err != nil {
 		return CycleResult{}, err
 	}
 	trace = append(trace, fmt.Sprintf("catch: %s", outcome))
 
 	return CycleResult{
-		Outcome: outcome, Path: outPath, Line: outLine, Land: Unintegrated, Trace: trace,
+		Outcome: outcome, Reason: reason, Path: outPath, Line: outLine, Land: Unintegrated, Trace: trace,
 		Before: beforeLS, After: afterLS,
 	}, nil
 }
