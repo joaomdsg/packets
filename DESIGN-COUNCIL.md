@@ -230,6 +230,22 @@ resolution, **the experiment that settles it**, and a blank verdict.
   catch going red post-integration), with a disjoint-trunk `LandClean` degenerate guard
   proving the verdict CONSTRAINS. Flips to RESOLVED-IN-CODE on the green #12 build;
   catch PRICING (#17) remains gated behind it. STILL OPEN until that code ships.
+- **Verdict (post-build, round 12 #12 — RESOLVED-IN-CODE):** `internal/pipe.integrateOnTip`
+  rebases fixRev onto a real `tipRev` in a throwaway worktree and runs the checks on
+  the INTEGRATED tree via controlled exec; `CycleResult.Land` is now a typed
+  {LandClean | LandConflict | LandChecksRed}, orthogonal to catch.Outcome (mint token
+  byte-identical). The load-bearing RED is green:
+  `TestRunCatchCycle_cleanRebaseButChecksRedYieldsChecksRed` proves a green
+  pre-integration catch is a red post-integration regression; the disjoint-trunk
+  `landsCleanOnNonConflictingTip` degenerate guard proves the verdict CONSTRAINS;
+  `TestResolve_threadsTheTipSoADivergentTrunkReportsLandConflict` proves the seam
+  threads the real tip (a tip-ignoring stub would land clean). The card shows the
+  Land verdict as its own honest row over SSE (`surface.RenderLand`, asserted
+  end-to-end in the live wire test). The catch is now minted against the tree that
+  actually integrates — "Landed ≠ Merged" is a computed verdict, not a label.
+  RESOLVED-IN-CODE on the integration seam. What remains for the SCORING question
+  (is it fair to score a human on this?) is the flaky-quarantine / change-fail-rate
+  layer (§13.8) + catch PRICING (#17), still gated on the #15 K-concurrent benchmark.
 - **Verdict (post-build, round 11 #11 — the seam discipline DEMONSTRATED in code):**
   the rule is no longer prose: `pipe.Reason` ships as a typed field on
   `CycleResult` ORTHOGONAL to `catch.Outcome` (the economy/ledger token is byte-for-
@@ -436,7 +452,7 @@ The signature bets, and their status. Fill `Validated?` after builds.
 |------------------------------------|-----------|---------------|------------|
 | Mutation-driven adversarial review | TDD       | high conviction | **validated** + CONFIRMED-CATCH now minted END-TO-END through the §17 pipe (`internal/pipe.RunCatchCycle`, #3): two real settles → worktree mutation×2 → reanchor → CatchAcross → real Catch; edited-anchor → NoOracleSignal — AND rendered as a distinct live state (`internal/surface.ReviewCard`, #4). Next (R10 #10 wire): a runnable HTTP/SSE binary so a human WATCHES it resolve + persist the CatchRecord (capture-at-mint). Pending pricing: integrate-on-tip (#12) |
 | Trust Ledger (calibrated delegation)| Game     | spine, framing-risk (Clash H) | _TBD_ |
-| Merge-queue-as-integrator          | CI/CD     | low-risk, standard practice | _TBD_ → roadmap #6: single-lane queue wrapping integrate-on-tip (#5); experiment = throughput-to-zero on K branches; designed-in to avoid O(N²)/8N contention |
+| Merge-queue-as-integrator          | CI/CD     | low-risk, standard practice | **R12 #12: integrate-on-tip SHIPPED** — `pipe.integrateOnTip` rebases the fix onto a real tip + runs checks on the integrated tree → typed Land {clean\|conflict\|checks-red}, one serialized lane (no N-concurrent-rebase fan-out). Clash C resolved-in-code; the catch is minted against the tree that integrates. Remaining: the single-lane QUEUE over K branches (throughput-to-zero) + the #15 K-concurrent benchmark before PRICING |
 | Focus as central resource          | Systems   | adopted, render-risk (Clash A) | _TBD_ |
 | Speculative integration preview    | CI/CD     | high value, infra cost | _TBD_ |
 | Characterization Gate + replay     | Refactor  | high value, scoped to refactors | _TBD_ → roadmap #2 (concurrent w/ #1): adversarial refactor trace as RED baselines (rename_40 / rename_neutral_move / extract_module); settles Clash G, de-risks #1's re-anchor sub-brick. **R11 #11: Clash G's surface-honesty half RESOLVED-IN-CODE** — a renamed/edited anchor now renders a distinct, TRUE terminal card (`surface.LostViaRename`/`AnchorEdited`) instead of the false "no mutable operator"; the refactor task-type is honest-at-surface for the detected-rename case (residual: rename-cliff coarsening → #11.5) |

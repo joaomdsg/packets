@@ -326,6 +326,27 @@ design risks above, which are about the spec). Each: where, the finding, the fix
   or admitting threshold-uncertainty in the copy is the fast-follow (tracks the
   re-anchor rename-similarity-cliff finding above).
 
+### Integrate-on-tip residuals (slice: #12 integrate-on-tip)
+
+- **Where:** `internal/pipe/pipe_cycle.go` `integrateOnTip`.
+- **Findings (build-surfaced, two of three handled):**
+  1. **Empty `tipRev` — FIXED.** A caller leaving `LiveConfig.TipRev`/the tipRev param
+     empty made `git rebase ""` exit non-zero → silently mislabeled `LandConflict` (a
+     confidently-wrong terminal). Now guarded: `integrateOnTip` returns an error on an
+     empty testCmd OR empty tipRev, so the card stays honestly in-flight rather than
+     showing a false integration verdict. `cmd/agntpr` defaults `-tip` to `-fix`.
+  2. **Nonexistent `tipRev` conflated with conflict — DEFERRED (low severity).** A
+     genuinely bad (nonexistent) tipRev also exits non-zero → reported as `LandConflict`
+     rather than an error. Acceptable for now: the only caller (`app.Resolve` via the
+     wire) passes an already-validated rev; a bad tip cannot arise from a realistic
+     caller. Fix later: distinguish "rebase in progress" (real conflict) from an
+     immediate rev-resolution failure before labeling `LandConflict`.
+  3. **Integrated-cost multiplier — DEFERRED to the #15 benchmark gate.** A cycle now
+     runs the oracle TWICE (base + fix) PLUS a third full `testCmd` run on the rebased
+     integrated tree; a future merge queue re-runs integrate per tip move. The
+     K-concurrent-settle benchmark must measure this INTEGRATED cost (3× suite + per-tip
+     re-runs) before any catch PRICING (#17), per the Round-10/12 gate.
+
 ### Non-ASCII paths break re-anchor + diff path-matching (slice: re-anchoring)
 
 - **Where:** `internal/reanchor/reanchor.go` `fileStatus` (name-status parse) and
