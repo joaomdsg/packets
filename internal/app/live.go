@@ -141,6 +141,11 @@ type LiveCard struct {
 	// re-render (a cell Write fans out a re-render; an action's auto-render only
 	// returns in the action's own response).
 	Balance via.StateTabStr
+	// Dispatch is the same broadcast trigger for the dispatched-work tally: the
+	// count is re-read from the ledger in View, but a Spend writes the new count
+	// here so the dispatch row rises over the live SSE stream in the SAME render as
+	// the balance drains. It carries no authoritative value — View is the source.
+	Dispatch via.StateTabStr
 }
 
 // View renders the card's rows via the shared surface rendering: the retrospective
@@ -153,6 +158,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	_, log := readLiveState(c.Key)
 	var stock ledger.Stock
 	balance := 0
+	dispatched := 0
 	if log != nil {
 		if recs, err := log.Records(); err == nil {
 			stock = ledger.ConfirmedCatches(recs)
@@ -160,32 +166,42 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 		if b, err := log.Balance(); err == nil {
 			balance = b
 		}
+		if d, err := log.PendingDispatches(); err == nil {
+			dispatched = d
+		}
 	}
 	return h.Div(
 		surface.RenderStock(stock),
 		surface.RenderBalance(balance),
+		surface.RenderDispatch(dispatched),
 		surface.RenderBeats(c.Beats.Read(ctx)),
 		surface.RenderVerdict(c.Verdict.Read(ctx)),
 		surface.RenderLand(pipe.LandState(c.Land.Read(ctx))),
 	)
 }
 
-// Spend debits one confirmed catch from the balance — the Lead's first ACTION on
-// the stock (e.g. spending a catch to dispatch a unit of agent work). It is a
-// fixed unit spend; an over-budget spend (balance already 0) is refused by the
-// ledger and the action is a no-op (no broadcast). On a successful spend it writes
-// the new balance to the Balance cell, whose Write fans out a re-render to the
-// live SSE stream so the balance row drains in place.
+// Spend funds one unit of dispatched work against the balance — the Lead's first
+// ACTION on the stock, and the moment a catch finally BUYS something. It debits
+// one catch AND fuels exactly one queued work-order in a single atomic ledger
+// fact (AppendDispatch). An over-budget spend (balance already 0) is refused by
+// the ledger and the action is a silent no-op (no broadcast). On success it
+// writes BOTH the drained balance and the risen dispatch count to their trigger
+// cells, whose Writes fan out a single re-render to the live SSE stream so the
+// balance drains and the dispatch row rises together — the spend is visibly
+// converted into work, not just a vanishing number.
 func (c *LiveCard) Spend(ctx *via.Ctx) {
 	_, log := readLiveState(c.Key)
 	if log == nil {
 		return
 	}
-	if err := log.AppendSpend(1, "dispatch"); err != nil {
+	if err := log.AppendDispatch("dispatch"); err != nil {
 		return // over-budget / nothing to spend: a no-op, never an error to the Lead
 	}
 	if b, err := log.Balance(); err == nil {
-		c.Balance.Write(ctx, strconv.Itoa(b)) // announce the drain so the live SSE stream re-renders the balance row
+		c.Balance.Write(ctx, strconv.Itoa(b)) // announce the drain
+	}
+	if d, err := log.PendingDispatches(); err == nil {
+		c.Dispatch.Write(ctx, strconv.Itoa(d)) // announce the funded work-order so the dispatch row rises in the same render
 	}
 }
 

@@ -41,9 +41,33 @@ func ShouldRecord(o catch.Outcome) bool {
 	return o == catch.Catch
 }
 
-// kindSpend tags a debit line. A catch line carries NO kind field, so logs
-// written before spends existed re-read byte-identically.
-const kindSpend = "spend"
+// kindSpend tags a debit line; kindWorkOrder tags a funded work-order line. A
+// catch line carries NO kind field, so logs written before spends/work-orders
+// existed re-read byte-identically.
+const (
+	kindSpend     = "spend"
+	kindWorkOrder = "workorder"
+)
+
+// inProcessProducer is the producer tag every work-order carries this round —
+// the single in-process writer. It is pre-paid onto the line now (DESIGN §13.3
+// P0): once a real cross-process producer exists, the field is already there to
+// demux producers on replay, and the monotonic seq reconciliation can be added
+// without a schema migration.
+const inProcessProducer = "in-process"
+
+// WorkOrderRecord is the consequence a Spend funds: one unit of dispatched work,
+// queued (this round it does NOT run — executing it is a later slice). It shares
+// the append-only JSONL and is distinguished by Kind=="workorder". It is paired
+// with a debit (a spend line) in one atomic write, so a balance can never fund
+// more orders than it held (conservation: debits == orders, per account).
+type WorkOrderRecord struct {
+	Kind     string `json:"kind"`
+	ID       int    `json:"id"`
+	Producer string `json:"producer"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason,omitempty"`
+}
 
 // SpendRecord is a debit against the confirmed-catch balance — the economy's
 // SINK, the first non-minting record kind. It shares the append-only JSONL with
@@ -104,8 +128,8 @@ func (l *Log) Append(r CatchRecord) error {
 func (l *Log) Records() ([]CatchRecord, error) {
 	var out []CatchRecord
 	err := l.scan(func(kind string, line []byte) error {
-		if kind == kindSpend {
-			return nil // a debit is not a catch
+		if kind == kindSpend || kind == kindWorkOrder {
+			return nil // a debit or a work-order is not a catch
 		}
 		var r CatchRecord
 		if err := json.Unmarshal(line, &r); err != nil {
@@ -123,6 +147,9 @@ func (l *Log) Records() ([]CatchRecord, error) {
 func (l *Log) Balance() (int, error) {
 	balance := 0
 	err := l.scan(func(kind string, line []byte) error {
+		if kind == kindWorkOrder {
+			return nil // a work-order is not a credit; its paired debit (the spend line) drains the balance
+		}
 		if kind == kindSpend {
 			var s SpendRecord
 			if err := json.Unmarshal(line, &s); err != nil {
@@ -180,6 +207,84 @@ func (l *Log) AppendSpend(amount int, reason string) error {
 		return fmt.Errorf("ledger: append spend: %w", err)
 	}
 	return nil
+}
+
+// AppendDispatch funds exactly one work-order against the balance — the
+// consequence a Spend buys. It refuses if the balance cannot cover one unit
+// (you cannot dispatch what you did not catch), writing NOTHING on refusal.
+// On success it writes the debit (a spend of 1) AND the paired work-order line
+// as a SINGLE write under the one lock, so the two lines never tear apart and a
+// balance can never fund more orders than it held: one debit ⇒ one order,
+// conserved. The work-order id is monotonic, derived from the persisted log
+// (count of existing work-orders + 1) so it survives a reopen with no in-memory
+// counter. The order is queued — this round it does not run.
+func (l *Log) AppendDispatch(reason string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	balance, err := l.Balance()
+	if err != nil {
+		return err
+	}
+	if balance < 1 {
+		return fmt.Errorf("ledger: cannot dispatch with balance %d — nothing to fund", balance)
+	}
+	orders, err := l.WorkOrders()
+	if err != nil {
+		return err
+	}
+	spend, err := json.Marshal(SpendRecord{Kind: kindSpend, Amount: 1, Reason: reason})
+	if err != nil {
+		return fmt.Errorf("ledger: marshal dispatch debit: %w", err)
+	}
+	order, err := json.Marshal(WorkOrderRecord{
+		Kind:     kindWorkOrder,
+		ID:       len(orders) + 1,
+		Producer: inProcessProducer,
+		Status:   "queued",
+		Reason:   reason,
+	})
+	if err != nil {
+		return fmt.Errorf("ledger: marshal work-order: %w", err)
+	}
+	// One Write call for both lines: the debit and its work-order commit together
+	// or not at all — they can never half-land.
+	buf := append(spend, '\n')
+	buf = append(buf, order...)
+	buf = append(buf, '\n')
+	if _, err := l.f.Write(buf); err != nil {
+		return fmt.Errorf("ledger: append dispatch: %w", err)
+	}
+	return nil
+}
+
+// WorkOrders reads back every funded work-order in order, a pure projection of
+// the persisted log (catch and spend lines are skipped). The monotonic id and
+// producer/status fields are read straight from disk, so they replay identically.
+func (l *Log) WorkOrders() ([]WorkOrderRecord, error) {
+	var out []WorkOrderRecord
+	err := l.scan(func(kind string, line []byte) error {
+		if kind != kindWorkOrder {
+			return nil
+		}
+		var w WorkOrderRecord
+		if err := json.Unmarshal(line, &w); err != nil {
+			return fmt.Errorf("ledger: decode work-order: %w", err)
+		}
+		out = append(out, w)
+		return nil
+	})
+	return out, err
+}
+
+// PendingDispatches counts the funded work-orders — the dispatched-work tally the
+// Lead sees. Every order is queued this round (none run yet), so it is the count
+// of work-order lines, projected purely from the log.
+func (l *Log) PendingDispatches() (int, error) {
+	orders, err := l.WorkOrders()
+	if err != nil {
+		return 0, err
+	}
+	return len(orders), nil
 }
 
 // scan reads each non-empty JSONL line in order, probing its "kind" discriminator
