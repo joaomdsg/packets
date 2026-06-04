@@ -17,17 +17,20 @@ import (
 // CatchRecord is one confirmed-catch event, carrying the mint-time facts that
 // cannot be recovered after the fact.
 type CatchRecord struct {
-	Outcome           catch.Outcome `json:"outcome"`
-	Path              string        `json:"path"`
-	Line              int           `json:"line"`
-	BeforeRev         string        `json:"before_rev"`
-	AfterRev          string        `json:"after_rev"`
-	BeforeInventory   []string      `json:"before_inventory"`
-	AfterInventory    []string      `json:"after_inventory"`
-	MutantsConsidered int           `json:"mutants_considered"`
-	ReasonTag         string        `json:"reason_tag"`
-	SelfFlagged       bool          `json:"self_flagged"`
-	WouldHaveShipped  bool          `json:"would_have_shipped"`
+	Outcome         catch.Outcome `json:"outcome"`
+	Path            string        `json:"path"`
+	Line            int           `json:"line"`
+	BeforeRev       string        `json:"before_rev"`
+	AfterRev        string        `json:"after_rev"`
+	BeforeInventory []string      `json:"before_inventory"`
+	AfterInventory  []string      `json:"after_inventory"`
+	// MutantsConsidered is the size of the anchored line's operator inventory at
+	// the after revision — the deduped operator alphabet that is the catch's
+	// per-line denominator, NOT a whole-run mutant count.
+	MutantsConsidered int    `json:"mutants_considered"`
+	ReasonTag         string `json:"reason_tag"`
+	SelfFlagged       bool   `json:"self_flagged"`
+	WouldHaveShipped  bool   `json:"would_have_shipped"`
 }
 
 // ShouldRecord reports whether an outcome warrants a ledger entry: only a real

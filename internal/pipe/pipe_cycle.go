@@ -34,6 +34,13 @@ type CycleResult struct {
 	Line    int
 	Land    LandState
 	Trace   []string
+	// Before and After are the anchored line's operator-inventory state at each
+	// revision, exposed so the surface presenter can tell the verified-strong
+	// "Tested" screen from blind no-signal, and the ledger can record the
+	// survivor-set transition. After is the zero LineState when the anchor did
+	// not survive (Outdated/LostViaRename).
+	Before catch.LineState
+	After  catch.LineState
 }
 
 // RunCatchCycle mints the catch's first real transaction from two real
@@ -87,7 +94,10 @@ func RunCatchCycle(ctx context.Context, repoDir, baseRev, fixRev string, anchor 
 	}
 	trace = append(trace, fmt.Sprintf("catch: %s", outcome))
 
-	return CycleResult{Outcome: outcome, Path: outPath, Line: outLine, Land: Unintegrated, Trace: trace}, nil
+	return CycleResult{
+		Outcome: outcome, Path: outPath, Line: outLine, Land: Unintegrated, Trace: trace,
+		Before: beforeLS, After: afterLS,
+	}, nil
 }
 
 // runOracleAt materializes rev in a throwaway detached worktree, runs the

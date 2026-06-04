@@ -64,6 +64,10 @@ func TestRunCatchCycle_mintsCatchWhenAgentStrengthensTestOnly(t *testing.T) {
 	assert.Equal(t, "adult.go", res.Path)
 	assert.Equal(t, 4, res.Line, "the anchored line is unchanged (Same), so it stays at line 4")
 
+	assert.NotEmpty(t, res.Before.Survivors, "the before-state must be exposed for the presenter and the catch record")
+	assert.Empty(t, res.After.Survivors, "the catch cleared the survivor set, and the after-state is exposed")
+	assert.NotEmpty(t, res.After.Inventory, "the after inventory (mutants considered) drives the Tested vs blind distinction")
+
 	// Prove the base oracle genuinely ran (and found the line's one mutable
 	// operator), so a hardcoded result cannot pass: the anchored line has exactly
 	// one operator (`>=`) at base.
