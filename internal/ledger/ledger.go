@@ -40,6 +40,20 @@ func ShouldRecord(o catch.Outcome) bool {
 	return o == catch.Catch
 }
 
+// kindSpend tags a debit line. A catch line carries NO kind field, so logs
+// written before spends existed re-read byte-identically.
+const kindSpend = "spend"
+
+// SpendRecord is a debit against the confirmed-catch balance — the economy's
+// SINK, the first non-minting record kind. It shares the append-only JSONL with
+// CatchRecord and is distinguished by Kind=="spend". A spend can never mint
+// credit: AppendSpend refuses any amount the current balance cannot cover.
+type SpendRecord struct {
+	Kind   string `json:"kind"`
+	Amount int    `json:"amount"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // Log is an append-only JSONL log of CatchRecords backed by a file.
 //
 // A Log is single-writer: it holds one append handle and is NOT safe for
@@ -78,30 +92,114 @@ func (l *Log) Append(r CatchRecord) error {
 	return nil
 }
 
-// Records reads back every appended record in order.
+// Records reads back every appended CATCH record in order. Spend (debit) lines
+// are skipped, so the confirmed-catch count is never polluted by the sink.
 func (l *Log) Records() ([]CatchRecord, error) {
+	var out []CatchRecord
+	err := l.scan(func(kind string, line []byte) error {
+		if kind == kindSpend {
+			return nil // a debit is not a catch
+		}
+		var r CatchRecord
+		if err := json.Unmarshal(line, &r); err != nil {
+			return fmt.Errorf("ledger: decode record: %w", err)
+		}
+		out = append(out, r)
+		return nil
+	})
+	return out, err
+}
+
+// Balance is the economy's held quantity: confirmed catches (credits) minus the
+// sum of spends (debits), projected purely from the log — no in-memory counter,
+// so it replays identically from the persisted JSONL alone.
+func (l *Log) Balance() (int, error) {
+	balance := 0
+	err := l.scan(func(kind string, line []byte) error {
+		if kind == kindSpend {
+			var s SpendRecord
+			if err := json.Unmarshal(line, &s); err != nil {
+				return fmt.Errorf("ledger: decode spend: %w", err)
+			}
+			// A spend can never mint credit: AppendSpend rejects amount<=0, but the
+			// JSONL is the authoritative replay substrate, so a hand-edited
+			// non-positive amount must contribute nothing rather than ADD to balance.
+			if s.Amount > 0 {
+				balance -= s.Amount
+			}
+			return nil
+		}
+		var r CatchRecord
+		if err := json.Unmarshal(line, &r); err != nil {
+			return fmt.Errorf("ledger: decode record: %w", err)
+		}
+		if ShouldRecord(r.Outcome) {
+			balance++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return balance, nil
+}
+
+// AppendSpend records a debit of amount against the balance — the sink that lets
+// the stock drain. It refuses a non-positive amount and any amount the current
+// balance cannot cover (you cannot spend what you did not catch), writing NOTHING
+// on refusal. It does NOT route through Append: the catch-only farm-denial gate
+// stays intact and debits travel this guarded path alone.
+func (l *Log) AppendSpend(amount int, reason string) error {
+	if amount <= 0 {
+		return fmt.Errorf("ledger: spend amount must be positive, got %d", amount)
+	}
+	balance, err := l.Balance()
+	if err != nil {
+		return err
+	}
+	if amount > balance {
+		return fmt.Errorf("ledger: spend of %d exceeds balance %d", amount, balance)
+	}
+	line, err := json.Marshal(SpendRecord{Kind: kindSpend, Amount: amount, Reason: reason})
+	if err != nil {
+		return fmt.Errorf("ledger: marshal spend: %w", err)
+	}
+	if _, err := l.f.Write(append(line, '\n')); err != nil {
+		return fmt.Errorf("ledger: append spend: %w", err)
+	}
+	return nil
+}
+
+// scan reads each non-empty JSONL line in order, probing its "kind" discriminator
+// (absent → a catch) and handing the raw line to fn. One place owns the file read.
+func (l *Log) scan(fn func(kind string, line []byte) error) error {
 	f, err := os.Open(l.path)
 	if err != nil {
-		return nil, fmt.Errorf("ledger: read %s: %w", l.path, err)
+		return fmt.Errorf("ledger: read %s: %w", l.path, err)
 	}
 	defer f.Close()
 
-	var out []CatchRecord
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		if len(sc.Bytes()) == 0 {
 			continue
 		}
-		var r CatchRecord
-		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
-			return nil, fmt.Errorf("ledger: decode record: %w", err)
+		var probe struct {
+			Kind string `json:"kind"`
 		}
-		out = append(out, r)
+		if err := json.Unmarshal(sc.Bytes(), &probe); err != nil {
+			return fmt.Errorf("ledger: decode record: %w", err)
+		}
+		// Copy the line: the scanner reuses its buffer across iterations.
+		line := append([]byte(nil), sc.Bytes()...)
+		if err := fn(probe.Kind, line); err != nil {
+			return err
+		}
 	}
 	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("ledger: scan %s: %w", l.path, err)
+		return fmt.Errorf("ledger: scan %s: %w", l.path, err)
 	}
-	return out, nil
+	return nil
 }
 
 // Close releases the underlying file handle.
