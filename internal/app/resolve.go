@@ -35,7 +35,7 @@ func Resolve(ctx context.Context, repoDir, baseRev, fixRev string, anchor reanch
 		return Resolution{}, err
 	}
 
-	verdict := surface.PresentVerdict(false, res.Outcome, len(res.After.Inventory), len(res.After.Survivors))
+	verdict := surface.PresentVerdict(false, res.Outcome, res.Reason, len(res.After.Inventory), len(res.After.Survivors))
 
 	var record *ledger.CatchRecord
 	if ledger.ShouldRecord(res.Outcome) {

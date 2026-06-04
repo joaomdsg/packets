@@ -2,6 +2,7 @@ package surface_test
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +95,26 @@ func TestReviewCard_rendersEachCatchOutcomeAsADistinctState(t *testing.T) {
 		}
 		seen[marker] = outcome
 	}
+}
+
+func TestReviewCard_rendersLostViaRenameWithoutClaimingNoOperator(t *testing.T) {
+	t.Parallel()
+	frame := resolveTo(t, surface.LostViaRename, `data-state="lost-via-rename"`)
+	assert.Contains(t, strings.ToLower(frame), "rename", "a lost-via-rename card must name the rename as the reason it is quiet")
+	assert.NotContains(t, frame, "no mutable operator", "a renamed anchor must never claim the line had no operators — the confidently-wrong terminal this build exists to kill")
+	assert.NotContains(t, frame, `data-state="no-oracle-signal"`, "a renamed anchor is a distinct quiet state from operator-free")
+	assert.NotContains(t, frame, "Caught", "a lost anchor is not a catch")
+}
+
+func TestReviewCard_rendersAnchorEditedDistinctFromNoOracleSignal(t *testing.T) {
+	t.Parallel()
+	edited := resolveTo(t, surface.AnchorEdited, `data-state="anchor-edited"`)
+	blind := resolveTo(t, string(catch.NoOracleSignal), `data-state="no-oracle-signal"`)
+
+	assert.NotContains(t, edited, `data-state="no-oracle-signal"`, "an edited anchor is a distinct quiet state from operator-free")
+	assert.NotContains(t, edited, "no mutable operator", "an edited anchor must not claim the line had no operators")
+	assert.Contains(t, strings.ToLower(edited), "edit", "the edited-anchor card must say the line was edited")
+	assert.Contains(t, blind, "no mutable operator", "a genuinely operator-free line keeps the true 'no mutable operator' copy")
 }
 
 func TestReviewCard_carriesNoEconomyMetersOnTheFirstScreen(t *testing.T) {

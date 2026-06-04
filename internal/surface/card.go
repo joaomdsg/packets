@@ -73,6 +73,12 @@ func present(verdict string) (state, headline, detail string) {
 	switch verdict {
 	case Tested:
 		return "tested", "Tested — ship it", "Every mutation on this line was killed."
+	case LostViaRename:
+		return "lost-via-rename", "Anchor lost: file renamed",
+			"The file was renamed, so the oracle cannot follow this line across the change."
+	case AnchorEdited:
+		return "anchor-edited", "Anchor edited",
+			"The anchored line was edited, so the oracle can no longer speak to the original line."
 	default: // empty or unrecognized → the oracle is still working
 		return "in-flight", "Oracle running…", "Mutating the changed lines and checking your tests."
 	}

@@ -110,6 +110,8 @@ func TestResolve_mintsNothingWhenTheFixEditsTheAnchoredLine(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, res.Record, "an edited anchored line mints nothing to persist")
 	assert.NotEqual(t, string(catch.Catch), res.Verdict, "and never claims a catch over the wire")
+	assert.Equal(t, surface.AnchorEdited, res.Verdict,
+		"the card must say the anchored line was EDITED, never the false 'no mutable operator'")
 
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
 	l, err := ledger.Open(logPath)
@@ -118,6 +120,24 @@ func TestResolve_mintsNothingWhenTheFixEditsTheAnchoredLine(t *testing.T) {
 	got, err := l.Records()
 	require.NoError(t, err)
 	assert.Empty(t, got, "edit/no-op work leaves no trace in the ledger")
+}
+
+func TestResolve_rendersLostViaRenameVerdictForARenamedAnchor(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module adultapp\n\ngo 1.23\n")
+	write(t, dir, "adult.go", adultGo)
+	write(t, dir, "adult_test.go", weakTest)
+	base := commitAll(t, dir, "base")
+	runGit(t, dir, "mv", "adult.go", "grown.go") // identical content → detected rename
+	fix := commitAll(t, dir, "rename adult.go -> grown.go")
+
+	res, err := app.Resolve(context.Background(), dir, base, fix, anchor(), goTestCmd, false, false)
+	require.NoError(t, err)
+	assert.Equal(t, surface.LostViaRename, res.Verdict,
+		"a lost-via-rename anchor must reach the card as its own honest verdict, NEVER the false 'no mutable operator' — Clash G's surface closing gate")
+	assert.NotEqual(t, string(catch.NoOracleSignal), res.Verdict, "the renamed cause must not collapse into operator-free silence")
+	assert.Nil(t, res.Record, "a lost anchor mints nothing to persist")
 }
 
 func TestResolve_propagatesACycleError(t *testing.T) {
