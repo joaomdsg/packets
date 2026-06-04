@@ -57,10 +57,10 @@ func TestRunCatchCycle_mintsCatchWhenAgentStrengthensTestOnly(t *testing.T) {
 	write(t, dir, "adult_test.go", strongTest) // strengthen the test ONLY; adult.go unchanged
 	fix := commitAll(t, dir, "fix: strengthen the test")
 
-	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, adultAnchor(), goTestCmd)
+	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, fix, adultAnchor(), goTestCmd)
 	require.NoError(t, err)
 	assert.Equal(t, catch.Catch, res.Outcome)
-	assert.Equal(t, pipe.Unintegrated, res.Land, "the pipe must never report a fake merged")
+	assert.Equal(t, pipe.LandClean, res.Land, "rebasing the fix onto an unchanged tip integrates clean")
 	assert.Equal(t, "adult.go", res.Path)
 	assert.Equal(t, 4, res.Line, "the anchored line is unchanged (Same), so it stays at line 4")
 
@@ -93,7 +93,7 @@ func TestRunCatchCycle_mintsCatchAtReanchoredLineWhenAnchorMoves(t *testing.T) {
 	write(t, dir, "adult_test.go", strongTest)
 	fix := commitAll(t, dir, "fix: prepend lines + strengthen the test")
 
-	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, adultAnchor(), goTestCmd)
+	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, fix, adultAnchor(), goTestCmd)
 	require.NoError(t, err)
 	assert.Equal(t, catch.Catch, res.Outcome)
 	assert.Equal(t, "adult.go", res.Path)
@@ -110,7 +110,7 @@ func TestRunCatchCycle_leavesNoWorktreeMetadataInRepo(t *testing.T) {
 	write(t, dir, "adult_test.go", strongTest)
 	fix := commitAll(t, dir, "fix: strengthen the test")
 
-	_, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, adultAnchor(), goTestCmd)
+	_, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, fix, adultAnchor(), goTestCmd)
 	require.NoError(t, err)
 
 	entries, readErr := os.ReadDir(filepath.Join(dir, ".git", "worktrees"))
@@ -130,7 +130,7 @@ func TestRunCatchCycle_refusesCatchWhenFixEditsAnchoredLine(t *testing.T) {
 	write(t, dir, "adult.go", "package adult\n\nfunc IsAdult(age int) bool {\n\treturn age > 18\n}\n")
 	fix := commitAll(t, dir, "fix: edit the anchored line")
 
-	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, adultAnchor(), goTestCmd)
+	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, fix, adultAnchor(), goTestCmd)
 	require.NoError(t, err)
 	assert.NotEqual(t, catch.Catch, res.Outcome, "an edited anchored line must never mint a phantom catch")
 	assert.Equal(t, catch.NoOracleSignal, res.Outcome, "the reanchor gate outdates the edited line before Detect runs")
@@ -148,7 +148,7 @@ func TestRunCatchCycle_renamedAnchorReportsFileRenamedReason(t *testing.T) {
 	runGit(t, dir, "mv", "adult.go", "grown.go") // identical content → detected rename
 	fix := commitAll(t, dir, "rename adult.go -> grown.go")
 
-	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, adultAnchor(), goTestCmd)
+	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, fix, adultAnchor(), goTestCmd)
 	require.NoError(t, err)
 	assert.Equal(t, catch.NoOracleSignal, res.Outcome, "a lost-via-rename anchor mints no catch")
 	assert.Equal(t, pipe.ReasonFileRenamed, res.Reason,
@@ -166,9 +166,101 @@ func TestRunCatchCycle_operatorFreeLineReportsNoMutableOperatorReason(t *testing
 	fix := commitAll(t, dir, "strengthen the test; id.go unchanged (Same)")
 
 	anchor := reanchor.Anchor{Path: "id.go", Start: 4, End: 4, LineHash: reanchor.HashLines("\treturn n")}
-	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, anchor, goTestCmd)
+	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, fix, anchor, goTestCmd)
 	require.NoError(t, err)
 	assert.Equal(t, catch.NoOracleSignal, res.Outcome, "a line with no mutable operator yields no oracle signal")
 	assert.Equal(t, pipe.ReasonNoMutableOperator, res.Reason,
 		"here 'no mutable operator' is the TRUE reason — the split must not regress the one honest case")
+}
+
+func TestRunCatchCycle_emptyTestCmdErrorsInsteadOfPanicking(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module idpipe\n\ngo 1.23\n")
+	write(t, dir, "id.go", "package idp\n\nfunc Id(n int) int {\n\treturn n\n}\n") // line 4 `return n`: no mutable operator
+	base := commitAll(t, dir, "base")
+	// Anchor an operator-free line: the oracle generates 0 mutants and so never
+	// calls the suite — its empty-testCmd guard is never tripped. The anchor
+	// survives (Same), so the cycle reaches integrateOnTip with the empty testCmd
+	// untouched. A clean rebase then indexes testCmd[0]/testCmd[1:]: without a
+	// guard that panics instead of failing closed like the oracle does.
+	write(t, dir, "other.go", "package idp\n\nvar X = 2\n")
+	fix := commitAll(t, dir, "touch a disjoint file; id.go unchanged")
+
+	anchor := reanchor.Anchor{Path: "id.go", Start: 4, End: 4, LineHash: reanchor.HashLines("\treturn n")}
+	_, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, fix, anchor, nil)
+	require.Error(t, err, "an empty testCmd must fail closed with an error, never panic indexing testCmd")
+}
+
+func TestRunCatchCycle_landsCleanOnNonConflictingTip(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module adultpipe\n\ngo 1.23\n")
+	write(t, dir, "adult.go", adultGo)
+	write(t, dir, "adult_test.go", weakTest)
+	write(t, dir, "other.go", "package adult\n\nvar Other = 1\n")
+	base := commitAll(t, dir, "base")
+
+	runGit(t, dir, "checkout", "-q", "-b", "fixbranch")
+	write(t, dir, "adult_test.go", strongTest) // test-only fix → real Catch, adult.go untouched
+	fix := commitAll(t, dir, "fix: strengthen the test")
+
+	runGit(t, dir, "checkout", "-q", "-") // back to base branch
+	write(t, dir, "other.go", "package adult\n\nvar Other = 2\n") // trunk advances on a DISJOINT file
+	tip := commitAll(t, dir, "trunk: edit a disjoint file")
+
+	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, tip, adultAnchor(), goTestCmd)
+	require.NoError(t, err)
+	assert.Equal(t, catch.Catch, res.Outcome, "the fix mints a real catch (orthogonal to integration)")
+	assert.Equal(t, pipe.LandClean, res.Land,
+		"a fix that rebases cleanly onto a moved tip with a green integrated suite lands clean")
+}
+
+func TestRunCatchCycle_landsConflictWhenFixDivergesFromTip(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module adultpipe\n\ngo 1.23\n")
+	write(t, dir, "adult.go", adultGo)
+	write(t, dir, "adult_test.go", weakTest)
+	base := commitAll(t, dir, "base")
+
+	runGit(t, dir, "checkout", "-q", "-b", "fixbranch")
+	write(t, dir, "adult_test.go", strongTest) // fix rewrites the whole test file; adult.go untouched → Catch
+	fix := commitAll(t, dir, "fix: strengthen the test")
+
+	runGit(t, dir, "checkout", "-q", "-")
+	// trunk rewrites the SAME test file differently → rebase conflicts on adult_test.go
+	write(t, dir, "adult_test.go", "package adult\n\nimport \"testing\"\n\nfunc TestIsAdult(t *testing.T) {\n\tif !IsAdult(99) {\n\t\tt.Fatal(\"trunk's own assertion\")\n\t}\n}\n")
+	tip := commitAll(t, dir, "trunk: rewrite the same test file")
+
+	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, tip, adultAnchor(), goTestCmd)
+	require.NoError(t, err)
+	assert.Equal(t, catch.Catch, res.Outcome, "the catch is minted on the base; integration is orthogonal")
+	assert.Equal(t, pipe.LandConflict, res.Land,
+		"a fix that textually conflicts with the moved tip cannot integrate — conflict short-circuits before checks")
+}
+
+func TestRunCatchCycle_cleanRebaseButChecksRedYieldsChecksRed(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module adultpipe\n\ngo 1.23\n")
+	write(t, dir, "adult.go", adultGo)
+	write(t, dir, "adult_test.go", weakTest)
+	base := commitAll(t, dir, "base")
+
+	runGit(t, dir, "checkout", "-q", "-b", "fixbranch")
+	write(t, dir, "adult_test.go", strongTest) // green in isolation → mints a Catch
+	fix := commitAll(t, dir, "fix: strengthen the test")
+
+	runGit(t, dir, "checkout", "-q", "-")
+	// trunk adds a NEW test file (no textual conflict with the fix) that the
+	// integrated tree fails — the green pre-integration catch goes red on tip.
+	write(t, dir, "invariant_test.go", "package adult\n\nimport \"testing\"\n\nfunc TestTrunkInvariant(t *testing.T) {\n\tif IsAdult(18) {\n\t\tt.Fatal(\"trunk invariant: 18 must not count as adult\")\n\t}\n}\n")
+	tip := commitAll(t, dir, "trunk: add an invariant the fix's behavior violates")
+
+	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, tip, adultAnchor(), goTestCmd)
+	require.NoError(t, err)
+	assert.Equal(t, catch.Catch, res.Outcome, "the catch was real pre-integration; the mint token is unchanged")
+	assert.Equal(t, pipe.LandChecksRed, res.Land,
+		"clean rebase but the integrated suite fails — a green pre-integration catch is a red post-integration regression")
 }

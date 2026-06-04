@@ -30,7 +30,7 @@ type Resolution struct {
 // caller supplies — that cannot be reconstructed later. The caller appends the
 // record to the ledger; Resolve performs no log I/O of its own.
 func Resolve(ctx context.Context, repoDir, baseRev, fixRev string, anchor reanchor.Anchor, testCmd []string, selfFlagged, wouldHaveShipped bool) (Resolution, error) {
-	res, err := pipe.RunCatchCycle(ctx, repoDir, baseRev, fixRev, anchor, testCmd)
+	res, err := pipe.RunCatchCycle(ctx, repoDir, baseRev, fixRev, fixRev, anchor, testCmd)
 	if err != nil {
 		return Resolution{}, err
 	}

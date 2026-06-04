@@ -14,15 +14,24 @@ import (
 	"github.com/joaomdsg/agntpr/internal/reanchor"
 )
 
-// LandState is the honest integration state of a settled revision. Integrate-on-
-// tip (the {clean|conflict|checks-red} verdict on a rebased tree) is a later
-// brick; until it exists the pipe reports Unintegrated rather than a fake
-// "merged" — "Landed" is not "Merged".
+// LandState is the integration verdict for a settled revision: the result of
+// rebasing the fix onto the current trunk tip and running the checks on the
+// integrated tree. It is computed on the tree that actually integrates, so the
+// catch is never priced against a stale pre-integration base — "Landed" is not
+// "Merged" until this verdict is LandClean.
 type LandState string
 
-// Unintegrated means the revision has not been integrated onto trunk tip: no
-// rebase, no integrated checks have run. It is never to be read as merged.
-const Unintegrated LandState = "unintegrated"
+const (
+	// LandClean: the fix rebases onto trunk tip with no conflict AND the
+	// integrated tree's checks pass — the fix genuinely integrates.
+	LandClean LandState = "clean"
+	// LandConflict: the fix conflicts textually with trunk tip and cannot
+	// integrate without a manual rebase. Checks are not run (nothing to check).
+	LandConflict LandState = "conflict"
+	// LandChecksRed: the fix rebases cleanly but the integrated tree's checks
+	// fail — a fix green in isolation is a regression once integrated.
+	LandChecksRed LandState = "checks_red"
+)
 
 // CycleResult is the outcome of running one confirmed-catch cycle over two
 // revisions: the catch verdict, the re-anchored anchor at the fix revision
@@ -54,7 +63,7 @@ type CycleResult struct {
 // LineStates, and routes them through CatchAcross — the authoritative,
 // fail-closed gate. The verdict logic lives in CatchAcross/catch.Detect; this
 // driver is the git+oracle orchestration around it.
-func RunCatchCycle(ctx context.Context, repoDir, baseRev, fixRev string, anchor reanchor.Anchor, testCmd []string) (CycleResult, error) {
+func RunCatchCycle(ctx context.Context, repoDir, baseRev, fixRev, tipRev string, anchor reanchor.Anchor, testCmd []string) (CycleResult, error) {
 	var trace []string
 
 	baseRes, srcBase, err := runOracleAt(ctx, repoDir, baseRev, anchor.Path, anchor.Start, testCmd)
@@ -99,10 +108,72 @@ func RunCatchCycle(ctx context.Context, repoDir, baseRev, fixRev string, anchor 
 	}
 	trace = append(trace, fmt.Sprintf("catch: %s", outcome))
 
+	land, err := integrateOnTip(ctx, repoDir, fixRev, tipRev, testCmd)
+	if err != nil {
+		return CycleResult{}, err
+	}
+	trace = append(trace, fmt.Sprintf("land: %s", land))
+
 	return CycleResult{
-		Outcome: outcome, Reason: reason, Path: outPath, Line: outLine, Land: Unintegrated, Trace: trace,
+		Outcome: outcome, Reason: reason, Path: outPath, Line: outLine, Land: land, Trace: trace,
 		Before: beforeLS, After: afterLS,
 	}, nil
+}
+
+// integrateOnTip computes the integration verdict for the fix against trunk tip:
+// it rebases fixRev onto tipRev in a throwaway detached worktree and runs the
+// checks on the INTEGRATED tree. A textual conflict short-circuits to
+// LandConflict (no checks — there is nothing coherent to check); a clean rebase
+// runs testCmd, green → LandClean, red → LandChecksRed (a fix green in isolation
+// regressing once integrated). The catch is minted on the base revisions; this
+// verdict is the orthogonal answer to "does it integrate", never folded into it.
+//
+// This is ONE serialized integration lane per call. A multi-card server MUST
+// route Land through a single queue and never fan out N concurrent rebases onto
+// a shared tip (the O(N^2)/8N contention regime) — the verdict is meaningless if
+// the tip it integrates onto is itself racing.
+func integrateOnTip(ctx context.Context, repoDir, fixRev, tipRev string, testCmd []string) (LandState, error) {
+	// Fail closed like mutation.Run's runTests, not with a panic: an
+	// operator-free anchored line lets the oracle return 0 mutants without ever
+	// tripping its own empty-testCmd guard, so this is the first place an empty
+	// testCmd is observed — and the clean-rebase path below would index
+	// testCmd[0]/testCmd[1:].
+	if len(testCmd) == 0 {
+		return "", fmt.Errorf("pipe: empty test command")
+	}
+	parent, err := os.MkdirTemp("", "agntpr-land-*")
+	if err != nil {
+		return "", fmt.Errorf("pipe: temp worktree dir: %w", err)
+	}
+	defer os.RemoveAll(parent)
+	wt := filepath.Join(parent, "wt")
+	if _, err := git(ctx, repoDir, "worktree", "add", "--detach", wt, fixRev); err != nil {
+		return "", err
+	}
+	// Same cleanup discipline as runOracleAt: clean up against context.Background()
+	// so a cancelled parent ctx can't strand a .git/worktrees entry in the prod repo.
+	defer func() {
+		git(context.Background(), repoDir, "worktree", "remove", "--force", wt) //nolint:errcheck // best-effort cleanup
+		git(context.Background(), repoDir, "worktree", "prune")                 //nolint:errcheck // reaps a remove that couldn't run
+	}()
+
+	// Replay the fix's commits (merge-base(tipRev,fixRev)..fixRev) onto tipRev. A
+	// non-zero exit is a textual conflict; abort it (so the worktree is clean for
+	// removal) and report the conflict without running checks.
+	if _, err := git(ctx, wt, "rebase", tipRev); err != nil {
+		git(context.Background(), wt, "rebase", "--abort") //nolint:errcheck // clears the in-progress rebase before removal
+		return LandConflict, nil
+	}
+
+	// Clean rebase: run the checks on the integrated tree via controlled exec and
+	// read the real exit code (not an agent's shell), so a masked failure can't
+	// read as green.
+	check := exec.CommandContext(ctx, testCmd[0], testCmd[1:]...)
+	check.Dir = wt
+	if err := check.Run(); err != nil {
+		return LandChecksRed, nil
+	}
+	return LandClean, nil
 }
 
 // runOracleAt materializes rev in a throwaway detached worktree, runs the
