@@ -55,9 +55,6 @@ func anchorLine4(path string) reanchor.Anchor {
 	return reanchor.Anchor{Path: path, Start: 4, End: 4, LineHash: reanchor.HashLines("\treturn a >= b")}
 }
 
-// The phantom-catch guard: across a rename, re-anchoring loses the line, so even
-// a would-have-cleared after-state must NOT mint a catch — the join refuses it
-// by construction, where a naive catch.Detect on the same data would say Catch.
 func TestCatchAcross_refusesPhantomCatchOnNeutralRename(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -77,8 +74,6 @@ func TestCatchAcross_refusesPhantomCatchOnNeutralRename(t *testing.T) {
 	assert.Equal(t, catch.NoOracleSignal, got)
 }
 
-// A genuine catch on a surviving (shifted) anchor must still mint — the guard
-// must not over-suppress when re-anchoring succeeds as Moved.
 func TestCatchAcross_mintsCatchWhenAnchorSurvivesAsMoved(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -95,8 +90,6 @@ func TestCatchAcross_mintsCatchWhenAnchorSurvivesAsMoved(t *testing.T) {
 	assert.Equal(t, catch.Catch, got)
 }
 
-// When the anchored line itself is edited, re-anchoring outdates it; no catch
-// may be minted regardless of the after-state passed in.
 func TestCatchAcross_refusesCatchWhenEditOverlapsAnchor(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -113,8 +106,6 @@ func TestCatchAcross_refusesCatchWhenEditOverlapsAnchor(t *testing.T) {
 	assert.Equal(t, catch.NoOracleSignal, got)
 }
 
-// When the anchored file is untouched (re-anchor Same), the join delegates to
-// Detect and a real survivor→empty transition mints a catch.
 func TestCatchAcross_delegatesToDetectWhenFileUnchanged(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -132,8 +123,6 @@ func TestCatchAcross_delegatesToDetectWhenFileUnchanged(t *testing.T) {
 	assert.Equal(t, catch.Catch, got)
 }
 
-// Delegation is not hard-wired to Catch: an unchanged file whose anchor had no
-// survivors to begin with yields NoCatch.
 func TestCatchAcross_delegatesNoCatchWhenNothingWasWeak(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)

@@ -47,8 +47,6 @@ func resolveTo(t *testing.T, verdict, marker string) string {
 	return vt.AwaitFrame(t, frames, 2*time.Second, marker)
 }
 
-// Before any oracle verdict arrives, the card must render a designed in-flight
-// state — not a blank/empty card a reviewer would read as "broken".
 func TestReviewCard_rendersDesignedInFlightStateBeforeAnyVerdict(t *testing.T) {
 	t.Parallel()
 	_, tc := newCard(t)
@@ -57,28 +55,18 @@ func TestReviewCard_rendersDesignedInFlightStateBeforeAnyVerdict(t *testing.T) {
 	assert.Contains(t, html, "running")
 }
 
-// A Catch is the economy's reward beat: it must resolve to an affirmative
-// "caught" state, distinctly marked.
 func TestReviewCard_rendersCatchAsAffirmativeCaughtState(t *testing.T) {
 	t.Parallel()
 	frame := resolveTo(t, string(catch.Catch), `data-state="catch"`)
 	assert.Contains(t, frame, "Caught")
 }
 
-// The most common screen — the oracle ran and the line is fully constrained
-// (zero survivors) — must read as an affirmative "tested, ship it" beat, never
-// as empty or error chrome (the UX non-negotiable from Round 8).
 func TestReviewCard_rendersZeroSurvivorAsTestedNotEmpty(t *testing.T) {
 	t.Parallel()
 	frame := resolveTo(t, surface.Tested, `data-state="tested"`)
 	assert.Contains(t, frame, "ship it")
 }
 
-// NoOracleSignal ("the oracle is blind here") must be VISUALLY DISTINCT from a
-// Catch and must never wear a success claim — conflating "no signal" with
-// "verified caught" is the exact lie the oracle exists to prevent. (This also
-// defeats a dump-everything View: a card that rendered every state at once
-// would carry the catch markers into the blind frame.)
 func TestReviewCard_rendersNoOracleSignalDistinctFromCatch(t *testing.T) {
 	t.Parallel()
 	caught := resolveTo(t, string(catch.Catch), `data-state="catch"`)
@@ -89,8 +77,6 @@ func TestReviewCard_rendersNoOracleSignalDistinctFromCatch(t *testing.T) {
 	assert.NotContains(t, blind, "Caught", "a no-signal line must never claim a catch")
 }
 
-// Each of the four catch outcomes maps to its own distinct rendered state, so a
-// reviewer can tell them apart at a glance.
 func TestReviewCard_rendersEachCatchOutcomeAsADistinctState(t *testing.T) {
 	t.Parallel()
 	cases := map[catch.Outcome]string{
@@ -110,8 +96,6 @@ func TestReviewCard_rendersEachCatchOutcomeAsADistinctState(t *testing.T) {
 	}
 }
 
-// The first review screen carries NO economy meters (Focus/Trust/Treasury) —
-// the surface is built before, and validated independently of, the economy.
 func TestReviewCard_carriesNoEconomyMetersOnTheFirstScreen(t *testing.T) {
 	t.Parallel()
 	frame := resolveTo(t, string(catch.Catch), `data-state="catch"`)
@@ -120,9 +104,6 @@ func TestReviewCard_carriesNoEconomyMetersOnTheFirstScreen(t *testing.T) {
 	}
 }
 
-// A verdict arriving after the in-flight state must stream in as a live SSE
-// patch — the reviewer sees the card resolve in place, with no full reload —
-// and this must hold for every outcome, not just a catch.
 func TestReviewCard_streamsEachVerdictAsLivePatch(t *testing.T) {
 	t.Parallel()
 	c, tc := newCard(t)
@@ -144,11 +125,6 @@ func TestReviewCard_streamsEachVerdictAsLivePatch(t *testing.T) {
 	}
 }
 
-// An unrecognized verdict (a buggy or hostile orchestrator delivering a string
-// outside the known vocabulary) must resolve to the neutral in-flight state —
-// never panic, and never borrow a catch/success beat the oracle did not earn.
-// "The oracle said something we don't understand" is the same as "the oracle
-// has not spoken", not "verified caught".
 func TestReviewCard_unknownVerdictResolvesToInFlightNotASuccessClaim(t *testing.T) {
 	t.Parallel()
 	frame := resolveTo(t, "wat-is-this-verdict", `data-state="in-flight"`)
@@ -163,11 +139,6 @@ func TestReviewCard_unknownVerdictResolvesToInFlightNotASuccessClaim(t *testing.
 	}
 }
 
-// The verdict string is client-supplied (it rides in over the action signal),
-// so a hostile value must never break out of the data-state attribute or inject
-// markup. The rendered state is a fixed server-chosen token, not the raw
-// signal: a verdict packed with attribute-breakout chars still lands on a clean
-// in-flight token with no surviving raw quote/bracket sequence.
 func TestReviewCard_hostileVerdictCannotBreakOutOfTheStateAttribute(t *testing.T) {
 	t.Parallel()
 	frame := resolveTo(t, `"><script>alert(1)</script>`, `data-state="in-flight"`)

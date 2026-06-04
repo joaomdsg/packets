@@ -122,8 +122,6 @@ func TestReanchor_outdatesAnchorWhenEditedLinesOverlap(t *testing.T) {
 	assert.Equal(t, "f.txt", got.Path)
 }
 
-// A line-number shift that lands on content NOT matching the stored hash must
-// outdate, never mis-anchor onto the wrong code — the conservative §28 fallback.
 func TestReanchor_outdatesWhenMovedContentHashMismatches(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -157,8 +155,6 @@ func TestReanchor_outdatesAnchorWhenFileDeleted(t *testing.T) {
 	assert.Equal(t, "f.txt", got.Path)
 }
 
-// A rename must surface as a DISTINCT LostViaRename state carrying the new
-// path — never a silent drop and never a phantom re-anchor onto stale lines.
 func TestReanchor_marksLostViaRenameWithNewPath(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -175,8 +171,6 @@ func TestReanchor_marksLostViaRenameWithNewPath(t *testing.T) {
 	assert.Equal(t, "renamed.txt", got.Path)
 }
 
-// Deltas from several hunks above the anchor must accumulate (§28 sums them);
-// a naive impl that shifts by only the first hunk would mis-anchor.
 func TestReanchor_accumulatesDeltaFromMultipleHunksAbove(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -202,10 +196,6 @@ func TestReanchor_accumulatesDeltaFromMultipleHunksAbove(t *testing.T) {
 	assert.Equal(t, 37, got.End)
 }
 
-// A change far ABOVE the anchor (beyond git's context window, so the hunk's
-// old range never reaches it) must re-anchor, not outdate. A change within the
-// context window is conservatively outdated (see the overlap test) — §28
-// prefers a false-outdated to a mis-anchored comment.
 func TestReanchor_reanchorsWhenChangeIsFarAboveAnchor(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -227,8 +217,6 @@ func TestReanchor_reanchorsWhenChangeIsFarAboveAnchor(t *testing.T) {
 	assert.Equal(t, 22, got.End)
 }
 
-// A stale anchor whose shifted range falls beyond the end of the file must
-// outdate, not panic on an out-of-range slice (§28 EOF clamping).
 func TestReanchor_outdatesAnchorBeyondEndOfFile(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)

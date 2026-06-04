@@ -47,10 +47,6 @@ func firstIndexContaining(trace []string, sub string) int {
 	return -1
 }
 
-// The headline of the whole economy: an agent strengthens the test ONLY (the
-// anchored source line is untouched), turning a weakly-tested line into a
-// constrained one, and the pipe mints a real Catch from two real settles — the
-// first logged economy transaction, surfaced as one discrete, replayable beat.
 func TestRunCatchCycle_mintsCatchWhenAgentStrengthensTestOnly(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -80,10 +76,6 @@ func TestRunCatchCycle_mintsCatchWhenAgentStrengthensTestOnly(t *testing.T) {
 	assert.Greater(t, catchAt, settledFixAt, "the catch beat comes after both settle beats — a human can point to the mint")
 }
 
-// When unrelated lines shift the anchored line between revisions, the cycle
-// must re-anchor and run the fix oracle at the MOVED line — minting the catch
-// at the new coordinates, not the stale ones. This exercises the pipe's Moved
-// branch and proves the re-anchored line drives the fix-revision oracle scope.
 func TestRunCatchCycle_mintsCatchAtReanchoredLineWhenAnchorMoves(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -104,10 +96,6 @@ func TestRunCatchCycle_mintsCatchAtReanchoredLineWhenAnchorMoves(t *testing.T) {
 	assert.Equal(t, 6, res.Line, "the anchor moved down by the two prepended lines")
 }
 
-// Production hygiene: every cycle materializes throwaway git worktrees in the
-// caller's repo; after the cycle the repo must hold no leaked worktree admin
-// metadata (.git/worktrees), or a long-lived production repo accumulates stale
-// entries cycle after cycle.
 func TestRunCatchCycle_leavesNoWorktreeMetadataInRepo(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -127,11 +115,6 @@ func TestRunCatchCycle_leavesNoWorktreeMetadataInRepo(t *testing.T) {
 	}
 }
 
-// Cross-layer safety finding: when the fix EDITS the anchored line (a real
-// behavior change), the re-anchor gate reports Outdated and the pipe yields
-// NoOracleSignal — it never mints a phantom Catch. The reanchor gate dominates
-// for edited lines, firing BEFORE catch.Detect's inventory-change rule (which
-// is belt-and-suspenders, covered at the catch unit level).
 func TestRunCatchCycle_refusesCatchWhenFixEditsAnchoredLine(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)

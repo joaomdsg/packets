@@ -48,12 +48,6 @@ func write(t *testing.T, dir, name, content string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
 }
 
-// CARNAGE BASELINE (Clash G): a behavior-preserving rename of many files — the
-// safest possible refactor — orphans EVERY thread anchored in those files. The
-// re-anchor cliff turns each rename into a LostViaRename, so a 40-file rename
-// loses 40 threads. This asserts the damage the refactor-aware re-anchor work
-// must eventually absorb; it should flip to zero orphans the day renames carry
-// their anchors across.
 func TestRefactorTrace_largeRenameOrphansEveryAnchoredThread(t *testing.T) {
 	t.Parallel()
 	const n = 40
@@ -79,11 +73,6 @@ func TestRefactorTrace_largeRenameOrphansEveryAnchoredThread(t *testing.T) {
 	assert.Equal(t, n, orphaned, "every anchored thread is orphaned by the rename cliff (carnage baseline)")
 }
 
-// CARNAGE BASELINE (Clash G, stresses #1's identity key): across a neutral
-// rename, an anchor cannot survive — re-anchoring reports LostViaRename, so the
-// confirmed-catch oracle can form NO valid before/after pair on that line and
-// must never mint a Catch. A renamed-but-behavior-identical file is exactly the
-// case a naive "same line, same survivor-set" check would mis-credit.
 func TestRefactorTrace_neutralRenameYieldsLostViaRenameNotACatch(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
@@ -103,11 +92,6 @@ func TestRefactorTrace_neutralRenameYieldsLostViaRenameNotACatch(t *testing.T) {
 	assert.NotEqual(t, reanchor.Moved, got.State)
 }
 
-// CARNAGE BASELINE (Clash G, extract-module invisibility): moving a function
-// from one file to another is invisible to BOTH halves of the pipe. The diff
-// cannot link source→destination (it is a deletion in A and an addition in B,
-// not a rename), and the mutation oracle re-mutates the relocated operators as
-// net-new mutable sites — re-litigating behavior that was merely moved.
 func TestRefactorTrace_extractModuleIsInvisibleToDiffAndReMutated(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
