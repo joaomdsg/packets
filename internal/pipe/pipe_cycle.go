@@ -76,13 +76,31 @@ type CycleResult struct {
 // fail-closed gate. The verdict logic lives in CatchAcross/catch.Detect; this
 // driver is the git+oracle orchestration around it.
 func RunCatchCycle(ctx context.Context, repoDir, baseRev, fixRev, tipRev string, anchor reanchor.Anchor, testCmd []string) (CycleResult, error) {
+	return RunCatchCycleStreaming(ctx, repoDir, baseRev, fixRev, tipRev, anchor, testCmd, nil)
+}
+
+// RunCatchCycleStreaming is RunCatchCycle with a live beats channel: it emits
+// each TraceEvent on `beats` AT its real transition (in addition to the returned
+// CycleResult.Trace), so a consumer can stream the felt loop beat-by-beat instead
+// of seeing one terminal snap. `beats` must be buffered to at least the beat count
+// (≈6) or drained concurrently — sends are synchronous; a nil channel is the
+// non-streaming path (RunCatchCycle). The verdict/Land logic is identical.
+func RunCatchCycleStreaming(ctx context.Context, repoDir, baseRev, fixRev, tipRev string, anchor reanchor.Anchor, testCmd []string, beats chan<- TraceEvent) (CycleResult, error) {
 	var trace []TraceEvent
+	emit := func(evs ...TraceEvent) {
+		for _, ev := range evs {
+			trace = append(trace, ev)
+			if beats != nil {
+				beats <- ev
+			}
+		}
+	}
 
 	baseRes, srcBase, err := runOracleAt(ctx, repoDir, baseRev, anchor.Path, anchor.Start, testCmd)
 	if err != nil {
 		return CycleResult{}, err
 	}
-	trace = append(trace,
+	emit(
 		TraceEvent{T: time.Now(), Kind: "settle-base", Msg: fmt.Sprintf("settled base %s", short(baseRev))},
 		TraceEvent{T: time.Now(), Kind: "oracle-base", Msg: fmt.Sprintf("oracle ran base: %d considered", baseRes.MutantsConsidered)})
 	beforeLS, err := catch.LineStateAt(srcBase, anchor.Start, baseRes)
@@ -103,7 +121,7 @@ func RunCatchCycle(ctx context.Context, repoDir, baseRev, fixRev, tipRev string,
 		if runErr != nil {
 			return CycleResult{}, runErr
 		}
-		trace = append(trace,
+		emit(
 			TraceEvent{T: time.Now(), Kind: "settle-fix", Msg: fmt.Sprintf("settled fix %s", short(fixRev))},
 			TraceEvent{T: time.Now(), Kind: "oracle-fix", Msg: fmt.Sprintf("oracle ran fix: %d considered", fixRes.MutantsConsidered)})
 		afterLS, err = catch.LineStateAt(srcFix, ra.Start, fixRes)
@@ -113,20 +131,20 @@ func RunCatchCycle(ctx context.Context, repoDir, baseRev, fixRev, tipRev string,
 	} else {
 		// Anchor lost (Outdated/LostViaRename): the fix settled but no oracle-fix
 		// beat fires — the stream reports the real path taken, not a fixed animation.
-		trace = append(trace, TraceEvent{T: time.Now(), Kind: "settle-fix", Msg: fmt.Sprintf("settled fix %s (anchor %s)", short(fixRev), ra.State)})
+		emit(TraceEvent{T: time.Now(), Kind: "settle-fix", Msg: fmt.Sprintf("settled fix %s (anchor %s)", short(fixRev), ra.State)})
 	}
 
 	outcome, reason, err := CatchAcross(ctx, repoDir, anchor, baseRev, fixRev, beforeLS, afterLS)
 	if err != nil {
 		return CycleResult{}, err
 	}
-	trace = append(trace, TraceEvent{T: time.Now(), Kind: "catch", Msg: fmt.Sprintf("catch: %s", outcome)})
+	emit(TraceEvent{T: time.Now(), Kind: "catch", Msg: fmt.Sprintf("catch: %s", outcome)})
 
 	land, err := integrateOnTip(ctx, repoDir, fixRev, tipRev, testCmd)
 	if err != nil {
 		return CycleResult{}, err
 	}
-	trace = append(trace, TraceEvent{T: time.Now(), Kind: "land", Msg: fmt.Sprintf("land: %s", land)})
+	emit(TraceEvent{T: time.Now(), Kind: "land", Msg: fmt.Sprintf("land: %s", land)})
 
 	return CycleResult{
 		Outcome: outcome, Reason: reason, Path: outPath, Line: outLine, Land: land, Trace: trace,

@@ -38,7 +38,16 @@ type Resolution struct {
 // caller supplies — that cannot be reconstructed later. The caller appends the
 // record to the ledger; Resolve performs no log I/O of its own.
 func Resolve(ctx context.Context, repoDir, baseRev, fixRev, tipRev string, anchor reanchor.Anchor, testCmd []string, selfFlagged, wouldHaveShipped bool) (Resolution, error) {
-	res, err := pipe.RunCatchCycle(ctx, repoDir, baseRev, fixRev, tipRev, anchor, testCmd)
+	return ResolveStreaming(ctx, repoDir, baseRev, fixRev, tipRev, anchor, testCmd, selfFlagged, wouldHaveShipped, nil)
+}
+
+// ResolveStreaming is Resolve with a live beats channel threaded to the cycle, so
+// the live card can stream each beat as its own SSE patch (the felt loop). The
+// returned Resolution is identical to Resolve's; `beats` (nil for the
+// non-streaming path) receives each TraceEvent at its real transition and must be
+// buffered or drained concurrently by the caller.
+func ResolveStreaming(ctx context.Context, repoDir, baseRev, fixRev, tipRev string, anchor reanchor.Anchor, testCmd []string, selfFlagged, wouldHaveShipped bool, beats chan<- pipe.TraceEvent) (Resolution, error) {
+	res, err := pipe.RunCatchCycleStreaming(ctx, repoDir, baseRev, fixRev, tipRev, anchor, testCmd, beats)
 	if err != nil {
 		return Resolution{}, err
 	}

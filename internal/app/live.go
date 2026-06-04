@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,29 +59,36 @@ func readLiveState() (LiveConfig, *ledger.Log) {
 type LiveCard struct {
 	Verdict via.StateTabStr
 	Land    via.StateTabStr
+	Beats   via.StateTabStr
 }
 
-// View renders two orthogonal rows via the shared surface rendering: the oracle
-// verdict row and the integration (Land) row. One row never speaks for the
-// other — a quiet catch verdict and a clean integration are separate facts.
+// View renders three orthogonal rows via the shared surface rendering: the
+// streamed beat row (the felt tempo, accruing live), the oracle verdict row, and
+// the integration (Land) row. One row never speaks for another — the beats are
+// the loop's progress, the verdict and Land its terminal facts.
 func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	return h.Div(
+		surface.RenderBeats(c.Beats.Read(ctx)),
 		surface.RenderVerdict(c.Verdict.Read(ctx)),
 		surface.RenderLand(pipe.LandState(c.Land.Read(ctx))),
 	)
 }
 
-// OnConnect kicks off the catch cycle for this card and streams the verdict and
-// the integration verdict in when it completes. The cycle runs in a goroutine
-// (it is seconds of real oracle + rebase work); a short Stream poll writes both
-// the moment they are ready, flushing a single in-flight → resolved SSE patch.
+// OnConnect kicks off the catch cycle and streams its beats live: each pipe
+// transition (settle-base → oracle-base → … → catch → land) is flushed to the
+// beat row as it happens, and the verdict + Land rows resolve only when the cycle
+// completes. So the human feels the loop's tempo over the seconds of real oracle +
+// rebase work, instead of watching a spinner snap to a verdict. The beats channel
+// is buffered past the beat count so the cycle never blocks on a slow/gone client.
 func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 	cfg, log := readLiveState()
 	type resolved struct{ verdict, land string }
+	beats := make(chan pipe.TraceEvent, 16)
 	result := make(chan resolved, 1)
 	go func() {
-		res, err := Resolve(context.Background(), cfg.RepoDir, cfg.BaseRev, cfg.FixRev, cfg.TipRev,
-			cfg.Anchor, cfg.TestCmd, cfg.SelfFlagged, cfg.WouldHaveShipped)
+		res, err := ResolveStreaming(context.Background(), cfg.RepoDir, cfg.BaseRev, cfg.FixRev, cfg.TipRev,
+			cfg.Anchor, cfg.TestCmd, cfg.SelfFlagged, cfg.WouldHaveShipped, beats)
+		close(beats)
 		if err != nil {
 			result <- resolved{} // leave the card in-flight on a cycle error
 			return
@@ -90,7 +98,22 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 		}
 		result <- resolved{verdict: res.Verdict, land: string(res.Land)}
 	}()
+	var accrued []string
 	via.Stream(ctx, 100*time.Millisecond, func(ctx *via.Ctx, _ time.Time) {
+		for { // drain every beat available this tick, flushing the growing row
+			select {
+			case ev, ok := <-beats:
+				if !ok {
+					beats = nil // closed: stop selecting on it (a nil channel never fires)
+					break
+				}
+				accrued = append(accrued, ev.Kind)
+				c.Beats.Write(ctx, strings.Join(accrued, ","))
+				continue
+			default:
+			}
+			break
+		}
 		select {
 		case r := <-result:
 			c.Verdict.Write(ctx, r.verdict)
