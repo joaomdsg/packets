@@ -287,6 +287,45 @@ plus an "amends/superseded-by" table atop each doc.
 Concrete defects/limitations found while BUILDING the slices (distinct from the
 design risks above, which are about the spec). Each: where, the finding, the fix.
 
+### Confidently-wrong quiet verdict on the served card (slice: the §17 wire) — FIXED 2026-06-04
+
+- **Where:** `internal/pipe/pipe.go` `CatchAcross`, `internal/pipe/pipe_cycle.go`
+  `CycleResult`, `internal/surface/present.go` `PresentVerdict`,
+  `internal/surface/card.go` `present()`.
+- **Finding (surfaced by Council Round 11, all six lenses, in shipped code):** the
+  served review card (#10 wire) resolved a renamed OR edited anchor to a calm,
+  terminal verdict reading "This line has no mutable operator — the oracle cannot
+  speak to it." This was a CONFIDENT FALSEHOOD: `catch.NoOracleSignal` was triple-
+  overloaded across two seams — `catch.Detect` returns it for a genuinely operator-
+  free line (catch.go:52-54), and `CatchAcross` fail-closed BOTH `reanchor.Outdated`
+  (edited anchor) and `reanchor.LostViaRename` (renamed file) to it. `reanchor.State`
+  distinguished all four states but `CycleResult` carried only `Outcome`, dropping the
+  State before the presenter could see it. The roadmap's earlier framing ("a renamed
+  file spins 'Oracle running…' forever") was itself wrong — the card RESOLVED to a
+  false terminal, which is worse than an honest spinner. This is precisely the
+  confidently-wrong-terminal the confirmed-catch economy exists to prevent, living in
+  the surface; it re-opened Clash G at the surface layer (resolved-at-oracle ≠
+  honest-at-surface).
+- **Fix:** a typed `pipe.Reason` {ReasonNone | ReasonNoMutableOperator |
+  ReasonAnchorEdited | ReasonFileRenamed} carried as a dimension ORTHOGONAL to
+  `catch.Outcome` (the economy/ledger token is unchanged) — `CatchAcross` returns it,
+  `CycleResult` threads it. `PresentVerdict` splits a `NoOracleSignal` verdict by
+  reason into three honest tokens (`surface.LostViaRename` / `surface.AnchorEdited` /
+  the operator-free `no_oracle_signal`, kept only where that copy is true), each a
+  distinct card data-state with a true detail. Gate tests:
+  `TestResolve_rendersLostViaRenameVerdictForARenamedAnchor` (real rename end-to-end
+  through the seam) + `TestReviewCard_rendersLostViaRenameWithoutClaimingNoOperator`.
+  This also establishes the seam rule (Clash C, elevated to binding): every verdict
+  dimension is an orthogonal typed field, never a new meaning on `NoOracleSignal` —
+  integrate-on-tip's `Land` (#12) must follow the same pattern.
+- **Residual (deferred, council #11.5):** rename detection is git `--find-renames`
+  similarity-threshold based — a heavily-edited rename degrades to delete+add →
+  `statusDeleted` → `Outdated` → `ReasonAnchorEdited`. Still honest (no phantom catch;
+  the card says "edited" not "renamed", not actively false), but coarser than the
+  true cause. The fix must at minimum never assert a false cause; tightening detection
+  or admitting threshold-uncertainty in the copy is the fast-follow (tracks the
+  re-anchor rename-similarity-cliff finding above).
+
 ### Non-ASCII paths break re-anchor + diff path-matching (slice: re-anchoring)
 
 - **Where:** `internal/reanchor/reanchor.go` `fileStatus` (name-status parse) and

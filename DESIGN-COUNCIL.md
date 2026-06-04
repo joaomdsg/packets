@@ -220,6 +220,15 @@ resolution, **the experiment that settles it**, and a blank verdict.
   TYPED field on CycleResult, NEVER a new meaning bolted onto an existing Outcome
   token. #12 MUST reuse #11's widened-seam pattern. STILL OPEN on the scoring
   question; the seam discipline is now decided.
+- **Verdict (post-build, round 11 #11 — the seam discipline DEMONSTRATED in code):**
+  the rule is no longer prose: `pipe.Reason` ships as a typed field on
+  `CycleResult` ORTHOGONAL to `catch.Outcome` (the economy/ledger token is byte-for-
+  byte unchanged — `catch.Detect` and `ledger.ShouldRecord` untouched). `CatchAcross`
+  now returns `(Outcome, Reason, error)`; the three quiet causes are three distinct
+  values, asserted distinct end-to-end. This is the concrete template #12's `Land`
+  ({clean|conflict|checks-red}, already stubbed) must follow — a new dimension is a
+  new field, never a new meaning on `NoOracleSignal`. STILL OPEN on downstream-truth
+  scoring (integrate-on-tip #12); the seam pattern is now load-bearing code.
 
 ### Clash D — Does the fleet (1:N) actually scale, or cap at N≈2–3?
 
@@ -371,6 +380,18 @@ resolution, **the experiment that settles it**, and a blank verdict.
   terminal. CLOSING GATE: Round-11 #11's httptest SSE renamed-file fixture asserting
   the card names the rename and does NOT claim "no mutable operator". RE-OPENED
   (sub-target-level; not a new clash).
+- **Verdict (post-build, round 11 #11 — surface honesty RESOLVED-IN-CODE):** the
+  closing gate is GREEN. `TestResolve_rendersLostViaRenameVerdictForARenamedAnchor`
+  drives a REAL renamed anchor end-to-end through the seam (settle→reanchor→
+  CatchAcross→PresentVerdict) and asserts the verdict reaches the card as
+  `surface.LostViaRename`, NOT the false operator-free token;
+  `TestReviewCard_rendersLostViaRenameWithoutClaimingNoOperator` asserts the
+  rendered card names the rename and `NotContains "no mutable operator"`. A renamed
+  file no longer lies on the surface. RESIDUAL (not a new clash): the rename-cliff
+  itself is similarity-threshold based — a heavily-edited rename degrades to
+  Outdated→AnchorEdited (still honest, not a phantom catch, but coarser); council
+  #11.5 fast-follow. Refactor is now an honest-at-surface task-type for the
+  detected-rename case.
 
 ### Clash H — Trust Ledger: power-fantasy or self-assessment dread?
 
@@ -408,7 +429,7 @@ The signature bets, and their status. Fill `Validated?` after builds.
 | Merge-queue-as-integrator          | CI/CD     | low-risk, standard practice | _TBD_ → roadmap #6: single-lane queue wrapping integrate-on-tip (#5); experiment = throughput-to-zero on K branches; designed-in to avoid O(N²)/8N contention |
 | Focus as central resource          | Systems   | adopted, render-risk (Clash A) | _TBD_ |
 | Speculative integration preview    | CI/CD     | high value, infra cost | _TBD_ |
-| Characterization Gate + replay     | Refactor  | high value, scoped to refactors | _TBD_ → roadmap #2 (concurrent w/ #1): adversarial refactor trace as RED baselines (rename_40 / rename_neutral_move / extract_module); settles Clash G, de-risks #1's re-anchor sub-brick |
+| Characterization Gate + replay     | Refactor  | high value, scoped to refactors | _TBD_ → roadmap #2 (concurrent w/ #1): adversarial refactor trace as RED baselines (rename_40 / rename_neutral_move / extract_module); settles Clash G, de-risks #1's re-anchor sub-brick. **R11 #11: Clash G's surface-honesty half RESOLVED-IN-CODE** — a renamed/edited anchor now renders a distinct, TRUE terminal card (`surface.LostViaRename`/`AnchorEdited`) instead of the false "no mutable operator"; the refactor task-type is honest-at-surface for the detected-rename case (residual: rename-cliff coarsening → #11.5) |
 | Time-travel review                 | UX        | distinctive, value-unproven (Clash I) | _TBD_ |
 | Delegation Tiers (Ascension)       | Game      | late-game depth, premature | _TBD_ |
 | Shadow Review (anti-survivorship)  | Systems   | elegant, token-cost unclear | _TBD_ |
