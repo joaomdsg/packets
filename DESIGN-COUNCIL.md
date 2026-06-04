@@ -300,6 +300,21 @@ resolution, **the experiment that settles it**, and a blank verdict.
   agent-edits-anchored-line → NoCatch end-to-end through the real reanchor path).
   Logged v1 risk: set-not-multiset keying under-credits killing one of two
   same-operator survivors on a line.
+- **Verdict (post-build, #3 pipe — the loop now RESOLVED-IN-CODE):** the §17
+  pipe (`internal/pipe.RunCatchCycle`) mints the catch from TWO REAL revisions
+  end-to-end (settle→worktree→mutation×2→reanchor→CatchAcross→Detect): an
+  agent strengthening the test only mints a real Catch; editing the anchored
+  line yields NoOracleSignal end-to-end. `catch.Detect` now has a prod caller
+  and is exercised against real settles, not literals. Clash F is
+  RESOLVED-IN-CODE on BOTH the unit and the loop. What remains is ECONOMY, not
+  oracle: the Catch is computed but not yet PERSISTED as a ledger record
+  (capture-at-mint, roadmap #7), and is minted on pre-integration coordinates
+  (integrate-on-tip, #5). New cross-layer finding logged: the reanchor gate
+  (edited line → Outdated → NoOracleSignal) fires BEFORE Detect's
+  inventory-change NoCatch rule, so end-to-end an edited anchored line reads as
+  NoOracleSignal, not NoCatch — both safe (no phantom), but a consumer can't
+  distinguish "line edited" from "operator-free" (see also the NoOracleSignal
+  overload note for the next round).
 
 ### Clash G — One unified review model, or a refactor fork?
 
@@ -359,7 +374,7 @@ The signature bets, and their status. Fill `Validated?` after builds.
 
 | Swing                              | By        | Status        | Validated? |
 |------------------------------------|-----------|---------------|------------|
-| Mutation-driven adversarial review | TDD       | high conviction | **validated** + two-revision CONFIRMED-CATCH unit SHIPPED green (R9): typed tri-state `Detect` over operator inventory, refusal arms TESTED. Pending: first REAL mint through the §17 pipe (#3) — `Detect` has zero prod callers, never run on two real revisions |
+| Mutation-driven adversarial review | TDD       | high conviction | **validated** + CONFIRMED-CATCH now minted END-TO-END through the §17 pipe (`internal/pipe.RunCatchCycle`, #3): two real settles → worktree mutation×2 → reanchor → CatchAcross → real Catch; edited-anchor → NoOracleSignal. Clash F resolved-in-code on unit AND loop. Pending: persist the Catch as a ledger record (#7) + integrate-on-tip coords (#5) |
 | Trust Ledger (calibrated delegation)| Game     | spine, framing-risk (Clash H) | _TBD_ |
 | Merge-queue-as-integrator          | CI/CD     | low-risk, standard practice | _TBD_ → roadmap #6: single-lane queue wrapping integrate-on-tip (#5); experiment = throughput-to-zero on K branches; designed-in to avoid O(N²)/8N contention |
 | Focus as central resource          | Systems   | adopted, render-risk (Clash A) | _TBD_ |
