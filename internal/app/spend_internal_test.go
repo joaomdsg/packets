@@ -31,8 +31,8 @@ func TestLiveCard_spendVerbDrainsTheBalanceRowOverSSE(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
 	seed, err := ledger.Open(logPath)
 	require.NoError(t, err)
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, ReasonTag: "catch"}))
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, ReasonTag: "catch"}))
+	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"}))
+	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 2, ReasonTag: "catch"})) // distinct identity: 2 catches, not a re-mint
 	require.NoError(t, seed.Close())
 
 	var server *httptest.Server

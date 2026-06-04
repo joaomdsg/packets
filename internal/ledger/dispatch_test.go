@@ -14,8 +14,8 @@ import (
 func TestAppendDispatch_fundsExactlyOneWorkOrderPerDebitConserved(t *testing.T) {
 	t.Parallel()
 	l, _ := openLog(t)
-	require.NoError(t, l.Append(sampleRecord()))
-	require.NoError(t, l.Append(sampleRecord()))
+	require.NoError(t, l.Append(distinctRecord(0)))
+	require.NoError(t, l.Append(distinctRecord(1)))
 
 	require.NoError(t, l.AppendDispatch("dispatch"))
 	require.NoError(t, l.AppendDispatch("dispatch"))
@@ -42,8 +42,8 @@ func TestAppendDispatch_fundsExactlyOneWorkOrderPerDebitConserved(t *testing.T) 
 func TestAppendDispatch_workOrdersReplayFromThePersistedLogAlone(t *testing.T) {
 	t.Parallel()
 	l, path := openLog(t)
-	require.NoError(t, l.Append(sampleRecord()))
-	require.NoError(t, l.Append(sampleRecord()))
+	require.NoError(t, l.Append(distinctRecord(0)))
+	require.NoError(t, l.Append(distinctRecord(1)))
 	require.NoError(t, l.AppendDispatch("dispatch-a"))
 	require.NoError(t, l.AppendDispatch("dispatch-b"))
 	require.NoError(t, l.Close())

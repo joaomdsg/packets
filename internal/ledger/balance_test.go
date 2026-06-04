@@ -25,7 +25,7 @@ func TestBalance_isConfirmedCatchesMinusSpends(t *testing.T) {
 	t.Parallel()
 	l, _ := openLog(t)
 	for i := 0; i < 3; i++ {
-		require.NoError(t, l.Append(sampleRecord()))
+		require.NoError(t, l.Append(distinctRecord(i)))
 	}
 	require.NoError(t, l.AppendSpend(2, "dispatch"))
 
@@ -38,7 +38,7 @@ func TestBalance_replaysIdenticallyFromTheLogAlone(t *testing.T) {
 	t.Parallel()
 	l, path := openLog(t)
 	for i := 0; i < 3; i++ {
-		require.NoError(t, l.Append(sampleRecord()))
+		require.NoError(t, l.Append(distinctRecord(i)))
 	}
 	require.NoError(t, l.AppendSpend(2, "dispatch"))
 
@@ -79,7 +79,7 @@ func TestAppendSpend_allowsSpendingExactlyTheWholeBalanceToZero(t *testing.T) {
 	t.Parallel()
 	l, _ := openLog(t)
 	for i := 0; i < 3; i++ {
-		require.NoError(t, l.Append(sampleRecord()))
+		require.NoError(t, l.Append(distinctRecord(i)))
 	}
 	require.NoError(t, l.AppendSpend(3, "spend it all"), "spending exactly the balance is allowed — the boundary is >=, not >")
 
@@ -93,7 +93,7 @@ func TestAppendSpend_accumulatesSoEachSpendTradesAgainstWhatRemains(t *testing.T
 	t.Parallel()
 	l, _ := openLog(t)
 	for i := 0; i < 3; i++ {
-		require.NoError(t, l.Append(sampleRecord()))
+		require.NoError(t, l.Append(distinctRecord(i)))
 	}
 	require.NoError(t, l.AppendSpend(1, "first"))
 	require.NoError(t, l.AppendSpend(1, "second"))
@@ -112,7 +112,7 @@ func TestRecords_skipsSpendLinesSoTheConfirmedCatchCountStaysClean(t *testing.T)
 	t.Parallel()
 	l, _ := openLog(t)
 	for i := 0; i < 3; i++ {
-		require.NoError(t, l.Append(sampleRecord()))
+		require.NoError(t, l.Append(distinctRecord(i)))
 	}
 	require.NoError(t, l.AppendSpend(1, "dispatch"))
 

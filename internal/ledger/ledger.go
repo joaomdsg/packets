@@ -115,12 +115,36 @@ func (l *Log) Append(r CatchRecord) error {
 	if err != nil {
 		return fmt.Errorf("ledger: marshal record: %w", err)
 	}
+	// Hold the lock across the dedup scan AND the write so the check-then-write is
+	// one atomic step (no two writers both seeing "absent" and both minting).
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	existing, err := l.Records()
+	if err != nil {
+		return err
+	}
+	key := identityKey(r)
+	for _, e := range existing {
+		if identityKey(e) == key {
+			// A catch is identified by (BeforeRev, AfterRev, Path, Line, ReasonTag).
+			// Re-running the same work reproduces the same identity; minting it twice
+			// is the farm. Refuse the duplicate — projected purely from the persisted
+			// log, so the gate survives a reopen (a restart cannot reopen the farm).
+			return fmt.Errorf("ledger: refusing a duplicate catch identity %q — a re-run mints nothing", key)
+		}
+	}
 	if _, err := l.f.Write(append(line, '\n')); err != nil {
 		return fmt.Errorf("ledger: append: %w", err)
 	}
 	return nil
+}
+
+// identityKey is a catch's identity: the tuple that makes two catches the SAME
+// catch — the same anchored line, the same before→after revisions, the same
+// reason. It is the dedup key the farm-denial gate (Append) keys on, and the
+// provenance a re-run is measured against (re-run the SAME identity ⇒ no mint).
+func identityKey(r CatchRecord) string {
+	return fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%s", r.BeforeRev, r.AfterRev, r.Path, r.Line, r.ReasonTag)
 }
 
 // Records reads back every appended CATCH record in order. Spend (debit) lines

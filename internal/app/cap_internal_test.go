@@ -37,7 +37,7 @@ func TestLiveServer_capsConcurrentCyclesAtMaxConcurrentWithoutDroppingAny(t *tes
 	const cap = 2
 	const connects = 4
 
-	var inflight, peak int64
+	var inflight, peak, minted int64
 	entered := make(chan struct{}, connects)
 	release := make(chan struct{})
 
@@ -48,7 +48,10 @@ func TestLiveServer_capsConcurrentCyclesAtMaxConcurrentWithoutDroppingAny(t *tes
 		entered <- struct{}{}
 		<-release // hold the slot until the test lets every admitted cycle go
 		atomic.AddInt64(&inflight, -1)
-		return Resolution{Verdict: string(catch.Catch), Record: &ledger.CatchRecord{Outcome: catch.Catch, ReasonTag: "catch"}}, nil
+		// Each cycle mints a DISTINCT catch identity (distinct Line) so the no-drop
+		// proof counts N records, not 1 collapsed by the identity-dedup gate.
+		n := int(atomic.AddInt64(&minted, 1))
+		return Resolution{Verdict: string(catch.Catch), Record: &ledger.CatchRecord{Outcome: catch.Catch, Line: n, ReasonTag: "catch"}}, nil
 	}
 
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")

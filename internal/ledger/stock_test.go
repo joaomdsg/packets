@@ -55,7 +55,9 @@ func TestConfirmedCatches_isAPureFunctionOfThePersistedRecords(t *testing.T) {
 	l, err := ledger.Open(path)
 	require.NoError(t, err)
 	for i := 0; i < 4; i++ {
-		require.NoError(t, l.Append(catchRec("catch", i%2 == 0, false)))
+		r := catchRec("catch", i%2 == 0, false)
+		r.Line = 4 + i // distinct identities so 4 appends are 4 catches (the dedup keys on the identity tuple)
+		require.NoError(t, l.Append(r))
 	}
 	require.NoError(t, l.Close())
 

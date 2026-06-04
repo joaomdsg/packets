@@ -95,10 +95,12 @@ func TestLiveServer_sharesOneLedgerAcrossConnectsSoTheStockAccumulates(t *testin
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
 
-	// Two SEQUENTIAL connects against the one default liveReg entry: each runs a
-	// cycle that mints a catch into the SAME shared ledger. This is the
-	// characterization snapshot of the single-instance wire (one cfg/log shared by
-	// every connect) the future per-session rewrite must preserve-or-deliberately-change.
+	// Two SEQUENTIAL connects against the one default liveReg entry, each running
+	// the SAME repo/base/fix/anchor cycle. Both reach a Catch verdict, but they
+	// reproduce the SAME catch identity (same revs + anchor), so the identity-dedup
+	// gate (#16e) mints it ONCE — the second connect re-runs the same work and is
+	// an honest no-op, not a second credit. This is the latent double-mint the
+	// gate closes: minting per-connect would have farmed one catch into two.
 	for i := 0; i < 2; i++ {
 		tc := vt.NewClient(t, server, "/")
 		frames, cancel := tc.SSE()
@@ -108,7 +110,7 @@ func TestLiveServer_sharesOneLedgerAcrossConnectsSoTheStockAccumulates(t *testin
 
 	recs, err := log.Records()
 	require.NoError(t, err)
-	assert.Len(t, recs, 2, "both connects appended to the one shared ledger — the stock accumulates across connects")
+	assert.Len(t, recs, 1, "two connects on the SAME cycle mint ONE catch — the re-run reproduces the same identity and is deduped, never double-counted")
 }
 
 func BenchmarkConcurrentCycle(b *testing.B) {

@@ -37,6 +37,12 @@ func sampleRecord() ledger.CatchRecord {
 	}
 }
 
+func distinctRecord(i int) ledger.CatchRecord {
+	r := sampleRecord()
+	r.Line = 4 + i // a distinct anchored line → a distinct catch identity, so N appends are N catches
+	return r
+}
+
 func TestLog_appendThenRecordsPreservesEveryMintTimeField(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "catches.jsonl")
@@ -148,7 +154,7 @@ func TestLog_concurrentAppendAndSpendNeverTearALineOrOverspend(t *testing.T) {
 	// each see "enough" before any writes its debit, overshooting below zero.
 	const seed = 25
 	for i := 0; i < seed; i++ {
-		require.NoError(t, l.Append(sampleRecord()))
+		require.NoError(t, l.Append(distinctRecord(i)))
 	}
 
 	const spenders = 50
