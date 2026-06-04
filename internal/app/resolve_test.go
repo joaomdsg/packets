@@ -14,6 +14,7 @@ import (
 	"github.com/joaomdsg/agntpr/internal/app"
 	"github.com/joaomdsg/agntpr/internal/catch"
 	"github.com/joaomdsg/agntpr/internal/ledger"
+	"github.com/joaomdsg/agntpr/internal/pipe"
 	"github.com/joaomdsg/agntpr/internal/reanchor"
 	"github.com/joaomdsg/agntpr/internal/surface"
 )
@@ -74,7 +75,7 @@ func TestResolve_mintsAndLogsACatchWhenTheTestIsStrengthened(t *testing.T) {
 	write(t, dir, "adult_test.go", strongTest)
 	fix := commitAll(t, dir, "strengthen the test")
 
-	res, err := app.Resolve(context.Background(), dir, base, fix, anchor(), goTestCmd, true, true)
+	res, err := app.Resolve(context.Background(), dir, base, fix, fix, anchor(), goTestCmd, true, true)
 	require.NoError(t, err)
 	assert.Equal(t, string(catch.Catch), res.Verdict)
 	require.NotNil(t, res.Record, "a real mint must produce a record")
@@ -106,7 +107,7 @@ func TestResolve_mintsNothingWhenTheFixEditsTheAnchoredLine(t *testing.T) {
 	write(t, dir, "adult.go", "package adult\n\nfunc IsAdult(age int) bool {\n\treturn age > 18\n}\n")
 	fix := commitAll(t, dir, "edit the anchored line")
 
-	res, err := app.Resolve(context.Background(), dir, base, fix, anchor(), goTestCmd, false, false)
+	res, err := app.Resolve(context.Background(), dir, base, fix, fix, anchor(), goTestCmd, false, false)
 	require.NoError(t, err)
 	assert.Nil(t, res.Record, "an edited anchored line mints nothing to persist")
 	assert.NotEqual(t, string(catch.Catch), res.Verdict, "and never claims a catch over the wire")
@@ -132,7 +133,7 @@ func TestResolve_rendersLostViaRenameVerdictForARenamedAnchor(t *testing.T) {
 	runGit(t, dir, "mv", "adult.go", "grown.go") // identical content → detected rename
 	fix := commitAll(t, dir, "rename adult.go -> grown.go")
 
-	res, err := app.Resolve(context.Background(), dir, base, fix, anchor(), goTestCmd, false, false)
+	res, err := app.Resolve(context.Background(), dir, base, fix, fix, anchor(), goTestCmd, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, surface.LostViaRename, res.Verdict,
 		"a lost-via-rename anchor must reach the card as its own honest verdict, NEVER the false 'no mutable operator' — Clash G's surface closing gate")
@@ -147,7 +148,7 @@ func TestResolve_propagatesACycleError(t *testing.T) {
 	write(t, dir, "adult.go", adultGo)
 	head := commitAll(t, dir, "base")
 
-	_, err := app.Resolve(context.Background(), dir, "deadbeefdeadbeef", head, anchor(), goTestCmd, false, false)
+	_, err := app.Resolve(context.Background(), dir, "deadbeefdeadbeef", head, head, anchor(), goTestCmd, false, false)
 	require.Error(t, err, "a failed cycle (bad revision) must propagate, not silently resolve")
 }
 
@@ -161,8 +162,35 @@ func TestResolve_rendersTestedNotBlindForAnAlreadyStrongLine(t *testing.T) {
 	write(t, dir, "adult.go", strings.Replace(adultPadded, "var Marker = 1", "var Marker = 2", 1))
 	fix := commitAll(t, dir, "behavior-neutral churn far below the anchor")
 
-	res, err := app.Resolve(context.Background(), dir, base, fix, anchor(), goTestCmd, false, false)
+	res, err := app.Resolve(context.Background(), dir, base, fix, fix, anchor(), goTestCmd, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, surface.Tested, res.Verdict, "a verified-strong line reads as Tested, not blind no-signal")
 	assert.Nil(t, res.Record, "no catch to mint on an already-strong line")
+}
+
+func TestResolve_threadsTheTipSoADivergentTrunkReportsLandConflict(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module adultapp\n\ngo 1.23\n")
+	write(t, dir, "adult.go", adultGo)
+	write(t, dir, "adult_test.go", weakTest)
+	base := commitAll(t, dir, "base")
+
+	runGit(t, dir, "checkout", "-q", "-b", "fixbranch")
+	write(t, dir, "adult_test.go", strongTest) // fix rewrites the test; adult.go untouched → Catch
+	fix := commitAll(t, dir, "fix: strengthen the test")
+
+	runGit(t, dir, "checkout", "-q", "-")
+	// trunk rewrites the SAME test file differently → rebasing the fix onto tip conflicts
+	write(t, dir, "adult_test.go", "package adult\n\nimport \"testing\"\n\nfunc TestIsAdult(t *testing.T) {\n\tif !IsAdult(99) {\n\t\tt.Fatal(\"trunk's own assertion\")\n\t}\n}\n")
+	tip := commitAll(t, dir, "trunk: rewrite the same test file")
+
+	res, err := app.Resolve(context.Background(), dir, base, fix, tip, anchor(), goTestCmd, false, false)
+	require.NoError(t, err)
+	// LandConflict is ONLY reachable if Resolve threads the real divergent tip:
+	// a seam that ignored tipRev (rebasing fix onto fix) would land clean. This
+	// is the assertion that proves the tip is actually used, not the param dropped.
+	assert.Equal(t, pipe.LandConflict, res.Land,
+		"Resolve must thread the real tip: a fix that conflicts with the moved trunk cannot integrate")
+	assert.Equal(t, string(catch.Catch), res.Verdict, "the catch verdict is orthogonal to the integration verdict")
 }

@@ -141,6 +141,14 @@ func integrateOnTip(ctx context.Context, repoDir, fixRev, tipRev string, testCmd
 	if len(testCmd) == 0 {
 		return "", fmt.Errorf("pipe: empty test command")
 	}
+	// Fail closed on an empty tipRev too. `git rebase ""` exits non-zero
+	// ("invalid upstream"), and the clean-rebase path below maps ANY rebase
+	// failure to LandConflict — so an omitted tip (a LiveConfig zero-value) would
+	// silently render "Trunk moved — rebase needed", a dishonest verdict for what
+	// is a caller/config error. An empty tip has no integration answer; surface it.
+	if tipRev == "" {
+		return "", fmt.Errorf("pipe: empty trunk tip revision")
+	}
 	parent, err := os.MkdirTemp("", "agntpr-land-*")
 	if err != nil {
 		return "", fmt.Errorf("pipe: temp worktree dir: %w", err)

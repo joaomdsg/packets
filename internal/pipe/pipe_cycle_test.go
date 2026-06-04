@@ -192,6 +192,25 @@ func TestRunCatchCycle_emptyTestCmdErrorsInsteadOfPanicking(t *testing.T) {
 	require.Error(t, err, "an empty testCmd must fail closed with an error, never panic indexing testCmd")
 }
 
+func TestRunCatchCycle_emptyTipErrorsInsteadOfMislabelingConflict(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module adultpipe\n\ngo 1.23\n")
+	write(t, dir, "adult.go", adultGo)
+	write(t, dir, "adult_test.go", weakTest)
+	base := commitAll(t, dir, "base")
+	write(t, dir, "adult_test.go", strongTest) // test-only fix; anchor stays Same so the cycle reaches integrateOnTip
+	fix := commitAll(t, dir, "fix: strengthen the test")
+
+	// An empty tipRev reaches `git rebase ""`, which exits non-zero with "invalid
+	// upstream". integrateOnTip maps ANY rebase failure to LandConflict, so an
+	// omitted tip would silently render "Trunk moved — rebase needed" — a
+	// dishonest verdict for what is a caller/config error. It must fail closed
+	// with an error instead, like the empty-testCmd guard.
+	_, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, "", adultAnchor(), goTestCmd)
+	require.Error(t, err, "an empty tipRev must fail closed, never be mislabeled as a trunk-moved LandConflict")
+}
+
 func TestRunCatchCycle_landsCleanOnNonConflictingTip(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)

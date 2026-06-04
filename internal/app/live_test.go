@@ -28,7 +28,7 @@ func TestLiveServer_streamsAVerdictFromInFlightToCaughtAndLogsIt(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
 	var server *httptest.Server
 	_, log, err := app.NewServer(app.LiveConfig{
-		RepoDir: dir, BaseRev: base, FixRev: fix, Anchor: anchor(),
+		RepoDir: dir, BaseRev: base, FixRev: fix, TipRev: fix, Anchor: anchor(),
 		TestCmd: goTestCmd, LedgerPath: logPath, SelfFlagged: true, WouldHaveShipped: true,
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
@@ -39,7 +39,9 @@ func TestLiveServer_streamsAVerdictFromInFlightToCaughtAndLogsIt(t *testing.T) {
 
 	frames, cancel := tc.SSE()
 	defer cancel()
-	vt.AwaitFrame(t, frames, 20*time.Second, `data-state="catch"`)
+	frame := vt.AwaitFrame(t, frames, 20*time.Second, `data-state="catch"`)
+	assert.Contains(t, frame, `data-state="land-clean"`,
+		"the served card shows the integration row alongside the verdict: tip==fix integrates clean")
 
 	records, err := log.Records()
 	require.NoError(t, err)

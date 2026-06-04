@@ -24,6 +24,7 @@ func main() {
 	repo := flag.String("repo", ".", "git repo directory")
 	base := flag.String("base", "", "base (pre-fix) revision")
 	fix := flag.String("fix", "", "fix revision")
+	tip := flag.String("tip", "", "trunk tip to integrate onto (defaults to -fix)")
 	file := flag.String("file", "", "anchored file, relative to repo")
 	line := flag.Int("line", 0, "1-based anchored line")
 	ledgerPath := flag.String("ledger", "catches.jsonl", "catch ledger path")
@@ -32,6 +33,10 @@ func main() {
 
 	if *base == "" || *fix == "" || *file == "" || *line == 0 {
 		log.Fatal("agntpr: -base, -fix, -file and -line are required")
+	}
+	tipRev := *tip
+	if tipRev == "" {
+		tipRev = *fix // no separate trunk tip given → integrate onto the fix itself (clean by construction)
 	}
 
 	hash, err := lineHashAt(*repo, *base, *file, *line)
@@ -43,6 +48,7 @@ func main() {
 		RepoDir:    *repo,
 		BaseRev:    *base,
 		FixRev:     *fix,
+		TipRev:     tipRev,
 		Anchor:     reanchor.Anchor{Path: *file, Start: *line, End: *line, LineHash: hash},
 		TestCmd:    []string{"go", "test", "./..."},
 		LedgerPath: *ledgerPath,

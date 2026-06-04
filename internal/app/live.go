@@ -9,6 +9,7 @@ import (
 	"github.com/go-via/via/h"
 
 	"github.com/joaomdsg/agntpr/internal/ledger"
+	"github.com/joaomdsg/agntpr/internal/pipe"
 	"github.com/joaomdsg/agntpr/internal/reanchor"
 	"github.com/joaomdsg/agntpr/internal/surface"
 )
@@ -19,6 +20,7 @@ type LiveConfig struct {
 	RepoDir          string
 	BaseRev          string
 	FixRev           string
+	TipRev           string
 	Anchor           reanchor.Anchor
 	TestCmd          []string
 	LedgerPath       string
@@ -55,37 +57,44 @@ func readLiveState() (LiveConfig, *ledger.Log) {
 // in-flight → resolved, with the catch (if any) appended to the ledger.
 type LiveCard struct {
 	Verdict via.StateTabStr
+	Land    via.StateTabStr
 }
 
-// View renders the current verdict via the shared surface rendering, so the
-// live card and the reviewer card resolve to identical designed states.
+// View renders two orthogonal rows via the shared surface rendering: the oracle
+// verdict row and the integration (Land) row. One row never speaks for the
+// other — a quiet catch verdict and a clean integration are separate facts.
 func (c *LiveCard) View(ctx *via.CtxR) h.H {
-	return surface.RenderVerdict(c.Verdict.Read(ctx))
+	return h.Div(
+		surface.RenderVerdict(c.Verdict.Read(ctx)),
+		surface.RenderLand(pipe.LandState(c.Land.Read(ctx))),
+	)
 }
 
-// OnConnect kicks off the catch cycle for this card and streams the verdict in
-// when it completes. The cycle runs in a goroutine (it is seconds of real
-// oracle work); a short Stream poll writes the verdict the moment it is ready,
-// flushing a single in-flight → resolved SSE patch.
+// OnConnect kicks off the catch cycle for this card and streams the verdict and
+// the integration verdict in when it completes. The cycle runs in a goroutine
+// (it is seconds of real oracle + rebase work); a short Stream poll writes both
+// the moment they are ready, flushing a single in-flight → resolved SSE patch.
 func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 	cfg, log := readLiveState()
-	result := make(chan string, 1)
+	type resolved struct{ verdict, land string }
+	result := make(chan resolved, 1)
 	go func() {
-		res, err := Resolve(context.Background(), cfg.RepoDir, cfg.BaseRev, cfg.FixRev,
+		res, err := Resolve(context.Background(), cfg.RepoDir, cfg.BaseRev, cfg.FixRev, cfg.TipRev,
 			cfg.Anchor, cfg.TestCmd, cfg.SelfFlagged, cfg.WouldHaveShipped)
 		if err != nil {
-			result <- "" // leave the card in-flight on a cycle error
+			result <- resolved{} // leave the card in-flight on a cycle error
 			return
 		}
 		if res.Record != nil && log != nil {
 			_ = log.Append(*res.Record) // best-effort; a logging failure must not hang the card
 		}
-		result <- res.Verdict
+		result <- resolved{verdict: res.Verdict, land: string(res.Land)}
 	}()
 	via.Stream(ctx, 100*time.Millisecond, func(ctx *via.Ctx, _ time.Time) {
 		select {
-		case v := <-result:
-			c.Verdict.Write(ctx, v)
+		case r := <-result:
+			c.Verdict.Write(ctx, r.verdict)
+			c.Land.Write(ctx, r.land)
 		default:
 		}
 	})

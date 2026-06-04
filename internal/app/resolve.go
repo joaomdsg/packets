@@ -19,7 +19,11 @@ import (
 // only when a real catch was minted (nil means there is nothing to persist).
 type Resolution struct {
 	Verdict string
-	Record  *ledger.CatchRecord
+	// Land is the integration verdict (clean/conflict/checks-red) rendered as its
+	// own card row, orthogonal to Verdict — the catch is minted on the base, this
+	// answers whether it integrates onto trunk tip.
+	Land   pipe.LandState
+	Record *ledger.CatchRecord
 }
 
 // Resolve runs the catch cycle over the two revisions and maps it for the
@@ -29,8 +33,8 @@ type Resolution struct {
 // mint-time facts — including the self-flag and would-have-shipped bits the
 // caller supplies — that cannot be reconstructed later. The caller appends the
 // record to the ledger; Resolve performs no log I/O of its own.
-func Resolve(ctx context.Context, repoDir, baseRev, fixRev string, anchor reanchor.Anchor, testCmd []string, selfFlagged, wouldHaveShipped bool) (Resolution, error) {
-	res, err := pipe.RunCatchCycle(ctx, repoDir, baseRev, fixRev, fixRev, anchor, testCmd)
+func Resolve(ctx context.Context, repoDir, baseRev, fixRev, tipRev string, anchor reanchor.Anchor, testCmd []string, selfFlagged, wouldHaveShipped bool) (Resolution, error) {
+	res, err := pipe.RunCatchCycle(ctx, repoDir, baseRev, fixRev, tipRev, anchor, testCmd)
 	if err != nil {
 		return Resolution{}, err
 	}
@@ -53,5 +57,5 @@ func Resolve(ctx context.Context, repoDir, baseRev, fixRev string, anchor reanch
 			WouldHaveShipped:  wouldHaveShipped,
 		}
 	}
-	return Resolution{Verdict: verdict, Record: record}, nil
+	return Resolution{Verdict: verdict, Land: res.Land, Record: record}, nil
 }
