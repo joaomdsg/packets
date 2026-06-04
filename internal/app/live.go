@@ -62,12 +62,22 @@ type LiveCard struct {
 	Beats   via.StateTabStr
 }
 
-// View renders three orthogonal rows via the shared surface rendering: the
-// streamed beat row (the felt tempo, accruing live), the oracle verdict row, and
-// the integration (Land) row. One row never speaks for another — the beats are
-// the loop's progress, the verdict and Land its terminal facts.
+// View renders the card's rows via the shared surface rendering: the retrospective
+// confirmed-catch STOCK (re-derived read-only from the ledger on every render — the
+// economy finally SHOWN, not just logged), the streamed beat row (the felt tempo),
+// the oracle verdict row, and the integration (Land) row. One row never speaks for
+// another. The stock is read-only: a ledger read failure degrades to an empty
+// stock, never breaks the card.
 func (c *LiveCard) View(ctx *via.CtxR) h.H {
+	_, log := readLiveState()
+	var stock ledger.Stock
+	if log != nil {
+		if recs, err := log.Records(); err == nil {
+			stock = ledger.ConfirmedCatches(recs)
+		}
+	}
 	return h.Div(
+		surface.RenderStock(stock),
 		surface.RenderBeats(c.Beats.Read(ctx)),
 		surface.RenderVerdict(c.Verdict.Read(ctx)),
 		surface.RenderLand(pipe.LandState(c.Land.Read(ctx))),
