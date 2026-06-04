@@ -13,7 +13,7 @@ import (
 // would. Reported per-mutant via b.ReportMetric.
 func BenchmarkRunManySites(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		findings, err := Run(context.Background(), Options{
+		result, err := Run(context.Background(), Options{
 			Dir:     "testdata/bench_many",
 			File:    "many.go",
 			TestCmd: goTestCmd,
@@ -21,6 +21,6 @@ func BenchmarkRunManySites(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		b.ReportMetric(float64(len(findings)), "survivors")
+		b.ReportMetric(float64(len(result.Findings)), "survivors")
 	}
 }

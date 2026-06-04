@@ -28,9 +28,15 @@ func (t Thread) Render() string {
 	return t.Tag + ": " + t.Body
 }
 
-// QuestionThreadsFromMutations turns each surviving-mutant finding into an
-// open `question:` thread authored by the agent, anchored to the finding's
-// line. Order is preserved.
+// QuestionThreadsFromMutations turns each non-killed mutant finding (whether
+// it Survived or was Undetermined — the finding's Message already states which)
+// into an open `question:` thread authored by the agent, anchored to the
+// finding's line. Order is preserved.
+//
+// NOTE: whether an Undetermined (timed-out) finding warrants a distinct tag
+// rather than `question:` is a review-surface design decision deferred until
+// that surface is built; today both are surfaced to the reviewer as questions,
+// distinguished only by their Message text.
 func QuestionThreadsFromMutations(findings []mutation.Finding) []Thread {
 	threads := make([]Thread, 0, len(findings))
 	for _, f := range findings {

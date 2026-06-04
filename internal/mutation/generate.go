@@ -23,7 +23,7 @@ type LineRange struct {
 type Mutant struct {
 	Line     int    // 1-based line of the mutated operator
 	Original string // original operator text, e.g. ">="
-	Mutated  string // replacement operator text, e.g. ">"
+	Mutated  string // replacement operator text, e.g. ">"; "" when removed (unary !)
 	Source   []byte // full file contents with the mutation applied
 }
 
@@ -39,14 +39,17 @@ var complement = map[token.Token]token.Token{
 	token.NEQ:  token.EQL, // != -> ==
 	token.ADD:  token.SUB, // +  -> -
 	token.SUB:  token.ADD, // -  -> +
+	token.MUL:  token.QUO, // *  -> /
+	token.QUO:  token.MUL, // /  -> *
+	token.REM:  token.MUL, // %  -> *  (no natural inverse; standard AOR to *)
 	token.LAND: token.LOR, // && -> ||
 	token.LOR:  token.LAND, // || -> &&
 }
 
-// GenerateMutants parses src and returns one Mutant per supported binary
-// operator site that falls within any of the given changed line ranges.
-// If lines is empty, every site in the file is considered. Mutants are
-// ordered by line.
+// GenerateMutants parses src and returns one Mutant per supported operator
+// site that falls within any of the given changed line ranges: binary
+// operators flipped to their complement, and unary `!` removed. If lines is
+// empty, every site in the file is considered. Mutants are ordered by line.
 func GenerateMutants(src []byte, lines []LineRange) ([]Mutant, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "src.go", src, 0)
@@ -55,34 +58,42 @@ func GenerateMutants(src []byte, lines []LineRange) ([]Mutant, error) {
 	}
 
 	var mutants []Mutant
-	ast.Inspect(file, func(n ast.Node) bool {
-		be, ok := n.(*ast.BinaryExpr)
-		if !ok {
-			return true
-		}
-		to, ok := complement[be.Op]
-		if !ok {
-			return true
-		}
-		pos := fset.Position(be.OpPos)
-		if !withinLines(pos.Line, lines) {
-			return true
-		}
-
-		original := be.Op.String()
-		mutated := to.String()
+	// add records one mutant by splicing mutated over the original operator text
+	// at pos. mutated may be "" to REMOVE the operator (e.g. unary `!`).
+	add := func(pos token.Position, original, mutated string) {
 		offset := pos.Offset
 		newSrc := make([]byte, 0, len(src)+len(mutated)-len(original))
 		newSrc = append(newSrc, src[:offset]...)
 		newSrc = append(newSrc, mutated...)
 		newSrc = append(newSrc, src[offset+len(original):]...)
-
 		mutants = append(mutants, Mutant{
 			Line:     pos.Line,
 			Original: original,
 			Mutated:  mutated,
 			Source:   newSrc,
 		})
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch e := n.(type) {
+		case *ast.BinaryExpr:
+			to, ok := complement[e.Op]
+			if !ok {
+				return true
+			}
+			if pos := fset.Position(e.OpPos); withinLines(pos.Line, lines) {
+				add(pos, e.Op.String(), to.String())
+			}
+		case *ast.UnaryExpr:
+			// Only logical NOT is mutated, by REMOVING the negation (`!x` -> `x`),
+			// which flips the guard's polarity. Unary +/- (and others) are left
+			// untouched.
+			if e.Op != token.NOT {
+				return true
+			}
+			if pos := fset.Position(e.OpPos); withinLines(pos.Line, lines) {
+				add(pos, e.Op.String(), "")
+			}
+		}
 		return true
 	})
 

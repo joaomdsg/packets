@@ -77,6 +77,9 @@ func TestSupportedOperatorsMapToTheirComplement(t *testing.T) {
 		{"a != b", "!=", "=="},
 		{"a + b", "+", "-"},
 		{"a - b", "-", "+"},
+		{"a * b", "*", "/"},
+		{"a / b", "/", "*"},
+		{"a % b", "%", "*"},
 		{"a && b", "&&", "||"},
 		{"a || b", "||", "&&"},
 	}
@@ -122,7 +125,9 @@ func TestUnparseableSourceReturnsError(t *testing.T) {
 // Operators the oracle has no defined complement for must be left alone;
 // mutating them would emit garbage findings the reviewer can't act on.
 func TestUnsupportedBinaryOperatorsAreNotMutated(t *testing.T) {
-	for _, op := range []string{"*", "/", "%", "<<", ">>", "&", "|", "^", "&^"} {
+	// `* / %` are now SUPPORTED (covered in TestSupportedOperatorsMapToTheirComplement);
+	// only these bitwise/shift operators remain without a defined complement.
+	for _, op := range []string{"<<", ">>", "&", "|", "^", "&^"} {
 		t.Run(op, func(t *testing.T) {
 			src := []byte("package p\n\nfunc f(a, b int) int {\n\treturn a " + op + " b\n}\n")
 			mutants, err := GenerateMutants(src, []LineRange{{Start: 4, End: 4}})

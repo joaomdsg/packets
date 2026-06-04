@@ -15,7 +15,8 @@ var goTestCmd = []string{"env", "-u", "GOROOT", "go", "test", "./..."}
 // that can't distinguish `>=` from `>` lets the mutant survive, and the
 // oracle must surface that exact line as a finding.
 func TestWeakTestSuiteSurfacesSurvivingMutantAsFinding(t *testing.T) {
-	findings, err := Run(context.Background(), Options{
+	t.Parallel()
+	result, err := Run(context.Background(), Options{
 		Dir:     "testdata/adult_weak",
 		File:    "adult.go",
 		Lines:   []LineRange{{Start: 4, End: 4}},
@@ -24,6 +25,7 @@ func TestWeakTestSuiteSurfacesSurvivingMutantAsFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
+	findings := result.Findings
 	if len(findings) != 1 {
 		t.Fatalf("weak suite must surface exactly 1 surviving mutant, got %d: %+v", len(findings), findings)
 	}
@@ -45,7 +47,8 @@ func TestWeakTestSuiteSurfacesSurvivingMutantAsFinding(t *testing.T) {
 // The counter-case proves the oracle does not cry wolf: a suite that
 // pins the boundary kills the mutant, so there is nothing to report.
 func TestStrongTestSuiteLeavesNoFindings(t *testing.T) {
-	findings, err := Run(context.Background(), Options{
+	t.Parallel()
+	result, err := Run(context.Background(), Options{
 		Dir:     "testdata/adult_strong",
 		File:    "adult.go",
 		Lines:   []LineRange{{Start: 4, End: 4}},
@@ -54,14 +57,15 @@ func TestStrongTestSuiteLeavesNoFindings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if len(findings) != 0 {
-		t.Fatalf("strong suite kills the mutant, want 0 findings, got %d: %+v", len(findings), findings)
+	if len(result.Findings) != 0 {
+		t.Fatalf("strong suite kills the mutant, want 0 findings, got %d: %+v", len(result.Findings), result.Findings)
 	}
 }
 
 // Mutating the working tree must never be observable afterwards, or the
 // oracle would corrupt the very code it inspects.
 func TestRunRestoresTheOriginalFileAfterMutating(t *testing.T) {
+	t.Parallel()
 	const path = "testdata/adult_weak/adult.go"
 	before, err := os.ReadFile(path)
 	if err != nil {
@@ -87,6 +91,7 @@ func TestRunRestoresTheOriginalFileAfterMutating(t *testing.T) {
 // A missing target file is an operator error, not "no weak tests" — it
 // must surface as an error rather than a silent clean report.
 func TestRunErrorsWhenTargetFileIsMissing(t *testing.T) {
+	t.Parallel()
 	if _, err := Run(context.Background(), Options{
 		Dir:     "testdata/adult_weak",
 		File:    "does_not_exist.go",
@@ -99,6 +104,7 @@ func TestRunErrorsWhenTargetFileIsMissing(t *testing.T) {
 // An empty test command is a configuration error and must fail cleanly
 // rather than panic on argv[0] or be read as a killed mutant.
 func TestRunErrorsOnEmptyTestCommand(t *testing.T) {
+	t.Parallel()
 	if _, err := Run(context.Background(), Options{
 		Dir:     "testdata/adult_weak",
 		File:    "adult.go",
@@ -109,45 +115,17 @@ func TestRunErrorsOnEmptyTestCommand(t *testing.T) {
 	}
 }
 
-// The spec REQUIRES the original always be restored. If restoring fails,
-// the working tree is left mutated; Run must surface that as an error
-// rather than report success on a corrupt tree.
-func TestRunErrorsWhenOriginalCannotBeRestored(t *testing.T) {
-	dir := t.TempDir()
-	const name = "nomut.go"
-	path := dir + "/" + name
-	// No supported operators → zero mutants → the only write to the file
-	// is the deferred restore, which we force to fail.
-	if err := os.WriteFile(path, []byte("package p\n\nfunc F() int { return 0 }\n"), 0o644); err != nil {
-		t.Fatalf("seed file: %v", err)
-	}
-	// Read-only file inside a read-only dir defeats os.WriteFile's
-	// truncate-on-open, so the restore cannot succeed.
-	if err := os.Chmod(path, 0o444); err != nil {
-		t.Fatalf("chmod file: %v", err)
-	}
-	if err := os.Chmod(dir, 0o555); err != nil {
-		t.Fatalf("chmod dir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
-
-	_, err := Run(context.Background(), Options{
-		Dir:     dir,
-		File:    name,
-		TestCmd: []string{"true"},
-	})
-	if err == nil {
-		t.Fatal("expected an error when the original cannot be restored, got nil")
-	}
-	if !strings.Contains(err.Error(), "restore") {
-		t.Errorf("error should explain the failed restore, got %q", err.Error())
-	}
-}
+// (The former TestRunErrorsWhenOriginalCannotBeRestored was removed: the
+// oracle no longer mutates the original in place, so there is no restore path
+// to fail. The stronger invariant — a read-only original runs fine and is
+// never modified — is covered by TestReadOnlyOriginalRunsFineAndIsNeverModified
+// in runner_parallel_test.go.)
 
 // A test command that cannot even be launched is an infrastructure
 // failure, NOT a killed mutant. Misreading it as "killed" would silently
 // declare every weak test strong — the worst possible false negative.
 func TestRunErrorsWhenTestCommandCannotStart(t *testing.T) {
+	t.Parallel()
 	if _, err := Run(context.Background(), Options{
 		Dir:     "testdata/adult_weak",
 		File:    "adult.go",
