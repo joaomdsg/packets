@@ -31,19 +31,25 @@ type Mutant struct {
 // mutates into. Membership in this map is what makes an operator
 // "supported"; anything absent is left untouched.
 var complement = map[token.Token]token.Token{
-	token.GTR:  token.GEQ, // >  -> >=
-	token.GEQ:  token.GTR, // >= -> >
-	token.LSS:  token.LEQ, // <  -> <=
-	token.LEQ:  token.LSS, // <= -> <
-	token.EQL:  token.NEQ, // == -> !=
-	token.NEQ:  token.EQL, // != -> ==
-	token.ADD:  token.SUB, // +  -> -
-	token.SUB:  token.ADD, // -  -> +
-	token.MUL:  token.QUO, // *  -> /
-	token.QUO:  token.MUL, // /  -> *
-	token.REM:  token.MUL, // %  -> *  (no natural inverse; standard AOR to *)
-	token.LAND: token.LOR, // && -> ||
-	token.LOR:  token.LAND, // || -> &&
+	token.GTR:     token.GEQ,     // >  -> >=
+	token.GEQ:     token.GTR,     // >= -> >
+	token.LSS:     token.LEQ,     // <  -> <=
+	token.LEQ:     token.LSS,     // <= -> <
+	token.EQL:     token.NEQ,     // == -> !=
+	token.NEQ:     token.EQL,     // != -> ==
+	token.ADD:     token.SUB,     // +  -> -
+	token.SUB:     token.ADD,     // -  -> +
+	token.MUL:     token.QUO,     // *  -> /
+	token.QUO:     token.MUL,     // /  -> *
+	token.REM:     token.MUL,     // %  -> *  (no natural inverse; standard AOR to *)
+	token.SHL:     token.SHR,     // << -> >>
+	token.SHR:     token.SHL,     // >> -> <<
+	token.AND:     token.OR,      // &  -> |
+	token.OR:      token.AND,     // |  -> &
+	token.XOR:     token.AND_NOT, // ^  -> &^
+	token.AND_NOT: token.XOR,     // &^ -> ^
+	token.LAND:    token.LOR,     // && -> ||
+	token.LOR:     token.LAND,    // || -> &&
 }
 
 // GenerateMutants parses src and returns one Mutant per supported operator

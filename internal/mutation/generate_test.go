@@ -60,6 +60,38 @@ func TestMutatedSourceReplacesOnlyTheTargetedOperator(t *testing.T) {
 	}
 }
 
+// The byte-splice must stay exact when the replacement operator is a DIFFERENT
+// length than the original (`^` is 1 byte, `&^` is 2): everything before and
+// after the operator must be preserved verbatim, with only the operator grown.
+func TestMutatedSourceHandlesDifferentOperatorLengths(t *testing.T) {
+	src := []byte("package p\n\nfunc f(a, b uint) uint {\n\treturn a ^ b\n}\n")
+	mutants, err := GenerateMutants(src, []LineRange{{Start: 4, End: 4}})
+	if err != nil {
+		t.Fatalf("GenerateMutants returned error: %v", err)
+	}
+	if len(mutants) != 1 {
+		t.Fatalf("want exactly 1 mutant, got %d", len(mutants))
+	}
+	want := "package p\n\nfunc f(a, b uint) uint {\n\treturn a &^ b\n}\n"
+	if string(mutants[0].Source) != want {
+		t.Errorf("grow splice (1->2 bytes) mismatch:\n got: %q\nwant: %q", mutants[0].Source, want)
+	}
+
+	// And the reverse shrink (`&^` 2 bytes -> `^` 1 byte), the off-by-one-prone direction.
+	shrinkSrc := []byte("package p\n\nfunc f(a, b uint) uint {\n\treturn a &^ b\n}\n")
+	shrinkMuts, err := GenerateMutants(shrinkSrc, []LineRange{{Start: 4, End: 4}})
+	if err != nil {
+		t.Fatalf("GenerateMutants returned error: %v", err)
+	}
+	if len(shrinkMuts) != 1 {
+		t.Fatalf("want exactly 1 mutant for `a &^ b`, got %d", len(shrinkMuts))
+	}
+	shrinkWant := "package p\n\nfunc f(a, b uint) uint {\n\treturn a ^ b\n}\n"
+	if string(shrinkMuts[0].Source) != shrinkWant {
+		t.Errorf("shrink splice (2->1 bytes) mismatch:\n got: %q\nwant: %q", shrinkMuts[0].Source, shrinkWant)
+	}
+}
+
 // Every operator the oracle claims to cover must flip to its documented
 // complement; a gap here is a class of weak test the oracle silently
 // cannot detect.
@@ -80,6 +112,12 @@ func TestSupportedOperatorsMapToTheirComplement(t *testing.T) {
 		{"a * b", "*", "/"},
 		{"a / b", "/", "*"},
 		{"a % b", "%", "*"},
+		{"a << b", "<<", ">>"},
+		{"a >> b", ">>", "<<"},
+		{"a & b", "&", "|"},
+		{"a | b", "|", "&"},
+		{"a ^ b", "^", "&^"},
+		{"a &^ b", "&^", "^"},
 		{"a && b", "&&", "||"},
 		{"a || b", "||", "&&"},
 	}
@@ -122,22 +160,57 @@ func TestUnparseableSourceReturnsError(t *testing.T) {
 	}
 }
 
-// Operators the oracle has no defined complement for must be left alone;
-// mutating them would emit garbage findings the reviewer can't act on.
-func TestUnsupportedBinaryOperatorsAreNotMutated(t *testing.T) {
-	// `* / %` are now SUPPORTED (covered in TestSupportedOperatorsMapToTheirComplement);
-	// only these bitwise/shift operators remain without a defined complement.
-	for _, op := range []string{"<<", ">>", "&", "|", "^", "&^"} {
+// The oracle mutates binary/unary-NOT EXPRESSIONS, not assignment STATEMENTS.
+// Compound-assignment operators (`+=`, `&=`, `<<=`, `&^=`) superficially embed an
+// arithmetic/bitwise operator but are each a SINGLE assignment token inside an
+// *ast.AssignStmt — never an *ast.BinaryExpr — so they must produce zero mutants.
+// (Now that the binary-operator whitelist is complete, this is what "unsupported"
+// reduces to: the expr-vs-statement boundary.)
+func TestCompoundAssignmentOperatorsAreNotMutated(t *testing.T) {
+	for _, op := range []string{"+=", "&=", "<<=", "&^="} {
 		t.Run(op, func(t *testing.T) {
-			src := []byte("package p\n\nfunc f(a, b int) int {\n\treturn a " + op + " b\n}\n")
+			src := []byte("package p\n\nfunc f(a, b int) {\n\ta " + op + " b\n}\n")
 			mutants, err := GenerateMutants(src, []LineRange{{Start: 4, End: 4}})
 			if err != nil {
 				t.Fatalf("GenerateMutants returned error: %v", err)
 			}
 			if len(mutants) != 0 {
-				t.Errorf("operator %q is unsupported and must not mutate, got %d mutants", op, len(mutants))
+				t.Errorf("compound assignment %q is a statement token, not a BinaryExpr; must not mutate, got %d mutants: %+v", op, len(mutants), mutants)
 			}
 		})
+	}
+}
+
+// `&^` (AND-NOT) is a SINGLE token.AND_NOT, not a `&` adjacent to `^`. Now that
+// `&`, `^`, AND `&^` are all supported, `x &^ y` must yield exactly ONE mutant —
+// the whole-token flip `&^`->`^` — and never be mis-split into separate `&` or
+// `^` mutants (which would corrupt the source or miscount the site).
+func TestAndNotIsTreatedAsOneTokenNotSplitIntoAndAndXor(t *testing.T) {
+	src := []byte("package p\n\nfunc f(a, b uint) uint {\n\treturn a &^ b\n}\n")
+	mutants, err := GenerateMutants(src, []LineRange{{Start: 4, End: 4}})
+	if err != nil {
+		t.Fatalf("GenerateMutants returned error: %v", err)
+	}
+	if len(mutants) != 1 {
+		t.Fatalf("`&^` is one AND_NOT token; want exactly 1 mutant, got %d: %+v", len(mutants), mutants)
+	}
+	if mutants[0].Original != "&^" || mutants[0].Mutated != "^" {
+		t.Errorf("want whole-token `&^` -> `^`, got %q -> %q (mis-split into `&`/`^`?)", mutants[0].Original, mutants[0].Mutated)
+	}
+}
+
+// `^` is overloaded in Go: BINARY xor (`a ^ b`) and UNARY bitwise-complement
+// (`^x`). Only the binary form is a mutation site; the unary form lives on the
+// UnaryExpr path which handles only `!`. Mutating `^x` would miscount and emit a
+// nonsensical mutant, so it must be left alone even though binary `^` is supported.
+func TestUnaryXorComplementIsNotMutated(t *testing.T) {
+	src := []byte("package p\n\nfunc f(x int) int {\n\treturn ^x\n}\n")
+	mutants, err := GenerateMutants(src, []LineRange{{Start: 4, End: 4}})
+	if err != nil {
+		t.Fatalf("GenerateMutants returned error: %v", err)
+	}
+	if len(mutants) != 0 {
+		t.Errorf("unary `^x` (bitwise complement) must not be mutated, got %d mutants: %+v", len(mutants), mutants)
 	}
 }
 

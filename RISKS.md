@@ -131,9 +131,27 @@ anchor anywhere in the trust stack.**
   no-sites(0) cases. *Operator-set expansion (2026-06-04, TDD):* multiplicative `* / %` (AOR:
   `*`↔`/`, `%`→`*`, closing the financial/scaling blind spot) AND **unary `!`** (removed:
   `!x`→`x`, via a new ast.UnaryExpr path, closing the negated-guard blind spot) are now mutated.
-  *Residual (deferred, per-settle-cost tradeoff vs iter-1; pause for direction):* bit-ops
-  `<< >> & | ^ &^` and statement/literal mutators — those lines still have 0 sites, **honestly**
-  reported as "no signal" rather than masquerading as tested.
+  *Bit-op residual, brick 1 (2026-06-04, TDD):* shifts **`<<`↔`>>`** (token.SHL/SHR) now mutated —
+  closing the bit-packing/scaling blind spot. (Same pass also fixed a latent coverage-test bug: the
+  `no_mutable_ops` fixture's "no sites" scope had pointed at the func *signature* line, passing
+  vacuously; it now scopes the actual operator line — switched to `&^`, still unsupported — so it
+  genuinely exercises "unsupported-operator → 0 sites".)
+  *Bit-op residual, brick 2 (2026-06-04, TDD):* bitwise **`&`↔`|`** (token.AND/OR) now mutated.
+  Guarded the lexer gotcha that `&^` is a single token.AND_NOT (not `&`+`^`), so a supported `&`
+  must NOT split `x &^ y` into a `&`→`|` mutant; `&^` stayed unsupported until brick 3.
+  *Bit-op residual, brick 3 — CLOSED (2026-06-04, TDD):* bitwise **`^`↔`&^`** (token.XOR/AND_NOT)
+  now mutated, completing the bit-op set. The whole residual **`<< >> & | ^ &^` is now CLOSED** —
+  the binary-operator whitelist is complete (comparisons, `+ - * / %`, shifts, all bitwise, `&& ||`;
+  19 operators). Guards added for the overload hazards this exposed: `&^` is treated as ONE token
+  (`TestAndNotIsTreatedAsOneTokenNotSplitIntoAndAndXor`), unary `^x` complement is NOT mutated
+  (`TestUnaryXorComplementIsNotMutated`), and compound-assignment ops `+= &= <<= &^=` (AssignStmt
+  tokens, not BinaryExpr) are NOT mutated (`TestCompoundAssignmentOperatorsAreNotMutated`). The
+  `no_mutable_ops` fixture moved to a compound-assignment body (`x &^= 2`) — categorically not a
+  BinaryExpr, so it stays genuinely unmutable regardless of future operator support.
+  *Residual (still deferred, NOT started — requires explicit direction):* statement-level and
+  literal mutators only. These are a different, broader class (per-settle-cost tradeoff vs iter-1)
+  and were never auto-continued; lines without a mutable operator still **honestly** report
+  "no signal" rather than masquerading as tested.
 - **Flaky vs real-intermittent indistinguishable (§13.8/§29.5).** *Simulated:* the
   rerun gate scores a real 30%-race regression <1% of landings (k=3) → it escapes;
   and variance-quarantine marks the bug-catching test "flaky → inadmissible," hiding

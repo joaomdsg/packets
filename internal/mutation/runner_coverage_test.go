@@ -51,12 +51,14 @@ func TestZeroFindingsDistinguishesNoSitesFromAllKilled(t *testing.T) {
 		t.Fatalf("MutantsConsidered counts total sites (1), independent of how many survived; got %d", weak.MutantsConsidered)
 	}
 
-	// No-sites: the target line uses only `<<`, a bit operator the oracle never
-	// mutates, so there is nothing to test — 0 findings AND 0 sites considered = no signal.
+	// No-sites: the target line (the `x &^= 2` body, line 10) is a COMPOUND
+	// ASSIGNMENT — a single token.AND_NOT_ASSIGN in an *ast.AssignStmt, not an
+	// *ast.BinaryExpr — so the oracle (which mutates only binary/unary-NOT
+	// expressions) finds nothing to test. 0 findings AND 0 sites = no signal.
 	nosites, err := Run(context.Background(), Options{
 		Dir:     "testdata/no_mutable_ops",
 		File:    "calc.go",
-		Lines:   []LineRange{{Start: 7, End: 7}},
+		Lines:   []LineRange{{Start: 10, End: 10}},
 		TestCmd: goTestCmd,
 	})
 	if err != nil {
