@@ -304,3 +304,35 @@ design risks above, which are about the spec). Each: where, the finding, the fix
   to a dedicated brick so the fix lands coherently across both. Existing tests use
   ASCII paths, so the current suite stays green; this is a correctness gap for
   non-ASCII repos, not a present test failure.
+
+---
+
+## Design direction: NATS/JetStream as the orchestration event-log/bus
+
+Status: **noted, deferred** (Round-10 era). Not adopted for the single-user
+`§17` wire (#10) — in-process server-push (via.Broadcast / OnConnect+Stream) is
+sufficient to watch one card resolve, and an external broker there is infra
+cost for no gain. Adopt at the event-sourcing / fan-out / Board slices.
+
+A JetStream stream is an ordered, durable, replayable log — a near drop-in for
+the substrate several findings need, and it RETIRES three of them:
+
+- **dual-source-of-truth projection** — one append-only stream replaces the
+  oscillation between event-sourced (§13.3) and direct-write CRUD; consumers
+  (surface, ledger, Board) subscribe.
+- **event-log concurrency phantom edits** — per-message seq + a
+  producer/commit-status header on each published event demuxes fan-out
+  (§18) scratch-branch activity from source-of-truth, instead of one ambiguous
+  monotonic seq.
+- **timetravel re-execution not projection** — JetStream replay-from-seq gives
+  deterministic EVENT replay cleanly; the caveat stands (replaying events ≠
+  re-running the agent), so "rewind & branch" still cannot reproduce a
+  nondeterministic baseline — NATS provides the event substrate, not agent
+  determinism.
+
+Scope/fit: server-side only — the browser edge stays SSE (Via); the surface
+subscribes to NATS and pushes to the browser. Also serves the replayable trace
+(#14 timed trace), fan-out to N agents (§18, #16), and the async Bounce /
+landing-outcomes bridge (§29.2/§29.3). As an external broker it inherits the
+§15/§19 egress/auth/enforcement scrutiny. A council round should formally adopt
+it (it rewrites §13.3) when the event-log/Board slice is next.
