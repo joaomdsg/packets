@@ -279,3 +279,28 @@ plus an "amends/superseded-by" table atop each doc.
    identity, 0-survivors) *before* building Ship Quality / the Trust Ledger on it.
 5. **Do the doc reconciliation pass** (13 contradictions) so P0 reads one spec.
 6. **Resolve live-vs-post-hoc Focus** (the economy keystone) before any economy UI.
+
+---
+
+## Build-surfaced code risks
+
+Concrete defects/limitations found while BUILDING the slices (distinct from the
+design risks above, which are about the spec). Each: where, the finding, the fix.
+
+### Non-ASCII paths break re-anchor + diff path-matching (slice: re-anchoring)
+
+- **Where:** `internal/reanchor/reanchor.go` `fileStatus` (name-status parse) and
+  the `f.Path == a.Path` hunk loop; `internal/diff/diff.go` path extraction.
+- **Finding:** git's default `core.quotepath=true` octal-quotes and double-quote-
+  wraps non-ASCII paths in `--name-status`/`--numstat`/`diff` output (e.g.
+  `café.txt` → `"caf\303\251.txt"`). So an `Anchor.Path` containing non-ASCII
+  bytes never matches the quoted output → `fileStatus` falsely returns
+  `statusUnchanged` (Same), and `diff.Compute`'s `Path` is the mangled quoted
+  form. A real catch on such a file is silently mis-handled (phantom Same instead
+  of Moved/Outdated). Surfaced by the re-anchoring audit; both packages share the
+  defect, so a one-package fix is a misleading half-fix.
+- **Fix:** pin `-c core.quotepath=false` on the git invocations in BOTH packages
+  (reanchor's name-status and diff's diff), then re-verify path matching. Deferred
+  to a dedicated brick so the fix lands coherently across both. Existing tests use
+  ASCII paths, so the current suite stays green; this is a correctness gap for
+  non-ASCII repos, not a present test failure.
