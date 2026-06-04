@@ -196,7 +196,12 @@ resolution, **the experiment that settles it**, and a blank verdict.
   **change-fail-rate replaces raw regression-hit** as the headline.
 - **Experiment:** run against a repo with real flake. Does the score feel
   fair to the human? How often does quarantine misfire?
-- **Verdict (post-build):** _TBD_
+- **Verdict (post-build, round 8):** gains both settling fixtures and a
+  refined ordering — integrate-on-tip (roadmap #5) precedes catch PRICING,
+  not catch MINTING. Fixture (A) trunk-moved-underneath decides whether the
+  survivor-set transition survives a rebase (if not, #5 jumps ahead of
+  pricing); fixture (B) clean-rebase-but-checks-red proves a green
+  pre-integration catch can be a red post-integration regression. STILL OPEN.
 
 ### Clash D — Does the fleet (1:N) actually scale, or cap at N≈2–3?
 
@@ -251,6 +256,40 @@ resolution, **the experiment that settles it**, and a blank verdict.
   concurrently → ÷K) if needed. Conclusion: cheap enough to run every
   settle for normal diffs; add mutant-level parallelism only for
   pathologically large diffs. No fallback oracle needed.
+- **Verdict (post-build, round 5 — re-opened on identity):** DOWNGRADED to
+  PARTIALLY RESOLVED. R3-4 resolved only *latency/feasibility* (that
+  stands). The **catch-identity** half is untouched and has zero code:
+  the survivor-set non-empty→empty *definition* (vs the incoherent "same
+  mutant killed" when the fix edits the anchored line) is the live gate
+  for the entire trust economy (RISKS §29.3, HIGH), and it is coupled to
+  the still-unbuilt from-base re-anchoring (§28) — "the same line's
+  survivor set across two revisions" is undefined without it. This is the
+  council's ranked **#1 next build** (two-lens TDD+Systems convergence).
+  STILL OPEN on identity.
+- **Verdict (post-build, round 7 — CONVERGED on the build, open on identity):**
+  The council converged (rounds 5→7, 5/6 lenses, render-camp conceding
+  economy-first) that #1 is this catch oracle, now specified as a
+  **tri-state** primitive `{catch | no-catch | no-oracle-signal | partial-catch}`
+  with a mandatory **survivor-set identity key** = the anchored line's
+  *current operator inventory per revision* (+ an explicit rule for
+  inventory change under the fix), so that a no-op churn revision and a
+  fix-that-edits-the-line are distinguishable rather than the same failure.
+  The CI/CD ordering challenge (catch is minted on pre-integration
+  coordinates; anchor-survives-rebase is a 2nd hidden dependency beyond
+  §28) is **deferred to empirical resolution**: build the
+  fix-edits-anchored-line fixture, then a trunk-moved-underneath variant;
+  if the transition doesn't survive a rebase, integrate-on-tip precedes
+  catch pricing. Identity half STILL OPEN until that code exists.
+- **Verdict (post-build, round 8 — build-ready & type-committed):** still
+  PARTIALLY RESOLVED on paper, but the #1 unit is now BUILD-READY: a typed
+  `Catch{Anchor, BeforeInventory, AfterInventory, Outcome}` with
+  `Outcome ∈ {Catch | NoCatch | NoOracleSignal | PartialCatch}`. The
+  survivor-set IDENTITY KEY (denominator = the line's current operator
+  inventory per revision) becomes a REAL Go type owned by one pure
+  function, no longer prose; the explicit inventory-change rule (fix edits
+  L + changes inventory → ill-typed → NoCatch) is the load-bearing RED that
+  proves "same mutant killed" incoherent. Flips to RESOLVED-IN-CODE on the
+  green #1 build (fix-edits-anchored-line RED + degenerate suite green).
 
 ### Clash G — One unified review model, or a refactor fork?
 
@@ -263,7 +302,12 @@ resolution, **the experiment that settles it**, and a blank verdict.
 - **Experiment:** run a real 30+ file rename and an extract-module through
   the Invariant View. Is it genuinely reviewable? Does the
   behavior-preservation proof hold and feel trustworthy?
-- **Verdict (post-build):** _TBD_
+- **Verdict (post-build, round 8):** still TBD, but the settling experiment
+  is re-ratified CONCURRENT-with-#1 and re-scoped as the ACCEPTANCE BAR for
+  #1's re-anchoring sub-brick (same build wave, not after). RED baselines:
+  orphanedThreadCount>0 on a 30+-file rename; survivor-set ill-typed across
+  rename (lost-via-rename != Catch); extract-module re-mutated as net-new
+  (invisibility). STILL OPEN.
 
 ### Clash H — Trust Ledger: power-fantasy or self-assessment dread?
 
@@ -296,12 +340,12 @@ The signature bets, and their status. Fill `Validated?` after builds.
 
 | Swing                              | By        | Status        | Validated? |
 |------------------------------------|-----------|---------------|------------|
-| Mutation-driven adversarial review | TDD       | high conviction | **validated**: weak→finding/strong→silent; survivor→`question:` thread artifact built (`internal/review`, data layer); latency benchmarked (~30 ms/mutant warm). Pending: UI rendering + harness wiring |
+| Mutation-driven adversarial review | TDD       | high conviction | **validated** (single-revision: weak→finding/strong→silent; survivor→`question:` thread; ~30 ms/mutant warm). Two-revision CONFIRMED-CATCH now the #1 build (typed tri-state differential, R8) — pending the green build + degenerate suite |
 | Trust Ledger (calibrated delegation)| Game     | spine, framing-risk (Clash H) | _TBD_ |
-| Merge-queue-as-integrator          | CI/CD     | low-risk, standard practice | _TBD_ |
+| Merge-queue-as-integrator          | CI/CD     | low-risk, standard practice | _TBD_ → roadmap #6: single-lane queue wrapping integrate-on-tip (#5); experiment = throughput-to-zero on K branches; designed-in to avoid O(N²)/8N contention |
 | Focus as central resource          | Systems   | adopted, render-risk (Clash A) | _TBD_ |
 | Speculative integration preview    | CI/CD     | high value, infra cost | _TBD_ |
-| Characterization Gate + replay     | Refactor  | high value, scoped to refactors | _TBD_ |
+| Characterization Gate + replay     | Refactor  | high value, scoped to refactors | _TBD_ → roadmap #2 (concurrent w/ #1): adversarial refactor trace as RED baselines (rename_40 / rename_neutral_move / extract_module); settles Clash G, de-risks #1's re-anchor sub-brick |
 | Time-travel review                 | UX        | distinctive, value-unproven (Clash I) | _TBD_ |
 | Delegation Tiers (Ascension)       | Game      | late-game depth, premature | _TBD_ |
 | Shadow Review (anti-survivorship)  | Systems   | elegant, token-cost unclear | _TBD_ |
@@ -382,6 +426,165 @@ New clashes opened: none. Next likely: rendering threads in the actual
 review surface (Via), and wiring the oracle to run at settle against a
 real diff (needs the §17 pipe).
 Decisions: no VISION/DESIGN redesign; evidence only.
+
+## Round 5 — de-risking the right thesis: first economy primitive vs first rendered surface — 2026-06-04
+
+Trigger: first real re-convening since Round 2 (Rounds 3-4 were evidence-only). Prompted by the two RISKS.md meta-findings — (1) "build order de-risks the WRONG thesis" and (2) "the design's own acceptance bar would catch none of this" — against a build state of 6 green backend packages (mutation/review/settle/diff/translate/orchestrator), NO end-to-end pipe, NO UI, NO trust-economy code.
+
+Panelists present: all six (UX, Game design, Systems, TDD, CI/CD, Refactoring). No new lens.
+
+New evidence on the table:
+- Mutation oracle is the keystone, now parallel (maxWorkers=8, copy-per-worker), ~30ms/mutant warm, survivors render as question: threads. Operator set complete (19 ops). Settle has secret-scan + artifact-surfacing + no-edit guard.
+- Verified-by-reading-code this round: review.Thread.Render() returns a string, no HTTP/Via/SSE/template anywhere; orchestrator.go:37 diffs against a caller-supplied IMMUTABLE baseRev and never reconciles with trunk tip; diff.go's TestRenameIsDeleteAddRegardlessOfConfig proves the rename cliff is live; QuestionThreadsFromMutations anchors to mutation lines a refactor moves wholesale.
+
+Per panelist:
+- UX: build is mono-axial — 5 rounds, 6 packages, zero rendered surface. Every clash she owns (A Focus-guilt, D scaling, E Bench, H Ledger framing, I time-travel) is gated on a screen that doesn't exist; you can't ask "does this meter induce guilt" of a Go struct. Build §17's pipe WITH a real Via/SSE review surface (one card, the question: thread on its line, one comment->revision round-trip, no meters). New concern: the review surface has NO defined empty/zero state — the mutation-silent case (0 findings, MutantsConsidered>0 = "tested, ship it") is the MOST COMMON screen and would read as "broken/nothing happened."
+- Game design: rigorous but grading the wrong difficulty — 100% of evidence lives in the mechanical pipe nobody doubted. You can't FEEL anything: no loop, no second agent, no queue to drain. Build §6 slice #3 — minimal two-agent Board, queue-to-zero, instrumented day-one for idle time and per-review dwell, no meters yet. Clash D is the load-bearing feel question; find the real N ceiling by making a human switch between two live cards and measuring rework. New concern: the oracle's INTERRUPTION RATE per session (how often it actually produces an acted-on thread) is an untuned feel-knob — fires-often = nag (Clash A relocated to the oracle), fires-rarely = dead weight.
+- Systems: sound engineering, miscalibrated economy — five rounds polished a SIGNAL GENERATOR; the economy (Focus/Trust/Ship-Quality as stocks that TRADE against logged facts) has zero code and zero adversarial test. Build the confirmed-catch as the FIRST economy primitive: a typed append-only Catch{line, survivorSetBefore:nonempty, survivorSetAfter:empty, revID, author} per Clash F's survivor-set definition, with a degenerate-strategy test suite. New concern: the parallel oracle's 30ms/mutant is a SINGLE-TENANT number — under an N-agent Board, K concurrent settles spawn up to 8N concurrent full-suite runs contending for the same Treasury+CPU; the economy would price catches against latency that degrades superlinearly in the exact regime earned-concurrency unlocks. Unmeasured.
+- Pragmatic TDD: RYGBA discipline is real (caught restore-swallow + vacuous-pass bugs) but pointed at the easy thesis — Rounds 3-5 hardened a SINGLE-REVISION oracle while the load-bearing thing (does a mutation survive across a fix to become a CONFIRMED CATCH) has zero code. "A beautiful odometer and no trip counter." Build the confirmed-catch oracle as a two-revision differential (survivor-SET non-empty->empty on the same anchored line), TDD'd against the fix-EDITS-the-anchored-line fixture. New concern: this oracle inherits from-base re-anchoring (RISKS §28) as a HARD dependency — you cannot define "the same line's survivor set across two revisions" without solving re-anchoring; the two risks are coupled and neither slice has touched it.
+- CI/CD & Delivery: everything built sits UPSTREAM of the integration seam — settle mints a revision, orchestrator diffs a FIXED baseRev, nothing rebases or re-reads trunk tip. The whole downstream-truth surface (Merged!=Landed, stale-base collisions, fan-out safety) has zero code; §27's happy-path trace passes precisely because it never integrates anything. Build the integrate-on-tip brick (rebase session branch onto trunk tip, run checks on the INTEGRATED tree, tri-state clean/conflict/checks-red), TDD'd from the disjoint-file cross-symbol break (RISKS line 117). New concern: orchestrator.go takes baseRev as an immutable caller string and never reconciles with tip — the stale-base assumption is now baked into CODE with no TODO.
+- Refactoring: build is sound but scope-misselected — six P0 bricks all serve the one work-type the diff-first model already handles (small local operator-bearing diffs); zero code touches refactoring, the work-type the model is structurally hostile to (Clash G). Run a real 30+-file rename + extract-module through diff->mutation->thread as an ADVERSARIAL trace and assert on the carnage (orphaned threads from the rename cliff; mutation re-litigating untouched behavior). New concern: QuestionThreadsFromMutations treats behavior-preserving refactor churn as MAXIMUM-suspicion surface — the keystone oracle is actively miscalibrated for the refactor task-type (the inverse of the §29.6 stamp-penalty inversion, on the oracle side). Not previously captured.
+
+Clashes touched: F (re-opened — its IDENTITY half is unresolved, only latency was resolved in R3-4), B (UX reframes the framing baseline as a RENDER question, not logic), D (Game + CI/CD both nominate it as load-bearing but propose opposite experiments — human-dwell vs integrated-build-RED), G (Refactor — now settleable against the current green tree), A/E/H/I (UX + Game: all gated on a rendered/instrumented loop that doesn't exist).
+
+Verdicts updated:
+- Clash F: downgraded from "MOSTLY RESOLVED" to PARTIALLY RESOLVED — latency/feasibility resolved (R3-4) stands, but the catch-IDENTITY definition (survivor-set transition vs "same mutant killed") has zero code and is the live gate for the entire trust economy (RISKS §29.3 HIGH). Coupled to the unbuilt from-base re-anchoring (§28).
+- Clash D, G, A, E, H, I: remain TBD, but their settling experiments are now named as concrete adversarial traces / a rendered slice rather than arguments.
+
+New clashes opened:
+- Render-camp vs economy-camp on what the next gate IS: feel/scaling (UX+Game, needs a visible loop) vs economy-integrity (TDD+Systems, needs the logged primitive first). CI/CD + Refactor sit between: adversarial traces that need neither a human nor an economy.
+- Three new CODE-level risks (none yet in RISKS.md as code observations): oracle latency under fleet contention (Systems); QuestionThreadsFromMutations miscalibration on behavior-preserving churn (Refactor); orchestrator immutable-baseRev stale-base gap (CI/CD).
+- Two render-only concerns that only surface once a screen exists: the undefined empty/zero state (UX) and the untuned oracle interruption rate (Game).
+
+Decisions:
+1. NEXT BUILD (ranked #1, two-lens convergence TDD+Systems): the confirmed-catch oracle — a logged, append-only, two-revision survivor-set non-empty->empty Catch event on the anchored line, NEVER "same mutant killed", TDD'd against the three-case fixture (test-only fix / fix-edits-anchored-line / fix-adds-branch); the fix-edits-anchored-line case is the killer that proves "same mutant killed" incoherent. This is the first acceptance-suite entry per meta-finding 2.
+2. PREREQUISITE sub-brick of #1: from-base re-anchoring (RISKS §28), with "lost via rename" surfaced as a distinct state.
+3. Then the integrate-on-tip brick (CI/CD) and the adversarial refactor trace (Refactor) as the next two adversarial-suite entries — both costed against #1 next round.
+4. The rendered §17 surface (UX) + two-agent instrumented loop (Game) are gated AFTER the catch primitive; the §17 slice MUST ship a designed empty/zero state.
+5. Add the three new code-level risks to RISKS.md; benchmark oracle latency under K-concurrent-settle contention.
+NO VISION/DESIGN text changed this round (the doc reconciliation pass for the 12 contradictions remains queued per RISKS sequencing step 5). Not converged — one more round to adjudicate render-camp vs economy-camp and rank the three adversarial bricks.
+
+## Round 6 — adjudicating the next gate: economy-primitive-first vs surface/integration-first, and the catch's undesigned unhappy path — 2026-06-04
+
+Trigger: reconvening after Round 5 named two camps (render: UX+Game vs economy: TDD+Systems) and three between-bricks (CI/CD integrate-on-tip, Refactor adversarial trace) but explicitly did NOT converge — "one more round to adjudicate render-camp vs economy-camp and rank the three adversarial bricks." Build state unchanged: 6 green backend packages, no pipe, no UI, no economy code (re-verified in code this round).
+
+Panelists present: all six (UX, Game design, Systems, TDD, CI/CD, Refactoring). No new lens.
+
+New evidence on the table (verified by reading code this round, not argued):
+- thread.go:27-28 `Render()` is `t.Tag + ": " + t.Body` — confirmed string concat; no http/template/SSE anywhere in internal/.
+- orchestrator.go:37 `SettleTurn(..., baseRev, ...)` with line 49 `diff.Compute(ctx, repoDir, baseRev, res.SHA)` — baseRev is an immutable caller string, never reconciled with trunk tip; no TODO.
+- runner.go:72 `const maxWorkers = 8`, copy-per-worker — so K concurrent settles → up to 8N concurrent full-suite processes.
+- grep for Catch/Trust/Focus/Treasury/Ledger across internal/ returns ZERO typed events — meta-finding 1 confirmed in code.
+
+Per panelist:
+- UX: Dissents on Round-5's ordering (surface gated AFTER catch). The render surface needs ONLY the survivor-set state the CURRENT single-revision oracle already emits, so surface and two-revision catch are NOT a strict sequence — build the §17 Via/SSE surface (one card, one pinned question: thread, one comment->revision round-trip, no meters) against today's oracle. New concern: the council's #1 catch primitive has NO render for its most-likely outcome — the round-1 fix where the survivor-set is STILL non-empty (partial catch); the binary Catch{} schema has no event type for it, repeating §27 one layer down.
+- Game design: Came in render-camp but will not be a yes-man to it — the catch IS the economy spine AND the game's first honest reward beat, so economy-first is correct. Narrow friction: mint the Catch WITH the self-flag bit recorded (cheap once the event is typed) so Clash B's self-flag-vs-mutation correlation can later run on REAL catches. New concern: nobody has asked what earning a catch FEELS like — a catch on the agent's 3rd self-corrected revision of a never-shipped trivial bug is participation-trophy XP; the schema logs the survivor-set transition but not the counterfactual "would this have shipped," so the reward is uncalibrated (flatter vs grade indistinguishable).
+- Systems: Build the confirmed-catch as the FIRST economy primitive — typed append-only Catch{anchorLine, survivorSetBefore:nonempty, survivorSetAfter:empty, revID, author}, defined ONLY as the line's survivor-set transition, NEVER "same mutant killed." Ship it WITH a degenerate-strategy suite as the first acceptance entry (agent-authors-the-killing-test farming case; fix-edits-anchored-line incoherence proof; no-op churn must-not-mint). From-base re-anchoring (§28) is a hard sub-dependency. New concern: 30ms/mutant is SINGLE-TENANT — 8N concurrent full-suites under a busy Board degrade superlinearly in the exact earned-concurrency regime; if catches are ever priced, that becomes a "time your settles to a quiet Board" exploit. Needs a K-concurrent-settle benchmark before any pricing.
+- Pragmatic TDD: Build the two-revision differential (oracle on BOTH pre- and post-fix revisions of the same anchored line), TDD'd against the three-case fixture with fix-edits-anchored-line as the RED proving "same mutant killed" incoherent. Carry from-base re-anchoring as the in-scope prerequisite. New concern: the catch silently inherits the "0 survivors ambiguous" failure at the catch layer — if the pre-fix line had MutantsConsidered==0 (operator-free), a real human fix mints NO catch, systematically under-crediting operator-free code; the catch must be a THIRD explicit outcome (catch / no-catch / no-oracle-signal), not binary.
+- CI/CD & Delivery: integrate-on-tip should come BEFORE the catch. A mutant killed on a stale base says nothing about survival on a moved trunk; BOTH catch revisions are computed against the SAME immutable baseRev (orchestrator.go), so the catch inherits a SECOND hidden dependency — anchor-survives-rebase — that neither §28 (which re-anchors base->cur WITHIN the session branch) nor the #1 brick mentions. Build integrate-on-tip (rebase onto tip, checks on the INTEGRATED tree, tri-state clean/conflict/checks-red), TDD'd from the disjoint-file cross-symbol break (RISKS line 117); assert "integrated checks go RED," not "no conflict." New concern: logging the first economy primitive on pre-integration coordinates bakes the stale-base lie one layer deeper.
+- Refactoring: Run a real 30+-file rename + extract-module through the EXISTING green pipe NOW and assert on the carnage as the first refactor acceptance entry — (a) count orphaned threads from the rename delete+add cliff, (b) assert mutation fires question: threads on behavior-PRESERVING relocated lines, (c) record both as expected-failure baselines. Unlike the catch (coupled to unbuilt re-anchoring), this needs NO prerequisite, runs on today's tree, settles Clash G with evidence, and quantifies the carnage the re-anchor work must absorb. New concern: QuestionThreadsFromMutations (thread.go:40) turns every non-killed mutant into a thread with no behavior-changing-vs-preserving distinction — the keystone oracle inverts the refactor stamp-penalty AT THE SOURCE, a code-level miscalibration not yet in RISKS.md.
+
+Clashes touched: F (identity half still the live gate; now additionally attacked for an undesigned UNHAPPY path — three lenses converge that the proposed binary repeats §27); B (Game/Systems want the self-flag bit captured at mint time; UX wants the framing question answered against a real surface); C (CI/CD — integrate-on-tip is the experiment that begins to settle scoring-on-downstream-truth, and re-argues it should precede the catch); G (Refactor — now settleable on today's tree, promoted to concurrent); D/A/E/H/I (render-camp — still gated on a surface/loop, dissent on ordering registered).
+
+Verdicts updated:
+- Clash F: remains PARTIALLY RESOLVED, but the #1 DELIVERABLE IS REDEFINED — from Round-5's binary Catch{} to a TRI-STATE-plus-intermediate primitive: {catch | no-catch | no-oracle-signal (pre-fix MutantsConsidered==0) | partial-catch (survivor-set still non-empty post-revision)}. The survivor-set-transition definition and "never same mutant killed" stand and harden; the binary outcome schema does NOT.
+- Clash G: still TBD but its settling experiment is promoted from "gated after #1" (Round 5) to "run concurrently on today's tree" — it has no unbuilt prerequisite.
+- Clashes C, D, A, E, H, I: remain TBD; C gains a concrete experiment (integrate-on-tip) and a live ordering challenge to the #1 brick.
+
+New clashes opened:
+- The catch's UNDESIGNED UNHAPPY PATH (material new finding, three-lens convergent): partial-catch (UX), no-oracle-signal third state (TDD), missing "would-this-have-shipped" counterfactual (Game). The Round-5 binary primitive repeats the §27 happy-path-only mistake one layer down; #1 must ship tri-state + intermediate outcomes.
+- Catch is minted on PRE-INTEGRATION coordinates (CI/CD): a second hidden dependency (anchor-survives-rebase) beyond §28 re-anchoring; live ordering dispute over whether integrate-on-tip must precede the catch.
+
+Decisions:
+1. NEXT BUILD (#1, TDD+Systems convergence, REDEFINED): the confirmed-catch oracle as a two-revision differential, survivor-set non-empty->empty, NEVER "same mutant killed" — but as a TRI-STATE + intermediate primitive {catch | no-catch | no-oracle-signal | partial-catch}, NOT the Round-5 binary. TDD'd against the three-case fixture (test-only / fix-edits-anchored-line=RED / fix-adds-branch) plus the degenerate-strategy cases (agent-authored killing test; no-op churn must-not-mint). First adversarial acceptance-suite entry.
+2. PREREQUISITE sub-brick of #1: from-base re-anchoring (§28/§14) with "lost via rename" as a distinct state. Document the OPEN gap CI/CD raised — re-anchoring as scoped does NOT survive an integration rebase — on the #1 brick, since #1 is minted on pre-integration coordinates.
+3. PROMOTED to CONCURRENT with #1 (shares no code, no prerequisite): the adversarial refactor trace on today's green tree — assert orphaned-thread count + mutation-on-relocated-lines as expected-failure baselines. Settles Clash G; quantifies the re-anchor carnage.
+4. Capture the self-flag bit on every minted Catch while the schema is typed (Game+Systems), IF it does not delay #1 — the only path to later answering Clash B / flatter-vs-grade on real catches.
+5. Then integrate-on-tip (CI/CD) — but its ordering vs #1 is now a LIVE disagreement (CI/CD argues precede); revisit next round.
+6. Render §17 surface + two-agent loop remain gated after #1, with UX's two non-negotiables adopted: a designed empty/zero state for the mutation-silent case, and built against the CURRENT single-revision oracle's survivor-set state (so not strictly sequenced behind the two-revision catch).
+7. Add three code-level risks to RISKS.md (oracle latency under fleet contention; thread.go:40 miscalibration on behavior-preserving churn; orchestrator.go:37 immutable-baseRev gap); run a K-concurrent-settle contention benchmark before any catch pricing.
+NO VISION/DESIGN text changed (the 12-contradiction reconciliation pass remains queued per RISKS sequencing step 5). NOT converged — definition of #1's unit agreed, but ordering (render-camp dissent; CI/CD integrate-first; Refactor-concurrent) and the newly-opened unhappy-path scope need one more round.
+
+## Round 7 — CONVERGED: ordering & mint-scope closed around the agreed #1 — 2026-06-04
+
+Trigger: closing round, charged narrowly to resolve the two ordering disputes Round 6 left live (CI/CD integrate-first; UX render-gating) and rank the bricks against the now-settled #1 unit — NOT to re-litigate settled points (the survivor-set tri-state definition, re-anchoring prereq, refactor-trace concurrency). Build state re-verified in code, unchanged: 6 green packages, no pipe, no UI, no economy code.
+
+Panelists present: all six. No new lens.
+
+New evidence on the table (verified by reading code this round):
+- `grep Catch|Trust|Focus|Treasury|Ledger internal/` → ZERO typed events. Meta-finding 1 confirmed in code.
+- `mutation/generate.go` — a Finding is keyed only by `(Line, Original, Mutated)` operator-transition STRINGS; there is NO stable mutant identity across revisions (validates Systems' new set-identity concern).
+- `orchestrator.go:37/49` — baseRev immutable, never reconciled with tip; `diff.go:47` — `--no-renames` hardcoded; `review/thread.go` — a `question:` thread on EVERY non-killed mutant, no behavior-preserving distinction; `Render()` is string concat (no http/SSE).
+
+Per panelist (final positions):
+- UX: 7 rounds, 0 pixels — standing render-dissent holds and is verified: the §17 Via/SSE surface needs ONLY today's single-revision survivor-set state (Survived/Undetermined + MutantsConsidered), ZERO new backend, so it is NOT strictly sequenced behind the two-revision catch. Build it now, all FOUR oracle outcomes as distinct designed states. NEW concern: no designed in-flight/streaming state for "oracle still running" — SSE means a live, half-rendered card the reviewer WILL stare at. Clash A is now buildable (render all-killed silent vs "0 survivors" badge → reassurance or guilt-meter?).
+- Game: economy-first is correct (concession stands) — the catch IS the first honest reward beat. RATIFY the catch as #1, but mint it with a "would-this-have-shipped" counterfactual proxy AT MINT (un-backfillable; past harness state not persisted), else the Ledger is born inflationary → bolts on the forbidden model-inferred catch-weight (V§13.5).
+- Systems: feasibility ≠ economy; zero economy object exists to attack. RATIFY catch-first. NEW non-negotiable: the survivor-set has NO identity key — across a fix that changes the line's operator, before/after sets are over DIFFERENT operator alphabets, so "non-empty→empty" is ill-typed; the denominator must be a function of the line's CURRENT operator inventory per revision, else no-op churn and fix-edits-line are the SAME failure mode.
+- TDD: "a beautiful odometer, no trip counter" — the two-revision catch has zero code; RATIFY it as #1, fix-edits-anchored-line the non-negotiable RED. CONCEDES CI/CD's ordering "has teeth, ranks just under #1": both revisions compute against the SAME baseRev → a 2nd hidden dependency (anchor-survives-rebase). NEW: 2× oracle cost/catch, contended; no-oracle-signal MUST be a first-class third outcome.
+- CI/CD: BLOCKS the field's "integrate-after" ordering as a correctness dependency, not a preference — a mutant killed on a stale base says nothing about a moved trunk; §28 re-anchors WITHIN the branch, not across a rebase. Build integrate-on-tip (tri-state {clean|conflict|checks-red}) from the disjoint-file cross-symbol break, assert integrated checks RED. NEW: O(N²)/8N contention → design the merge-queue (batch+bisect) in from this brick.
+- Refactoring: RATIFY the refactor trace as concurrent — it runs on today's tree, needs NO unbuilt prerequisite, settles Clash G, and QUANTIFIES the re-anchor carnage #1's sub-brick must absorb (so it de-risks #1, not competes). NEW: extract-module is invisible to BOTH halves — diff can't link A→B (no rename), mutation re-mutates relocated operators as net-new; no hunk classifier can SEE it as a refactor.
+
+Clashes touched: F (identity half — the live gate; unit hardened a 3rd round + new identity-key requirement), G (settleable concurrently on today's tree), C (integrate-on-tip experiment + live-but-empirically-resolvable ordering), B (self-flag + would-have-shipped bits captured at mint for later correlation), A (now has a concrete render experiment), D/E/H/I (render-camp — gated on a surface/loop, strict-gating dissent registered).
+
+Verdicts updated:
+- Clash F: remains PARTIALLY RESOLVED; #1 unit CONFIRMED a 3rd round (tri-state survivor-set transition, never "same mutant killed") and HARDENED — Systems' missing survivor-set IDENTITY KEY (denominator = line's current operator inventory per revision + explicit inventory-change rule) added to the #1 spec; no-oracle-signal locked as a first-class outcome.
+- Clash G: still TBD but experiment CONFIRMED concurrent-on-today's-tree and de-risking; thread.go source-level miscalibration logged.
+- Clash C: gains the integrate-on-tip experiment AND a sharpened, partly-conceded ordering argument; to be settled empirically by the trunk-moved-underneath stress variant.
+- Clashes A, D, E, H, I: remain TBD; A gains its first buildable experiment.
+
+New clashes opened: none at the target level — convergence on #1 held and strengthened. The would-have-shipped mint-scope (Game) and strict-gating-of-the-surface (UX) are scheduling/scope sub-disputes inside agreed bricks; Systems' identity-key finding is an additive sharpening of #1.
+
+Decisions (the marching orders):
+1. NEXT BUILD (#1, 5-lens convergence, definition hardened a 3rd round): tri-state confirmed-catch oracle — two-revision survivor-SET non-empty→empty on the same anchored line, NEVER "same mutant killed", {catch | no-catch | no-oracle-signal | partial-catch}. TDD'd against the three-case fixture (test-only / fix-edits-anchored-line=RED / fix-adds-branch) + degenerate suite (agent-authored killing test; no-op churn must-not-mint). NEW non-negotiable: define the survivor-set IDENTITY KEY as a function of the line's current operator inventory per revision, with an explicit inventory-change rule. First adversarial acceptance-suite entry (meta-finding 2).
+2. #1 PREREQUISITE sub-brick: from-base re-anchoring (§28/§14), "lost via rename" a distinct state. Document the OPEN gap that this re-anchoring does NOT survive an integration rebase (CI/CD's 2nd hidden dependency).
+3. CONCURRENT with #1 (no shared code/prereq, today's green tree): the adversarial refactor trace — 30+-file rename + extract-module; assert orphaned-thread count + behavior-preserving-suspicion + extract-module-invisibility as expected-failure RED baselines. Settles Clash G.
+4. CAPTURE AT MINT while the Catch schema is typed (cheap, un-backfillable): the self-flag bit AND the would-have-shipped counterfactual proxy — data-capture only, the guard against an inflationary Ledger / forbidden catch-weight; adopt IF it does not delay #1's definition work.
+5. INTEGRATE-ON-TIP brick (CI/CD): rebase onto tip, checks on the INTEGRATED tree, tri-state, merge-queue (batch+bisect) designed in. Ordering vs #1 LIVE but RESOLVED EMPIRICALLY: build the fix-edits-anchored-line fixture first (cheap), then a trunk-moved-underneath variant; if the survivor-set transition does NOT survive the rebase, integrate-on-tip MUST precede catch pricing.
+6. RENDER §17 surface + two-agent loop: gated after #1's definition but NOT strictly behind the two-revision oracle (verified: needs only today's survivor-set state). Adopt all FOUR designed outcome states + a NEW designed in-flight/streaming state; Clash A's silent-vs-badge experiment falls out of it.
+7. Add FOUR code-level risks to RISKS.md (oracle latency under fleet contention; thread.go behavior-preserving-churn miscalibration; orchestrator.go immutable-baseRev gap; survivor-set has no identity key / ill-typed denominator under operator change). Run a K-concurrent-settle benchmark before any catch pricing.
+
+CONVERGED on the #1 build (3rd consecutive round, 5/6 lenses incl. render-camp conceding economy-first). Residual disputes are ordering/mint-scope to be settled WHILE building #1 — notably CI/CD's integrate-first, which the fix-edits-anchored-line + trunk-moved stress variant resolves empirically rather than by another argument round. NO VISION/DESIGN text changed (the 12-contradiction reconciliation pass remains queued per RISKS sequencing step 5). The council loop terminates here on genuine convergence; the next event is a BUILD (slice #1), not another deliberation round.
+
+## Round 8 — from validated clashes to a committed BUILD SEQUENCE: ranking the slices to a working full prototype — 2026-06-04
+
+Trigger: new charge — commit to building agntpr as a WORKING FULL PROTOTYPE, advancing one validated, green-tested slice at a time. Round 7 converged on the #1 brick and said "the next event is a BUILD, not a round," yet the tree is byte-identical (only test-infra commits since: testify migration + CONVENTIONS compliance). The council's job is no longer only to validate clashes but to CHART and CONFIRM the build sequence that reaches a usable prototype. Build state re-verified in code, unchanged: 6 green backend packages (mutation/review/settle/diff/translate/orchestrator); `grep Catch|Trust|Focus|Treasury|Ledger internal/` → ZERO typed events; `grep fetch|rebase|merge-base|integrate|onto` (non-test) → ZERO integration primitives; no http/SSE/template surface (the incidental http/via grep hits are comment/struct text in runner.go/translate.go, not a surface).
+
+Panelists present: all six (UX, Game design, Systems, TDD, CI/CD, Refactoring). No new lens.
+
+New evidence on the table (verified by reading code this round):
+- `mutation.Result` = `{Findings []Finding, MutantsConsidered int}`; each Finding keyed only by `(Line, Original, Mutated)` operator STRINGS (generate.go:24-26, runner.go:40-57) — no stable mutant identity across revisions. The tri-state catch maps cleanly onto this substrate as a pure differential over `Run()` — no oracle rewrite.
+- `translate.go:80-95` emits `activity.agent {thinking|editing|tool}` + `turn.ended`; `orchestrator` emits `TurnOutcome{Minted,SHA,Added,Deleted,Diff,Secrets}` — a live agent heartbeat + a settle beat with NO surface to play them on.
+- `diff.go:42` `--no-renames` hardcoded (rename → delete+add → anchors evaporate); `orchestrator.go:37,49` baseRev immutable, never reconciled with tip; `thread.go:40` emits a `question:` on EVERY survivor with zero behavior-preserving distinction; `review/thread.go:27` `Render()` is string concat.
+
+Per panelist:
+- UX: 7 rounds, 0 pixels — render-dissent re-verified and now SHARPENED by the prototype goal: "full WORKING prototype" is a different bar than "validated clash" — a prototype is unusable until a human can SEE one card, so the roadmap MUST end at a usable surface, not at another economy primitive. Ratify the catch (concession holds, it is un-backfillable), but build the §17 pipe + Via/SSE surface as a PAIR right behind it — all FOUR outcome states + a designed IN-FLIGHT/streaming state, and a designed empty/zero "N considered, 0 survived — tested" state (the MOST COMMON screen, still undesigned, will read as "broken"). Keep every meter OFF the first screen.
+- Game design: seven rounds, zero pixels, and now we want a "usable prototype" — one you can't sit in front of isn't one. The catch is the right spine but minting it before there's a Board is building the scoring before the game. FLIP the order for the prototype goal: pipe-to-a-live-card FIRST (zero new backend, only wiring), catch as build #2 layered onto a loop with a human in the chair, so the first catch is a beat someone WITNESSES, not a row in a log. NEW: the in-flight state has no defined TEMPO — raw event passthrough reads as log-spew or a frozen card; the in-flight state needs a designed CADENCE (debounce/coalesce into legible beats), tunable only against a live replay.
+- Systems: six packages green, economy still zero typed events, Finding keyed only on string triples → no set identity exists. RATIFY #1 a 4th time, but it converts from spec to a real Go TYPE this round or it is not built: one typed `Catch{Anchor, BeforeInventory, AfterInventory, Outcome}` where Outcome is a PURE function of the two operator-inventory sets on the anchored line. Build the identity key as a real type FIRST inside this brick so one function owns the denominator. The §17 surface is buildable now on today's single-revision set (zero new backend) so it is NOT behind the two-revision catch — build it in parallel, but do NOT mint an inferred catch-weight alongside it.
+- Pragmatic TDD: the substrate is confirmed — the tri-state catch is a pure differential ON TOP of `Run()`, no rewrite. Stop deliberating; build #1 via tdd-rygba with fix-edits-anchored-line as the RED that proves "same mutant killed" incoherent, carry re-anchoring in-scope, ship no-oracle-signal as a first-class outcome. One caveat that will not drop: a green RED→GREEN proves the transition FIRES, not that it CONSTRAINS — the degenerate suite (agent-authored killing test, no-op churn must-not-mint) is what earns its keep. CI/CD's rebase dependency is documented as an open gap on the brick, settled by the trunk-moved variant, not by argument.
+- CI/CD & Delivery: still ZERO integration primitives. "Landed" is not done; only "Merged" through real CI is — and this prototype has no Merged state at all. Concede #1 (economy spine), do NOT block it; but the catch is minted on PRE-INTEGRATION coordinates — re-anchoring (§28) maps WITHIN the branch, NOT across a moved trunk. Build integrate-on-tip {clean|conflict|checks-red} on the rebased tree as the unit that converts Landed→Merged and gives the catch a sound base; fixture (B) clean-rebase-but-checks-red is the killer proving a green pre-integration catch can be a red post-integration regression. Under the N-agent goal this is a SERIALIZATION POINT — build it as ONE merge-queue lane, not N independent rebases (the O(N^2)/8N contention regime). Price the catch only against an integrated base.
+- Refactoring: ratify #1, but its re-anchor prerequisite is exactly where refactors go to die, so the concurrent refactor trace is NOT optional garnish — it is the acceptance bar that prerequisite is built against. `--no-renames` (diff.go:42) downgrades a 30-file rename to delete+add → every thread orphans and the survivor-set transition is computed against a line that no longer exists → silent no-oracle-signal at best, phantom catch at worst. A clean refactor with green unchanged tests is the SAFEST skim, yet today's tree treats it as MAXIMAL noise (every survivor → `question:`) and maximal anchor-carnage. Build the RED baselines NOW, in the SAME build wave as the re-anchor sub-brick, BEFORE the §17 surface — else the prototype's first real rename mints phantom catches that poison the Ledger on day one.
+
+Clashes touched: F (identity half — now ratified a 4th round AND converted from spec to a required TYPE this round: Systems' `BeforeInventory`/`AfterInventory` pure-function denominator becomes the brick's contract, the explicit inventory-change rule the load-bearing RED); C (integrate-on-tip remains the experiment, ordering re-stated as "precede catch PRICING not minting," to be settled by trunk-moved fixture (A) + clean-rebase-checks-red fixture (B)); G (refactor trace re-ratified concurrent; rename_neutral_move directly stresses F's identity key); D (Game nominates human-dwell, CI/CD nominates integrated-checks-RED — opposite experiments on the same card, both deferred to #7/#5); A (silent-vs-badge becomes #4's acceptance bar); B (self-flag + would-have-shipped captured at mint, data-only); E/H/I (render-camp — unblock ONLY once the surface + two-agent loop exist; roadmap now explicitly REACHES them).
+
+Verdicts updated:
+- Clash F: remains PARTIALLY RESOLVED but the #1 unit is now BUILD-READY and TYPE-COMMITTED — the survivor-set identity key (denominator = line's current operator inventory per revision + explicit inventory-change rule) becomes a real Go type owned by one pure function THIS build, not prose; tri-state + partial-catch + no-oracle-signal-as-first-class all stand. Moves off "spec" toward code; verdict will flip on the green #1 build.
+- Clash G: still TBD; experiment re-CONFIRMED concurrent-on-today's-tree and re-scoped as the acceptance bar for the re-anchor sub-brick (must land in the SAME wave, not after the surface).
+- Clash C: gains both settling fixtures (trunk-moved (A); clean-rebase-checks-red (B)); ordering refined — integrate-on-tip precedes catch PRICING, not catch MINTING.
+- Clashes A, D, E, H, I: remain TBD; the roadmap now terminates at the surface + two-agent loop that unblock them, with named experiments.
+
+New clashes opened: NONE at the target level — the #1 brick held a 4th round and HARDENED into a typed contract. The build-ORDER split (UX+Game pipe-first vs the field catch-first) is a scheduling sub-dispute inside an agreed roadmap, NOT a new clash; per the Round-7 bar it does not block convergence. Game's in-flight-CADENCE concern is an additive design requirement folded into surface build #4.
+
+Decisions (the marching orders):
+1. NEXT BUILD (#1, 6/6 ratify the brick; build-order dissent recorded, chair-resolved): the tri-state confirmed-catch oracle as a typed two-revision differential over `Run()` — `Catch{Anchor, BeforeInventory, AfterInventory, Outcome}`, Outcome ∈ {Catch | NoCatch | NoOracleSignal | PartialCatch}, survivor-SET non-empty→empty on the same anchored line, NEVER "same mutant killed." The identity key (denominator = line's current operator inventory per revision) becomes a REAL TYPE owned by one pure function THIS build, with the explicit inventory-change rule (fix edits L + changes inventory → ill-typed → NoCatch). Built via tdd-rygba; fix-edits-anchored-line the load-bearing RED. First economy object + first adversarial acceptance entry.
+2. #1 PREREQUISITE sub-brick, BUILD FIRST: from-base re-anchoring (§28/§14), "lost via rename" a distinct state (→ NoOracleSignal, never a phantom Catch). Document the OPEN gap: this re-anchoring does NOT survive an integration rebase; the catch is minted on pre-integration coordinates.
+3. CONCURRENT with #1 (no shared prereq, today's green tree), in the SAME build wave: the adversarial refactor trace — internal/refactor/testdata/ {rename_40, rename_neutral_move, extract_module}, each with a GREEN unchanged suite; RED baselines: orphanedThreadCount>0; survivor-set ill-typed across rename (lost-via-rename != Catch — stresses #1's key); extract-module re-mutated as net-new (invisibility). Settles Clash G; de-risks #1's sub-brick.
+4. CAPTURE AT MINT (cheap, un-backfillable, data-only, IF it does not delay the definition): self-flag bit + would-have-shipped counterfactual proxy on the Catch record — NO weight, NO pricing (guards against an inflationary Ledger / forbidden catch-weight V§13.5).
+5. RANKED ROADMAP to a USABLE PROTOTYPE (each with its validating experiment): [#1-sub] re-anchoring [rename re-anchors / lost-via-rename distinct]; [#1] tri-state catch [three-case + degenerate suite]; [#2 concurrent] refactor trace [RED carnage baselines]; [#3] §17 pipe end-to-end on ONE real changeset [one comment → one revision, mutation at settle, thread anchors — the single-user happy loop dispatch→settle→review→land]; [#4] Via/SSE single-card surface, FOUR outcome states + designed in-flight/streaming state with a designed cadence, against today's single-revision oracle [silent-vs-badge reads as "tested, ship it" not guilt; streaming-no-flash], METERS OFF the first screen; [#5] integrate-on-tip {clean|conflict|checks-red} [trunk-moved (A) + clean-rebase-checks-red (B)] — if (A) shows the transition fails to survive a rebase, #5 precedes catch PRICING; [#6] single-lane merge queue wrapping #5 [throughput-to-zero]; [#7] two-agent Board loop instrumented for idle/dwell [Clash D real N-ceiling via rework-vs-concurrency].
+6. BLOCKERS that must be cleared before the prototype is reachable: (a) re-anchoring (§28) is a HARD prereq of #1 AND a known-incomplete one (does not survive rebase) — the refactor trace #2 quantifies the carnage it must absorb, in the same wave; (b) the survivor-set has no identity key until #1 makes it a type — until then non-empty→empty is ill-typed and no-op churn is indistinguishable from a real fix; (c) the prototype's single-user happy loop (#3) MUST exist before any economy stock is rendered — meters (Focus/Trust/Treasury) stay OFF the first screen or we ship a cockpit of gauges against an unproven loop; (d) catch PRICING (not minting) is gated on #5 if the trunk-moved fixture shows the transition is rebase-dependent.
+7. RISKS.md already carries the four code-level risks from R5-7 (oracle latency under fleet contention; thread.go behavior-preserving-churn miscalibration; orchestrator.go immutable-baseRev gap; survivor-set no-identity-key); run the K-concurrent-settle benchmark before any catch pricing.
+NO VISION/DESIGN text changed (the 12-contradiction reconciliation pass remains queued per RISKS sequencing step 5).
+
+CONVERGED (4th consecutive round): 6/6 lenses ratify the tri-state catch oracle as the #1 brick — now type-committed — and 6/6 affirm the ranked roadmap REACHES a usable §17 pipe + Via/SSE surface (all four outcome states + a designed in-flight state) rather than terminating at an economy primitive. The sole dissent is build-ORDER (UX+Game: pipe-before-catch), a scheduling sub-dispute inside the agreed roadmap that the Round-7 bar does not let block convergence; the chair resolves it catch-first because the catch is the only un-backfillable primitive and the pipe+surface follow immediately at #3-#4. The next event is a BUILD — the re-anchoring sub-brick + the tri-state catch (#1) and the refactor trace (#2) in one wave — not another deliberation round.
 
 ---
 
