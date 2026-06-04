@@ -37,7 +37,14 @@ func (c *ReviewCard) Post(ctx *via.Ctx) {
 // gets a distinct data-state marker, headline, and detail; the in-flight and
 // no-oracle-signal states deliberately carry no success affirmation.
 func (c *ReviewCard) View(ctx *via.CtxR) h.H {
-	state, headline, detail := present(c.Verdict.Read(ctx))
+	return RenderVerdict(c.Verdict.Read(ctx))
+}
+
+// RenderVerdict renders a verdict token as the card's one designed state. It is
+// the shared rendering both the reviewer card and the live wire use, so a
+// verdict resolves to the same on-screen state however it is delivered.
+func RenderVerdict(verdict string) h.H {
+	state, headline, detail := present(verdict)
 	return h.Div(
 		h.Class("review-card"),
 		h.Data("state", state),
