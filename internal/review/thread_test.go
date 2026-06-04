@@ -1,15 +1,18 @@
-package review
+package review_test
 
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/joaomdsg/agntpr/internal/mutation"
+	"github.com/joaomdsg/agntpr/internal/review"
 )
 
-// A surviving mutant is worthless to a reviewer unless it shows up as an
-// actionable, anchored review comment — an open question authored by the
-// agent, pinned to the exact line the tests failed to constrain.
-func TestSurvivingMutantBecomesAnOpenQuestionThreadForTheReviewer(t *testing.T) {
+func TestQuestionThreadsFromMutations_makesOpenQuestionThreadPerFinding(t *testing.T) {
+	t.Parallel()
+
 	findings := []mutation.Finding{{
 		File:     "auth.go",
 		Line:     42,
@@ -18,63 +21,44 @@ func TestSurvivingMutantBecomesAnOpenQuestionThreadForTheReviewer(t *testing.T) 
 		Message:  "Mutation survived: changed `>=` to `>` on line 42 and all tests still passed — is line 42 actually constrained by a test?",
 	}}
 
-	threads := QuestionThreadsFromMutations(findings)
+	threads := review.QuestionThreadsFromMutations(findings)
 
-	if len(threads) != 1 {
-		t.Fatalf("want exactly 1 thread, got %d", len(threads))
-	}
+	require.Len(t, threads, 1)
 	got := threads[0]
-	if got.File != "auth.go" {
-		t.Errorf("File = %q, want auth.go", got.File)
-	}
-	if got.StartLine != 42 || got.EndLine != 42 {
-		t.Errorf("anchor = %d-%d, want 42-42 (single line)", got.StartLine, got.EndLine)
-	}
-	if got.Tag != "question" {
-		t.Errorf("Tag = %q, want question", got.Tag)
-	}
-	if got.Author != "agntpr" {
-		t.Errorf("Author = %q, want agntpr", got.Author)
-	}
-	if got.Status != Open {
-		t.Errorf("Status = %q, want Open", got.Status)
-	}
-	if got.Body != findings[0].Message {
-		t.Errorf("Body = %q, want the finding's message", got.Body)
-	}
+	assert.Equal(t, "auth.go", got.File)
+	assert.Equal(t, 42, got.StartLine)
+	assert.Equal(t, 42, got.EndLine)
+	assert.Equal(t, "question", got.Tag)
+	assert.Equal(t, "agntpr", got.Author)
+	assert.Equal(t, review.Open, got.Status)
+	assert.Equal(t, findings[0].Message, got.Body)
 }
 
-// Threads must mirror finding order so the reviewer reads them top-to-
-// bottom in file order, the way they would scan a diff.
-func TestThreadOrderMirrorsFindingOrder(t *testing.T) {
+func TestQuestionThreadsFromMutations_preservesFindingOrder(t *testing.T) {
+	t.Parallel()
+
 	findings := []mutation.Finding{
 		{File: "a.go", Line: 1, Message: "first"},
 		{File: "a.go", Line: 9, Message: "second"},
 	}
 
-	threads := QuestionThreadsFromMutations(findings)
+	threads := review.QuestionThreadsFromMutations(findings)
 
-	if len(threads) != 2 {
-		t.Fatalf("want 2 threads, got %d", len(threads))
-	}
-	if threads[0].Body != "first" || threads[1].Body != "second" {
-		t.Errorf("order not preserved: got %q then %q", threads[0].Body, threads[1].Body)
-	}
+	require.Len(t, threads, 2)
+	assert.Equal(t, "first", threads[0].Body)
+	assert.Equal(t, "second", threads[1].Body)
 }
 
-// A strong suite yields no findings; that must produce a clean review,
-// not a phantom thread.
-func TestNoFindingsProduceNoThreads(t *testing.T) {
-	if got := QuestionThreadsFromMutations(nil); len(got) != 0 {
-		t.Fatalf("want no threads for no findings, got %d", len(got))
-	}
+func TestQuestionThreadsFromMutations_returnsNoThreadsForNoFindings(t *testing.T) {
+	t.Parallel()
+
+	assert.Empty(t, review.QuestionThreadsFromMutations(nil))
 }
 
-// The reviewer sees a Conventional Comment, so the agent's intent is
-// machine-readable as well as human-readable: "<tag>: <body>".
-func TestThreadRendersAsAConventionalComment(t *testing.T) {
-	th := Thread{Tag: "question", Body: "is line 42 constrained?", Status: Open}
-	if got := th.Render(); got != "question: is line 42 constrained?" {
-		t.Errorf("Render() = %q, want %q", got, "question: is line 42 constrained?")
-	}
+func TestThread_rendersAsConventionalComment(t *testing.T) {
+	t.Parallel()
+
+	th := review.Thread{Tag: "question", Body: "is line 42 constrained?", Status: review.Open}
+
+	assert.Equal(t, "question: is line 42 constrained?", th.Render())
 }

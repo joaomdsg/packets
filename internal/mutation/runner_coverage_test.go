@@ -1,73 +1,52 @@
-package mutation
+package mutation_test
 
 import (
 	"context"
 	"testing"
+
+	"github.com/joaomdsg/agntpr/internal/mutation"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// The oracle's silence is dangerous if it can't be told apart: an empty
-// finding list means "all mutants killed (line is tested)" ONLY when there
-// were mutants to begin with. A line with no mutable operator also yields an
-// empty list — but proves nothing. Run's result must distinguish the two by
-// reporting how many mutable sites it actually considered, so a checks panel
-// never renders "no oracle signal" as "verified".
-func TestZeroFindingsDistinguishesNoSitesFromAllKilled(t *testing.T) {
+func TestRun_distinguishesNoSitesFromAllKilled(t *testing.T) {
 	t.Parallel()
-	// All-killed: adult_strong's `>=` IS a mutable site, and the strong test
-	// kills its mutant — so 0 findings but 1 site considered = genuinely tested.
-	strong, err := Run(context.Background(), Options{
+	// adult_strong's `>=` IS a mutable site, and the strong test kills its
+	// mutant — so 0 findings but 1 site considered = genuinely tested.
+	strong, err := mutation.Run(context.Background(), mutation.Options{
 		Dir:     "testdata/adult_strong",
 		File:    "adult.go",
-		Lines:   []LineRange{{Start: 4, End: 4}},
+		Lines:   []mutation.LineRange{{Start: 4, End: 4}},
 		TestCmd: goTestCmd,
 	})
-	if err != nil {
-		t.Fatalf("Run(adult_strong) error: %v", err)
-	}
-	if len(strong.Findings) != 0 {
-		t.Fatalf("strong suite kills the mutant, want 0 findings, got %+v", strong.Findings)
-	}
-	if strong.MutantsConsidered != 1 {
-		t.Fatalf("adult_strong line 4 has exactly one mutable `>=` site; MutantsConsidered = %d, want 1 (so 0 findings reads as genuinely tested)", strong.MutantsConsidered)
-	}
+	require.NoError(t, err)
+	assert.Empty(t, strong.Findings)
+	assert.Equal(t, 1, strong.MutantsConsidered)
 
-	// Weak: the SAME single `>=` site, but the weak suite lets the mutant
-	// survive. This pins the meaning of MutantsConsidered as TOTAL sites
-	// considered (1) — not killed (0 here) and not survivors-only — since
-	// here it must equal 1 while there is also 1 finding.
-	weak, err := Run(context.Background(), Options{
+	// The SAME single `>=` site, but the weak suite lets the mutant survive:
+	// MutantsConsidered is TOTAL sites considered (1), not killed and not
+	// survivors-only, so here it equals 1 while there is also 1 finding.
+	weak, err := mutation.Run(context.Background(), mutation.Options{
 		Dir:     "testdata/adult_weak",
 		File:    "adult.go",
-		Lines:   []LineRange{{Start: 4, End: 4}},
+		Lines:   []mutation.LineRange{{Start: 4, End: 4}},
 		TestCmd: goTestCmd,
 	})
-	if err != nil {
-		t.Fatalf("Run(adult_weak) error: %v", err)
-	}
-	if len(weak.Findings) != 1 {
-		t.Fatalf("weak suite leaves 1 surviving mutant, got %+v", weak.Findings)
-	}
-	if weak.MutantsConsidered != 1 {
-		t.Fatalf("MutantsConsidered counts total sites (1), independent of how many survived; got %d", weak.MutantsConsidered)
-	}
+	require.NoError(t, err)
+	require.Len(t, weak.Findings, 1)
+	assert.Equal(t, 1, weak.MutantsConsidered)
 
-	// No-sites: the target line (the `x &^= 2` body, line 10) is a COMPOUND
-	// ASSIGNMENT — a single token.AND_NOT_ASSIGN in an *ast.AssignStmt, not an
-	// *ast.BinaryExpr — so the oracle (which mutates only binary/unary-NOT
-	// expressions) finds nothing to test. 0 findings AND 0 sites = no signal.
-	nosites, err := Run(context.Background(), Options{
+	// The target line (the `x &^= 2` body, line 10) is a COMPOUND ASSIGNMENT —
+	// a single token.AND_NOT_ASSIGN in an *ast.AssignStmt, not an
+	// *ast.BinaryExpr — so the oracle finds nothing to test: 0 findings AND 0
+	// sites = no signal.
+	nosites, err := mutation.Run(context.Background(), mutation.Options{
 		Dir:     "testdata/no_mutable_ops",
 		File:    "calc.go",
-		Lines:   []LineRange{{Start: 10, End: 10}},
+		Lines:   []mutation.LineRange{{Start: 10, End: 10}},
 		TestCmd: goTestCmd,
 	})
-	if err != nil {
-		t.Fatalf("Run(no_mutable_ops) error: %v", err)
-	}
-	if len(nosites.Findings) != 0 {
-		t.Fatalf("no mutable operators means no findings, got %+v", nosites.Findings)
-	}
-	if nosites.MutantsConsidered != 0 {
-		t.Fatalf("a line with no mutable operator must report 0 sites considered (no oracle signal), got %d", nosites.MutantsConsidered)
-	}
+	require.NoError(t, err)
+	assert.Empty(t, nosites.Findings)
+	assert.Equal(t, 0, nosites.MutantsConsidered)
 }

@@ -1,8 +1,10 @@
-package mutation
+package mutation_test
 
 import (
 	"context"
 	"testing"
+
+	"github.com/joaomdsg/agntpr/internal/mutation"
 )
 
 // BenchmarkRunManySites characterises the dominant cost of the oracle:
@@ -13,7 +15,7 @@ import (
 // would. Reported per-mutant via b.ReportMetric.
 func BenchmarkRunManySites(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		result, err := Run(context.Background(), Options{
+		result, err := mutation.Run(context.Background(), mutation.Options{
 			Dir:     "testdata/bench_many",
 			File:    "many.go",
 			TestCmd: goTestCmd,

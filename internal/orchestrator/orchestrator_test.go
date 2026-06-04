@@ -1,4 +1,4 @@
-package orchestrator
+package orchestrator_test
 
 import (
 	"context"
@@ -7,6 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/joaomdsg/agntpr/internal/orchestrator"
 )
 
 func runGit(t *testing.T, dir string, args ...string) string {
@@ -14,9 +19,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
+	require.NoError(t, err, "git %v\n%s", args, out)
 	return strings.TrimSpace(string(out))
 }
 
@@ -26,9 +29,7 @@ func initRepo(t *testing.T) string {
 	runGit(t, dir, "init", "-q")
 	runGit(t, dir, "config", "user.email", "t@t")
 	runGit(t, dir, "config", "user.name", "t")
-	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("one\ntwo\nthree\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "f.txt"), []byte("one\ntwo\nthree\n"), 0o644))
 	runGit(t, dir, "add", "-A")
 	runGit(t, dir, "commit", "-qm", "base")
 	return dir
@@ -36,12 +37,10 @@ func initRepo(t *testing.T) string {
 
 func write(t *testing.T, dir, name, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
 }
 
-func hasFile(out TurnOutcome, path string) bool {
+func hasFile(out orchestrator.TurnOutcome, path string) bool {
 	for _, f := range out.Diff.Files {
 		if f.Path == path {
 			return true
@@ -50,157 +49,95 @@ func hasFile(out TurnOutcome, path string) bool {
 	return false
 }
 
-// A turn that changed the working tree must mint a revision whose SHA, diff,
-// and add/delete stats describe the change — this is the revision.created /
-// diff.data payload the review surface renders.
-func TestChangedTurnMintsARevisionWithDiffAndStats(t *testing.T) {
+func TestSettleTurn_mintsRevisionWithDiffAndStatsForChangedTurn(t *testing.T) {
+	t.Parallel()
 	dir := initRepo(t)
 	base := runGit(t, dir, "rev-parse", "HEAD")
-	write(t, dir, "f.txt", "one\nTWO\nthree\n") // modify line 2
+	write(t, dir, "f.txt", "one\nTWO\nthree\n")
 
-	out, err := SettleTurn(context.Background(), dir, base, "turn")
-	if err != nil {
-		t.Fatalf("SettleTurn: %v", err)
-	}
-	if !out.Minted {
-		t.Fatalf("a changed turn must mint a revision")
-	}
-	if head := runGit(t, dir, "rev-parse", "HEAD"); out.SHA != head {
-		t.Errorf("SHA %q must equal new HEAD %q", out.SHA, head)
-	}
-	if !hasFile(out, "f.txt") {
-		t.Errorf("diff must include f.txt, got %+v", out.Diff.Files)
-	}
-	if out.Added != 1 || out.Deleted != 1 {
-		t.Errorf("one line modified: Added/Deleted = %d/%d, want 1/1", out.Added, out.Deleted)
-	}
-	if len(out.Secrets) != 0 {
-		t.Errorf("clean change must surface no secrets, got %+v", out.Secrets)
-	}
+	out, err := orchestrator.SettleTurn(context.Background(), dir, base, "turn")
+	require.NoError(t, err)
+	require.True(t, out.Minted, "a changed turn must mint a revision")
+	assert.Equal(t, runGit(t, dir, "rev-parse", "HEAD"), out.SHA, "SHA must equal new HEAD")
+	assert.True(t, hasFile(out, "f.txt"), "diff must include f.txt, got %+v", out.Diff.Files)
+	assert.Equal(t, 1, out.Added, "one line modified")
+	assert.Equal(t, 1, out.Deleted, "one line modified")
+	assert.Empty(t, out.Secrets, "clean change must surface no secrets")
 }
 
-// A turn that changed nothing must mint no revision and not error — the no-edit
-// guard (iter-8) composed through settle. HEAD must not move.
-func TestNoEditTurnMintsNothing(t *testing.T) {
+func TestSettleTurn_mintsNothingForNoEditTurn(t *testing.T) {
+	t.Parallel()
 	dir := initRepo(t)
 	base := runGit(t, dir, "rev-parse", "HEAD")
 
-	out, err := SettleTurn(context.Background(), dir, base, "turn")
-	if err != nil {
-		t.Fatalf("SettleTurn: %v", err)
-	}
-	if out.Minted {
-		t.Errorf("a no-edit turn must not mint a revision, got SHA=%q", out.SHA)
-	}
-	if out.SHA != "" {
-		t.Errorf("no revision means no SHA, got %q", out.SHA)
-	}
-	if len(out.Diff.Files) != 0 {
-		t.Errorf("no revision means no diff, got %+v", out.Diff.Files)
-	}
-	if after := runGit(t, dir, "rev-parse", "HEAD"); after != base {
-		t.Errorf("HEAD moved on a no-edit turn: %s -> %s", base, after)
-	}
+	out, err := orchestrator.SettleTurn(context.Background(), dir, base, "turn")
+	require.NoError(t, err)
+	assert.False(t, out.Minted, "a no-edit turn must not mint a revision")
+	assert.Empty(t, out.SHA, "no revision means no SHA")
+	assert.Empty(t, out.Diff.Files, "no revision means no diff")
+	assert.Equal(t, base, runGit(t, dir, "rev-parse", "HEAD"), "HEAD must not move on a no-edit turn")
 }
 
-// A turn that introduces a secret must be BLOCKED: no revision, the secret
-// surfaced, HEAD unmoved, no error — the iter-15 guard composed through settle.
-func TestSecretTurnIsBlockedAndSurfaced(t *testing.T) {
+func TestSettleTurn_blocksAndSurfacesSecretTurn(t *testing.T) {
+	t.Parallel()
 	dir := initRepo(t)
 	base := runGit(t, dir, "rev-parse", "HEAD")
 	write(t, dir, "conf.env", "API_KEY=\"ABCDEFGHIJKLMNOP1234\"\n")
 
-	out, err := SettleTurn(context.Background(), dir, base, "turn")
-	if err != nil {
-		t.Fatalf("a blocked secret is surfaced, not an error: %v", err)
-	}
-	if out.Minted {
-		t.Errorf("a secret-bearing turn must not mint a revision")
-	}
-	if len(out.Secrets) == 0 {
-		t.Fatalf("the secret must be surfaced in TurnOutcome.Secrets")
-	}
-	if len(out.Diff.Files) != 0 {
-		t.Errorf("a blocked secret means no revision, so no diff must be computed; got %+v", out.Diff.Files)
-	}
-	if after := runGit(t, dir, "rev-parse", "HEAD"); after != base {
-		t.Errorf("HEAD moved despite a blocked secret: %s -> %s", base, after)
-	}
+	out, err := orchestrator.SettleTurn(context.Background(), dir, base, "turn")
+	require.NoError(t, err, "a blocked secret is surfaced, not an error")
+	assert.False(t, out.Minted, "a secret-bearing turn must not mint a revision")
+	assert.NotEmpty(t, out.Secrets, "the secret must be surfaced in TurnOutcome.Secrets")
+	assert.Empty(t, out.Diff.Files, "a blocked secret means no revision, so no diff")
+	assert.Equal(t, base, runGit(t, dir, "rev-parse", "HEAD"), "HEAD must not move despite a blocked secret")
 }
 
-// The diff must be computed against the caller's baseRev, NOT a fixed HEAD~1.
-// With two prior commits and baseRev pinned to the OLDER one, the diff must
-// span everything since that older commit — a wrong-base impl (e.g. HEAD~1)
-// would miss the intervening change.
-func TestDiffIsComputedAgainstTheGivenBaseRevNotHeadParent(t *testing.T) {
-	dir := initRepo(t) // base1: f.txt = "one\ntwo\nthree\n"
+func TestSettleTurn_computesDiffAgainstGivenBaseRevNotHeadParent(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
 	base1 := runGit(t, dir, "rev-parse", "HEAD")
 	// A second commit changes line 1; this is NOT the base we pass.
 	write(t, dir, "f.txt", "ONE\ntwo\nthree\n")
 	runGit(t, dir, "add", "-A")
 	runGit(t, dir, "commit", "-qm", "base2")
-	// The turn changes line 3.
 	write(t, dir, "f.txt", "ONE\ntwo\nTHREE\n")
 
-	out, err := SettleTurn(context.Background(), dir, base1, "turn")
-	if err != nil {
-		t.Fatalf("SettleTurn: %v", err)
-	}
-	if !out.Minted {
-		t.Fatalf("a changed turn must mint a revision")
-	}
-	// base1..newSHA spans BOTH the line-1 change (commit base2) and the line-3
-	// change (the turn): two modified lines. HEAD~1..newSHA would show only one.
-	if out.Added != 2 || out.Deleted != 2 {
-		t.Errorf("diff vs base1 must span both changes: Added/Deleted = %d/%d, want 2/2", out.Added, out.Deleted)
-	}
+	out, err := orchestrator.SettleTurn(context.Background(), dir, base1, "turn")
+	require.NoError(t, err)
+	require.True(t, out.Minted, "a changed turn must mint a revision")
+	// base1..newSHA spans both the line-1 change (commit base2) and the
+	// line-3 change (the turn); HEAD~1..newSHA would show only one.
+	assert.Equal(t, 2, out.Added, "diff vs base1 must span both changes")
+	assert.Equal(t, 2, out.Deleted, "diff vs base1 must span both changes")
 }
 
-// A real failure from the composed steps (here: a non-existent repo dir makes
-// settle's first git call fail) must propagate as an error, never be swallowed
-// into a silent "no revision".
-func TestUnderlyingGitFailurePropagatesAsError(t *testing.T) {
-	_, err := SettleTurn(context.Background(), filepath.Join(t.TempDir(), "does-not-exist"), "deadbeef", "turn")
-	if err == nil {
-		t.Fatal("expected an error when the repo dir does not exist, got nil")
-	}
+func TestSettleTurn_propagatesUnderlyingGitFailure(t *testing.T) {
+	t.Parallel()
+	_, err := orchestrator.SettleTurn(context.Background(), filepath.Join(t.TempDir(), "does-not-exist"), "deadbeef", "turn")
+	assert.Error(t, err, "expected an error when the repo dir does not exist")
 }
 
-// If settle commits successfully but the DIFF step then fails (e.g. an invalid
-// baseRev), the error must propagate — the failure must not be swallowed into a
-// minted-looking outcome with an empty diff.
-func TestDiffFailureAfterCommitPropagatesAsError(t *testing.T) {
+func TestSettleTurn_propagatesDiffFailureAfterCommit(t *testing.T) {
+	t.Parallel()
 	dir := initRepo(t)
-	write(t, dir, "f.txt", "one\nTWO\nthree\n") // a real change → settle will commit
+	write(t, dir, "f.txt", "one\nTWO\nthree\n")
 
-	out, err := SettleTurn(context.Background(), dir, "nonexistent-base-rev", "turn")
-	if err == nil {
-		t.Fatalf("expected an error when diff.Compute fails on a bad baseRev, got nil (out=%+v)", out)
-	}
-	if out.Minted {
-		t.Errorf("a diff failure must not yield a minted outcome, got %+v", out)
-	}
+	out, err := orchestrator.SettleTurn(context.Background(), dir, "nonexistent-base-rev", "turn")
+	require.Error(t, err, "expected an error when diff.Compute fails on a bad baseRev")
+	assert.False(t, out.Minted, "a diff failure must not yield a minted outcome")
 }
 
-// Stats are the TOTAL across all files the turn touched, so revision.created
-// reports the whole changeset's size.
-func TestStatsSumAcrossAllChangedFiles(t *testing.T) {
+func TestSettleTurn_sumsStatsAcrossAllChangedFiles(t *testing.T) {
+	t.Parallel()
 	dir := initRepo(t)
 	base := runGit(t, dir, "rev-parse", "HEAD")
-	write(t, dir, "f.txt", "one\nTWO\nthree\n") // +1 / -1
-	write(t, dir, "g.txt", "alpha\nbeta\n")      // +2 / -0 (new file)
+	write(t, dir, "f.txt", "one\nTWO\nthree\n")
+	write(t, dir, "g.txt", "alpha\nbeta\n")
 
-	out, err := SettleTurn(context.Background(), dir, base, "turn")
-	if err != nil {
-		t.Fatalf("SettleTurn: %v", err)
-	}
-	if !out.Minted {
-		t.Fatalf("a changed turn must mint a revision")
-	}
-	if len(out.Diff.Files) != 2 {
-		t.Fatalf("want 2 changed files, got %+v", out.Diff.Files)
-	}
-	if out.Added != 3 || out.Deleted != 1 {
-		t.Errorf("totals across files: Added/Deleted = %d/%d, want 3/1", out.Added, out.Deleted)
-	}
+	out, err := orchestrator.SettleTurn(context.Background(), dir, base, "turn")
+	require.NoError(t, err)
+	require.True(t, out.Minted, "a changed turn must mint a revision")
+	require.Len(t, out.Diff.Files, 2, "want 2 changed files")
+	assert.Equal(t, 3, out.Added, "totals across files")
+	assert.Equal(t, 1, out.Deleted, "totals across files")
 }
