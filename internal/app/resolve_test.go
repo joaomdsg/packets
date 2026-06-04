@@ -31,7 +31,7 @@ const strongTest = "package adult\n\nimport \"testing\"\n\nfunc TestIsAdult(t *t
 // bottom-of-file edit re-anchors as Moved (not context-overlap Outdated).
 const adultPadded = "package adult\n\nfunc IsAdult(age int) bool {\n\treturn age >= 18\n}\n\n// pad\n// pad\n// pad\n// pad\n// pad\n// pad\nvar Marker = 1\n"
 
-func runGit(t *testing.T, dir string, args ...string) string {
+func runGit(t testing.TB, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
@@ -40,7 +40,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func initRepo(t *testing.T) string {
+func initRepo(t testing.TB) string {
 	t.Helper()
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-q")
@@ -49,14 +49,14 @@ func initRepo(t *testing.T) string {
 	return dir
 }
 
-func commitAll(t *testing.T, dir, msg string) string {
+func commitAll(t testing.TB, dir, msg string) string {
 	t.Helper()
 	runGit(t, dir, "add", "-A")
 	runGit(t, dir, "commit", "-qm", msg)
 	return runGit(t, dir, "rev-parse", "HEAD")
 }
 
-func write(t *testing.T, dir, name, content string) {
+func write(t testing.TB, dir, name, content string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
 }
