@@ -23,6 +23,10 @@ type Resolution struct {
 	// own card row, orthogonal to Verdict — the catch is minted on the base, this
 	// answers whether it integrates onto trunk tip.
 	Land   pipe.LandState
+	// Trace is the ordered, typed, timestamped beats of the cycle, surfaced so the
+	// live card can stream each as its own SSE patch (the felt loop). Purely
+	// additive — it never alters the verdict, Land, or the ledger record.
+	Trace  []pipe.TraceEvent
 	Record *ledger.CatchRecord
 }
 
@@ -57,5 +61,5 @@ func Resolve(ctx context.Context, repoDir, baseRev, fixRev, tipRev string, ancho
 			WouldHaveShipped:  wouldHaveShipped,
 		}
 	}
-	return Resolution{Verdict: verdict, Land: res.Land, Record: record}, nil
+	return Resolution{Verdict: verdict, Land: res.Land, Trace: res.Trace, Record: record}, nil
 }

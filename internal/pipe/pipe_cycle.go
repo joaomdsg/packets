@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/joaomdsg/agntpr/internal/catch"
 	"github.com/joaomdsg/agntpr/internal/mutation"
@@ -33,6 +34,17 @@ const (
 	LandChecksRed LandState = "checks_red"
 )
 
+// TraceEvent is one beat of the cycle: a typed, timestamped event stamped at the
+// real transition it reports (after the work, not before). Kind is the stable
+// vocabulary the surface streams and paces against (settle-base, oracle-base,
+// settle-fix, oracle-fix, catch, land); Msg is the human-readable line; T lets
+// the surface tune cadence to the real wall-clock of oracle + rebase work.
+type TraceEvent struct {
+	T    time.Time
+	Kind string
+	Msg  string
+}
+
 // CycleResult is the outcome of running one confirmed-catch cycle over two
 // revisions: the catch verdict, the re-anchored anchor at the fix revision
 // (Path/Line), the honest integration state, and an ordered, replayable Trace
@@ -47,7 +59,7 @@ type CycleResult struct {
 	Path    string
 	Line    int
 	Land    LandState
-	Trace   []string
+	Trace   []TraceEvent
 	// Before and After are the anchored line's operator-inventory state at each
 	// revision, exposed so the surface presenter can tell the verified-strong
 	// "Tested" screen from blind no-signal, and the ledger can record the
@@ -64,15 +76,15 @@ type CycleResult struct {
 // fail-closed gate. The verdict logic lives in CatchAcross/catch.Detect; this
 // driver is the git+oracle orchestration around it.
 func RunCatchCycle(ctx context.Context, repoDir, baseRev, fixRev, tipRev string, anchor reanchor.Anchor, testCmd []string) (CycleResult, error) {
-	var trace []string
+	var trace []TraceEvent
 
 	baseRes, srcBase, err := runOracleAt(ctx, repoDir, baseRev, anchor.Path, anchor.Start, testCmd)
 	if err != nil {
 		return CycleResult{}, err
 	}
 	trace = append(trace,
-		fmt.Sprintf("settled base %s", short(baseRev)),
-		fmt.Sprintf("oracle ran base: %d considered", baseRes.MutantsConsidered))
+		TraceEvent{T: time.Now(), Kind: "settle-base", Msg: fmt.Sprintf("settled base %s", short(baseRev))},
+		TraceEvent{T: time.Now(), Kind: "oracle-base", Msg: fmt.Sprintf("oracle ran base: %d considered", baseRes.MutantsConsidered)})
 	beforeLS, err := catch.LineStateAt(srcBase, anchor.Start, baseRes)
 	if err != nil {
 		return CycleResult{}, err
@@ -92,27 +104,29 @@ func RunCatchCycle(ctx context.Context, repoDir, baseRev, fixRev, tipRev string,
 			return CycleResult{}, runErr
 		}
 		trace = append(trace,
-			fmt.Sprintf("settled fix %s", short(fixRev)),
-			fmt.Sprintf("oracle ran fix: %d considered", fixRes.MutantsConsidered))
+			TraceEvent{T: time.Now(), Kind: "settle-fix", Msg: fmt.Sprintf("settled fix %s", short(fixRev))},
+			TraceEvent{T: time.Now(), Kind: "oracle-fix", Msg: fmt.Sprintf("oracle ran fix: %d considered", fixRes.MutantsConsidered)})
 		afterLS, err = catch.LineStateAt(srcFix, ra.Start, fixRes)
 		if err != nil {
 			return CycleResult{}, err
 		}
 	} else {
-		trace = append(trace, fmt.Sprintf("settled fix %s (anchor %s)", short(fixRev), ra.State))
+		// Anchor lost (Outdated/LostViaRename): the fix settled but no oracle-fix
+		// beat fires — the stream reports the real path taken, not a fixed animation.
+		trace = append(trace, TraceEvent{T: time.Now(), Kind: "settle-fix", Msg: fmt.Sprintf("settled fix %s (anchor %s)", short(fixRev), ra.State)})
 	}
 
 	outcome, reason, err := CatchAcross(ctx, repoDir, anchor, baseRev, fixRev, beforeLS, afterLS)
 	if err != nil {
 		return CycleResult{}, err
 	}
-	trace = append(trace, fmt.Sprintf("catch: %s", outcome))
+	trace = append(trace, TraceEvent{T: time.Now(), Kind: "catch", Msg: fmt.Sprintf("catch: %s", outcome)})
 
 	land, err := integrateOnTip(ctx, repoDir, fixRev, tipRev, testCmd)
 	if err != nil {
 		return CycleResult{}, err
 	}
-	trace = append(trace, fmt.Sprintf("land: %s", land))
+	trace = append(trace, TraceEvent{T: time.Now(), Kind: "land", Msg: fmt.Sprintf("land: %s", land)})
 
 	return CycleResult{
 		Outcome: outcome, Reason: reason, Path: outPath, Line: outLine, Land: land, Trace: trace,

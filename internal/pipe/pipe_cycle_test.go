@@ -28,19 +28,19 @@ func adultAnchor() reanchor.Anchor {
 	return reanchor.Anchor{Path: "adult.go", Start: 4, End: 4, LineHash: reanchor.HashLines("\treturn age >= 18")}
 }
 
-func beatsContaining(trace []string, sub string) int {
+func beatsContaining(trace []pipe.TraceEvent, sub string) int {
 	n := 0
 	for _, b := range trace {
-		if strings.Contains(b, sub) {
+		if strings.Contains(b.Msg, sub) {
 			n++
 		}
 	}
 	return n
 }
 
-func firstIndexContaining(trace []string, sub string) int {
+func firstIndexContaining(trace []pipe.TraceEvent, sub string) int {
 	for i, b := range trace {
-		if strings.Contains(b, sub) {
+		if strings.Contains(b.Msg, sub) {
 			return i
 		}
 	}
@@ -136,6 +136,14 @@ func TestRunCatchCycle_refusesCatchWhenFixEditsAnchoredLine(t *testing.T) {
 	assert.Equal(t, catch.NoOracleSignal, res.Outcome, "the reanchor gate outdates the edited line before Detect runs")
 	assert.Equal(t, pipe.ReasonAnchorEdited, res.Reason,
 		"the card must say the line was EDITED, never the false 'no mutable operator' — the keystone against a confidently-wrong quiet verdict")
+
+	var kinds []string
+	for _, ev := range res.Trace {
+		kinds = append(kinds, ev.Kind)
+	}
+	assert.Contains(t, kinds, "settle-fix", "the fix still settles even when the anchor is lost")
+	assert.NotContains(t, kinds, "oracle-fix",
+		"no oracle runs on a lost anchor — the trace reports the real path taken, never a phantom oracle-fix beat")
 }
 
 func TestRunCatchCycle_renamedAnchorReportsFileRenamedReason(t *testing.T) {
@@ -282,4 +290,37 @@ func TestRunCatchCycle_cleanRebaseButChecksRedYieldsChecksRed(t *testing.T) {
 	assert.Equal(t, catch.Catch, res.Outcome, "the catch was real pre-integration; the mint token is unchanged")
 	assert.Equal(t, pipe.LandChecksRed, res.Land,
 		"clean rebase but the integrated suite fails — a green pre-integration catch is a red post-integration regression")
+}
+
+func TestRunCatchCycle_emitsTypedBeatsInPipeOrderWithMonotonicTime(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module adultpipe\n\ngo 1.23\n")
+	write(t, dir, "adult.go", adultGo)
+	write(t, dir, "adult_test.go", weakTest)
+	base := commitAll(t, dir, "base")
+	write(t, dir, "adult_test.go", strongTest)
+	fix := commitAll(t, dir, "fix: strengthen the test")
+
+	res, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, fix, adultAnchor(), goTestCmd)
+	require.NoError(t, err)
+
+	var kinds []string
+	for _, ev := range res.Trace {
+		kinds = append(kinds, ev.Kind)
+	}
+	assert.Equal(t, []string{"settle-base", "oracle-base", "settle-fix", "oracle-fix", "catch", "land"}, kinds,
+		"the cycle emits its beats as typed events in pipe order — the felt-loop sequence the card will stream")
+
+	for i := 1; i < len(res.Trace); i++ {
+		assert.Falsef(t, res.Trace[i].T.Before(res.Trace[i-1].T),
+			"beat %d (%s) stamped before beat %d (%s) — beats are timed at real transitions, time must not go backwards", i, res.Trace[i].Kind, i-1, res.Trace[i-1].Kind)
+	}
+
+	catchIdx := firstIndexContaining(res.Trace, "catch:")
+	require.GreaterOrEqual(t, catchIdx, 0, "the catch beat is present")
+	assert.Contains(t, res.Trace[catchIdx].Msg, "catch:", "the catch beat's message survives the retype")
+	consideredIdx := firstIndexContaining(res.Trace, "considered")
+	require.GreaterOrEqual(t, consideredIdx, 0, "the oracle beat is present")
+	assert.Contains(t, res.Trace[consideredIdx].Msg, "considered", "the oracle message survives the retype")
 }

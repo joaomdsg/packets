@@ -194,3 +194,28 @@ func TestResolve_threadsTheTipSoADivergentTrunkReportsLandConflict(t *testing.T)
 		"Resolve must thread the real tip: a fix that conflicts with the moved trunk cannot integrate")
 	assert.Equal(t, string(catch.Catch), res.Verdict, "the catch verdict is orthogonal to the integration verdict")
 }
+
+func TestResolve_surfacesTheTypedTraceForTheCard(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module adultapp\n\ngo 1.23\n")
+	write(t, dir, "adult.go", adultGo)
+	write(t, dir, "adult_test.go", weakTest)
+	base := commitAll(t, dir, "base")
+	write(t, dir, "adult_test.go", strongTest)
+	fix := commitAll(t, dir, "strengthen the test")
+
+	res, err := app.Resolve(context.Background(), dir, base, fix, fix, anchor(), goTestCmd, false, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.Trace, "the seam must carry the typed beats the card will stream in cycle B")
+
+	last := res.Trace[len(res.Trace)-1]
+	assert.Equal(t, "land", last.Kind, "the terminal beat is the integration verdict")
+	var sawCatch bool
+	for _, ev := range res.Trace {
+		if ev.Kind == "catch" {
+			sawCatch = true
+		}
+	}
+	assert.True(t, sawCatch, "the catch beat is surfaced through Resolution for the card")
+}
