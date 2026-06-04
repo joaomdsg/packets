@@ -60,12 +60,37 @@ const defaultSessionKey = "default"
 // (View/Spend/OnConnect across tabs) and the connect-time write.
 var liveReg sync.Map
 
-func setLiveState(cfg LiveConfig, log *ledger.Log) {
+// registerSession stores one keyed session's wiring (its own cfg, ledger, and
+// admission sem) in the registry. Distinct keys get distinct entries with their
+// own *ledger.Log, so ≥2 cards served off the one "/" mount are ISOLATED
+// economies — a mint or spend on one key never touches another (the R18
+// farm-denial verdict, enforced per session: the faucet is the sole credit
+// source and a balance is non-transferable across keys).
+func registerSession(key string, cfg LiveConfig, log *ledger.Log) {
 	var sem chan struct{}
 	if cfg.MaxConcurrent > 0 {
 		sem = make(chan struct{}, cfg.MaxConcurrent)
 	}
-	liveReg.Store(defaultSessionKey, &liveEntry{cfg: cfg, log: log, sem: sem})
+	liveReg.Store(key, &liveEntry{cfg: cfg, log: log, sem: sem})
+}
+
+func setLiveState(cfg LiveConfig, log *ledger.Log) {
+	registerSession(defaultSessionKey, cfg, log)
+}
+
+// AddSession opens a session's ledger and registers it under key, so the one
+// "/" mount also serves /?key=<key> with its OWN isolated economy (its own
+// ledger + admission sem). The caller closes the returned ledger. This is the
+// wiring entry the command uses to stand up a SECOND review target beyond the
+// default card; the core keyed registration + cross-session isolation is
+// registerSession, exercised by the live tests.
+func AddSession(key string, cfg LiveConfig) (*ledger.Log, error) {
+	log, err := ledger.Open(cfg.LedgerPath)
+	if err != nil {
+		return nil, err
+	}
+	registerSession(key, cfg, log)
+	return log, nil
 }
 
 // lookupLiveEntry resolves a session key to its entry, falling back to the default
@@ -101,6 +126,12 @@ func cycleSem(key string) chan struct{} {
 // place over SSE when the verdict lands — so a human watches one verdict go
 // in-flight → resolved, with the catch (if any) appended to the ledger.
 type LiveCard struct {
+	// Key selects the session this card drives — its registry entry (cfg, ledger,
+	// sem). It is decoded from the ?key= query slot into the per-connection
+	// instance (Via persists it per tab and re-decodes it on action POSTs). An
+	// empty Key (the "/" route, no ?key) falls back to defaultSessionKey via the
+	// registry lookup — so the single-card "/" wire is byte-identical.
+	Key     string `query:"key"`
 	Verdict via.StateTabStr
 	Land    via.StateTabStr
 	Beats   via.StateTabStr
@@ -119,7 +150,7 @@ type LiveCard struct {
 // another. The stock is read-only: a ledger read failure degrades to an empty
 // stock, never breaks the card.
 func (c *LiveCard) View(ctx *via.CtxR) h.H {
-	_, log := readLiveState(ctx.ID())
+	_, log := readLiveState(c.Key)
 	var stock ledger.Stock
 	balance := 0
 	if log != nil {
@@ -146,7 +177,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 // the new balance to the Balance cell, whose Write fans out a re-render to the
 // live SSE stream so the balance row drains in place.
 func (c *LiveCard) Spend(ctx *via.Ctx) {
-	_, log := readLiveState(ctx.ID())
+	_, log := readLiveState(c.Key)
 	if log == nil {
 		return
 	}
@@ -165,8 +196,8 @@ func (c *LiveCard) Spend(ctx *via.Ctx) {
 // rebase work, instead of watching a spinner snap to a verdict. The beats channel
 // is buffered past the beat count so the cycle never blocks on a slow/gone client.
 func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
-	cfg, log := readLiveState(ctx.ID())
-	sem := cycleSem(ctx.ID())
+	cfg, log := readLiveState(c.Key)
+	sem := cycleSem(c.Key)
 	type resolved struct{ verdict, land string }
 	beats := make(chan pipe.TraceEvent, 16)
 	result := make(chan resolved, 1)

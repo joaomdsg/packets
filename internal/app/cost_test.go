@@ -95,7 +95,7 @@ func TestLiveServer_sharesOneLedgerAcrossConnectsSoTheStockAccumulates(t *testin
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
 
-	// Two SEQUENTIAL connects against the one package-var liveState: each runs a
+	// Two SEQUENTIAL connects against the one default liveReg entry: each runs a
 	// cycle that mints a catch into the SAME shared ledger. This is the
 	// characterization snapshot of the single-instance wire (one cfg/log shared by
 	// every connect) the future per-session rewrite must preserve-or-deliberately-change.

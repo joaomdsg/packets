@@ -32,8 +32,8 @@ func storeMax(p *int64, v int64) {
 
 func TestLiveServer_capsConcurrentCyclesAtMaxConcurrentWithoutDroppingAny(t *testing.T) {
 	// Internal test (package app): it swaps the unexported resolveCycle seam, so it
-	// cannot be an external pkg_test. NOT parallel — it shares the package-var
-	// liveState and the global seam with the other live tests.
+	// cannot be an external pkg_test. NOT parallel — it shares the package-global
+	// liveReg registry and the global seam with the other live tests.
 	const cap = 2
 	const connects = 4
 
