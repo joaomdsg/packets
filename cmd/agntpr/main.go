@@ -52,6 +52,10 @@ func main() {
 		Anchor:     reanchor.Anchor{Path: *file, Start: *line, End: *line, LineHash: hash},
 		TestCmd:    []string{"go", "test", "./..."},
 		LedgerPath: *ledgerPath,
+		// Cap concurrent catch cycles: each is several full-suite runs (#15), and
+		// per-cycle wall-time stays flat through ~2 concurrent on the bench, so 2 is
+		// the honest default ceiling — connects beyond it queue, never pile on.
+		MaxConcurrent: 2,
 	})
 	if err != nil {
 		log.Fatalf("agntpr: %v", err)

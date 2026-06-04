@@ -27,7 +27,16 @@ type LiveConfig struct {
 	LedgerPath       string
 	SelfFlagged      bool
 	WouldHaveShipped bool
+	// MaxConcurrent caps how many catch cycles run at once (each cycle is several
+	// full-suite executions — see internal/pipe and the #15 benchmark). Connects
+	// beyond the cap QUEUE on a slot, they are never dropped. 0 means unbounded.
+	MaxConcurrent int
 }
+
+// resolveCycle is the seam OnConnect runs the catch cycle through. It defaults to
+// the real ResolveStreaming; tests swap it to drive the admission cap
+// deterministically without spinning up real oracle work.
+var resolveCycle = ResolveStreaming
 
 // liveState holds the process-wide config + ledger the LiveCard reads on
 // connect. Via mounts compositions by type (zero-value per tab) with no
@@ -38,18 +47,33 @@ var liveState struct {
 	mu  sync.RWMutex
 	cfg LiveConfig
 	log *ledger.Log
+	// sem is the bounded admission queue: a buffered channel of size
+	// cfg.MaxConcurrent, or nil when uncapped. A send acquires a cycle slot, a
+	// receive releases it; connects beyond the cap block on the send (queued).
+	sem chan struct{}
 }
 
 func setLiveState(cfg LiveConfig, log *ledger.Log) {
 	liveState.mu.Lock()
 	defer liveState.mu.Unlock()
 	liveState.cfg, liveState.log = cfg, log
+	if cfg.MaxConcurrent > 0 {
+		liveState.sem = make(chan struct{}, cfg.MaxConcurrent)
+	} else {
+		liveState.sem = nil
+	}
 }
 
 func readLiveState() (LiveConfig, *ledger.Log) {
 	liveState.mu.RLock()
 	defer liveState.mu.RUnlock()
 	return liveState.cfg, liveState.log
+}
+
+func cycleSem() chan struct{} {
+	liveState.mu.RLock()
+	defer liveState.mu.RUnlock()
+	return liveState.sem
 }
 
 // LiveCard is the served review card. On connect it renders the in-flight state
@@ -92,11 +116,19 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 // is buffered past the beat count so the cycle never blocks on a slow/gone client.
 func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 	cfg, log := readLiveState()
+	sem := cycleSem()
 	type resolved struct{ verdict, land string }
 	beats := make(chan pipe.TraceEvent, 16)
 	result := make(chan resolved, 1)
 	go func() {
-		res, err := ResolveStreaming(context.Background(), cfg.RepoDir, cfg.BaseRev, cfg.FixRev, cfg.TipRev,
+		// Acquire a cycle slot (when capped): connects beyond MaxConcurrent block
+		// here until a running cycle frees a slot — queued, never dropped. The
+		// release covers every exit path (cycle error included), so a slot can't leak.
+		if sem != nil {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+		}
+		res, err := resolveCycle(context.Background(), cfg.RepoDir, cfg.BaseRev, cfg.FixRev, cfg.TipRev,
 			cfg.Anchor, cfg.TestCmd, cfg.SelfFlagged, cfg.WouldHaveShipped, beats)
 		close(beats)
 		if err != nil {
