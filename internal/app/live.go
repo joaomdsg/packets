@@ -39,42 +39,61 @@ type LiveConfig struct {
 // deterministically without spinning up real oracle work.
 var resolveCycle = ResolveStreaming
 
-// liveState holds the process-wide config + ledger the LiveCard reads on
-// connect. Via mounts compositions by type (zero-value per tab) with no
-// constructor injection, so the wiring is stashed here once by NewServer. This
-// is a single-instance demo server (one Lead, one card); a multi-card server
-// would key this per session and is out of scope for the watchable wire.
-var liveState struct {
-	mu  sync.RWMutex
+// liveEntry is one session's wiring: the cycle config, its ledger, and its
+// admission semaphore (a buffered channel of size cfg.MaxConcurrent, or nil when
+// uncapped — a send acquires a cycle slot, a receive releases it).
+type liveEntry struct {
 	cfg LiveConfig
 	log *ledger.Log
-	// sem is the bounded admission queue: a buffered channel of size
-	// cfg.MaxConcurrent, or nil when uncapped. A send acquires a cycle slot, a
-	// receive releases it; connects beyond the cap block on the send (queued).
 	sem chan struct{}
 }
 
+// defaultSessionKey is the one entry seeded today. The registry can hold an entry
+// per session key so ≥2 distinct cards can coexist; until a second session is
+// registered (a later slice), every connect falls back to this one entry, so the
+// server behaves as the single-card demo it has been (one Lead, one card).
+const defaultSessionKey = "default"
+
+// liveReg maps a session key → *liveEntry. Via mounts LiveCard by type (zero-value
+// per tab, no constructor injection), so the wiring is stashed here and looked up
+// by a connect-derived key. A sync.Map is safe for the concurrent reads
+// (View/Spend/OnConnect across tabs) and the connect-time write.
+var liveReg sync.Map
+
 func setLiveState(cfg LiveConfig, log *ledger.Log) {
-	liveState.mu.Lock()
-	defer liveState.mu.Unlock()
-	liveState.cfg, liveState.log = cfg, log
+	var sem chan struct{}
 	if cfg.MaxConcurrent > 0 {
-		liveState.sem = make(chan struct{}, cfg.MaxConcurrent)
-	} else {
-		liveState.sem = nil
+		sem = make(chan struct{}, cfg.MaxConcurrent)
 	}
+	liveReg.Store(defaultSessionKey, &liveEntry{cfg: cfg, log: log, sem: sem})
 }
 
-func readLiveState() (LiveConfig, *ledger.Log) {
-	liveState.mu.RLock()
-	defer liveState.mu.RUnlock()
-	return liveState.cfg, liveState.log
+// lookupLiveEntry resolves a session key to its entry, falling back to the default
+// session when the key isn't registered — so a connect whose key has no dedicated
+// entry still drives the one seeded session (behavior-preserving while only
+// defaultSessionKey is seeded). Returns nil only if nothing is registered at all.
+func lookupLiveEntry(key string) *liveEntry {
+	if v, ok := liveReg.Load(key); ok {
+		return v.(*liveEntry)
+	}
+	if v, ok := liveReg.Load(defaultSessionKey); ok {
+		return v.(*liveEntry)
+	}
+	return nil
 }
 
-func cycleSem() chan struct{} {
-	liveState.mu.RLock()
-	defer liveState.mu.RUnlock()
-	return liveState.sem
+func readLiveState(key string) (LiveConfig, *ledger.Log) {
+	if e := lookupLiveEntry(key); e != nil {
+		return e.cfg, e.log
+	}
+	return LiveConfig{}, nil
+}
+
+func cycleSem(key string) chan struct{} {
+	if e := lookupLiveEntry(key); e != nil {
+		return e.sem
+	}
+	return nil
 }
 
 // LiveCard is the served review card. On connect it renders the in-flight state
@@ -100,7 +119,7 @@ type LiveCard struct {
 // another. The stock is read-only: a ledger read failure degrades to an empty
 // stock, never breaks the card.
 func (c *LiveCard) View(ctx *via.CtxR) h.H {
-	_, log := readLiveState()
+	_, log := readLiveState(ctx.ID())
 	var stock ledger.Stock
 	balance := 0
 	if log != nil {
@@ -127,7 +146,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 // the new balance to the Balance cell, whose Write fans out a re-render to the
 // live SSE stream so the balance row drains in place.
 func (c *LiveCard) Spend(ctx *via.Ctx) {
-	_, log := readLiveState()
+	_, log := readLiveState(ctx.ID())
 	if log == nil {
 		return
 	}
@@ -146,8 +165,8 @@ func (c *LiveCard) Spend(ctx *via.Ctx) {
 // rebase work, instead of watching a spinner snap to a verdict. The beats channel
 // is buffered past the beat count so the cycle never blocks on a slow/gone client.
 func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
-	cfg, log := readLiveState()
-	sem := cycleSem()
+	cfg, log := readLiveState(ctx.ID())
+	sem := cycleSem(ctx.ID())
 	type resolved struct{ verdict, land string }
 	beats := make(chan pipe.TraceEvent, 16)
 	result := make(chan resolved, 1)
