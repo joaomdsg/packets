@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/joaomdsg/agntpr/internal/catch"
 )
@@ -56,13 +57,17 @@ type SpendRecord struct {
 
 // Log is an append-only JSONL log of CatchRecords backed by a file.
 //
-// A Log is single-writer: it holds one append handle and is NOT safe for
-// concurrent Append, or for Append/Records/Close racing each other. Callers
-// must serialize access. This matches the single-Lead prototype model (one
-// owner mints catches); a multi-writer ledger would need an external lock or a
-// mutex around the handle and is out of scope here.
+// A Log serializes all mutation paths under mu: Append, AppendSpend, and Close
+// take the write lock, so concurrent writers never tear a line, and
+// AppendSpend's read-then-write balance check is atomic (no TOCTOU letting two
+// spenders both see "enough" and overshoot below zero). This matters because
+// the live server now drives two writers at once — the catch cycle's Append
+// (a mint) and the Lead's AppendSpend (a debit, on an action goroutine). The
+// projecting reads (Records, Balance) open their own read handle via scan and
+// see whatever full lines were committed at scan time.
 type Log struct {
 	path string
+	mu   sync.Mutex
 	f    *os.File
 }
 
@@ -86,6 +91,8 @@ func (l *Log) Append(r CatchRecord) error {
 	if err != nil {
 		return fmt.Errorf("ledger: marshal record: %w", err)
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if _, err := l.f.Write(append(line, '\n')); err != nil {
 		return fmt.Errorf("ledger: append: %w", err)
 	}
@@ -153,6 +160,11 @@ func (l *Log) AppendSpend(amount int, reason string) error {
 	if amount <= 0 {
 		return fmt.Errorf("ledger: spend amount must be positive, got %d", amount)
 	}
+	// Hold the write lock across the balance check AND the write: the read and
+	// the debit must be one atomic step, or two concurrent spenders both read
+	// "enough" before either writes and the balance overshoots below zero.
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	balance, err := l.Balance()
 	if err != nil {
 		return err
@@ -202,7 +214,10 @@ func (l *Log) scan(fn func(kind string, line []byte) error) error {
 	return nil
 }
 
-// Close releases the underlying file handle.
+// Close releases the underlying file handle. It takes the write lock so it
+// cannot close the handle out from under an in-flight Append/AppendSpend.
 func (l *Log) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	return l.f.Close()
 }

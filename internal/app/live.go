@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -84,6 +85,12 @@ type LiveCard struct {
 	Verdict via.StateTabStr
 	Land    via.StateTabStr
 	Beats   via.StateTabStr
+	// Balance is the spend broadcast trigger: the balance ROW value is re-read
+	// from the ledger in View (the source of truth), but the ledger is not
+	// reactive — so Spend writes the new balance here to make the live SSE stream
+	// re-render (a cell Write fans out a re-render; an action's auto-render only
+	// returns in the action's own response).
+	Balance via.StateTabStr
 }
 
 // View renders the card's rows via the shared surface rendering: the retrospective
@@ -95,17 +102,41 @@ type LiveCard struct {
 func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	_, log := readLiveState()
 	var stock ledger.Stock
+	balance := 0
 	if log != nil {
 		if recs, err := log.Records(); err == nil {
 			stock = ledger.ConfirmedCatches(recs)
 		}
+		if b, err := log.Balance(); err == nil {
+			balance = b
+		}
 	}
 	return h.Div(
 		surface.RenderStock(stock),
+		surface.RenderBalance(balance),
 		surface.RenderBeats(c.Beats.Read(ctx)),
 		surface.RenderVerdict(c.Verdict.Read(ctx)),
 		surface.RenderLand(pipe.LandState(c.Land.Read(ctx))),
 	)
+}
+
+// Spend debits one confirmed catch from the balance — the Lead's first ACTION on
+// the stock (e.g. spending a catch to dispatch a unit of agent work). It is a
+// fixed unit spend; an over-budget spend (balance already 0) is refused by the
+// ledger and the action is a no-op (no broadcast). On a successful spend it writes
+// the new balance to the Balance cell, whose Write fans out a re-render to the
+// live SSE stream so the balance row drains in place.
+func (c *LiveCard) Spend(ctx *via.Ctx) {
+	_, log := readLiveState()
+	if log == nil {
+		return
+	}
+	if err := log.AppendSpend(1, "dispatch"); err != nil {
+		return // over-budget / nothing to spend: a no-op, never an error to the Lead
+	}
+	if b, err := log.Balance(); err == nil {
+		c.Balance.Write(ctx, strconv.Itoa(b)) // announce the drain so the live SSE stream re-renders the balance row
+	}
 }
 
 // OnConnect kicks off the catch cycle and streams its beats live: each pipe

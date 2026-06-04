@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -127,6 +128,58 @@ func TestLog_emptyLogReadsAsNoRecords(t *testing.T) {
 	got, err := l.Records()
 	require.NoError(t, err)
 	assert.Empty(t, got)
+}
+
+func TestLog_concurrentAppendAndSpendNeverTearALineOrOverspend(t *testing.T) {
+	t.Parallel()
+	// The live server now drives two writers at once: the catch cycle's Append
+	// (a mint) races the Lead's AppendSpend (a debit, action goroutine). Both
+	// write the same file handle, so without serialization a torn/interleaved
+	// line corrupts the JSONL and a TOCTOU read-then-write lets a spend exceed
+	// the balance. Seed credits, then hammer both writers and assert every
+	// persisted line stays well-formed and the balance equals exact arithmetic.
+	path := filepath.Join(t.TempDir(), "catches.jsonl")
+	l, err := ledger.Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+
+	// A small, exhaustible balance: more spenders than credits. AppendSpend
+	// reads the balance, then writes — a TOCTOU window where concurrent spenders
+	// each see "enough" before any writes its debit, overshooting below zero.
+	const seed = 25
+	for i := 0; i < seed; i++ {
+		require.NoError(t, l.Append(sampleRecord()))
+	}
+
+	const spenders = 50
+	var wg sync.WaitGroup
+	var ok int64
+	var okMu sync.Mutex
+	start := make(chan struct{})
+	for i := 0; i < spenders; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start // release all at once to widen the TOCTOU window
+			if err := l.AppendSpend(1, "dispatch"); err == nil {
+				okMu.Lock()
+				ok++
+				okMu.Unlock()
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	recs, err := l.Records()
+	require.NoError(t, err, "every persisted line must be well-formed JSON (no torn writes)")
+	bal, err := l.Balance()
+	require.NoError(t, err)
+	assert.LessOrEqual(t, int(ok), seed,
+		"a TOCTOU on Balance must never let more spends succeed than there was balance to cover")
+	assert.Equal(t, len(recs)-int(ok), bal,
+		"balance must equal minted catches minus successful spends — no lost or double-counted write")
+	assert.GreaterOrEqual(t, bal, 0, "the balance must never overshoot below zero")
 }
 
 func TestLog_recordsSurviveReopenForDurability(t *testing.T) {
