@@ -116,3 +116,25 @@ func TestBoardRows_surfacesADoneOrderThatMintedNothingAsAVisibleMiss(t *testing.
 	require.Equal(t, 0, r.Reinvested, "it minted no catch")
 	require.Equal(t, 1, r.Misses, "a done-but-no-mint order is a VISIBLE miss — the honest loss, not a silent discard")
 }
+
+func TestHitRateLabel_isAPureCountRatioOfLoggedBetsNeverAForecast(t *testing.T) {
+	t.Parallel()
+	// The hit-rate is the one honest progression number: Hits (catches a bet
+	// minted, = Reinvested) over Bets (resolved dispatched orders, = Done). A COUNT
+	// ratio of logged events, never an inferred probability — so it redeems against
+	// the mint/miss the Lead actually earned, not a model's forecast.
+	require.Equal(t, "hit-rate 1/4", hitRateLabel(CardRow{Reinvested: 1, Done: 4}))
+	require.Equal(t, "hit-rate 3/3", hitRateLabel(CardRow{Reinvested: 3, Done: 3}), "every bet paid")
+	require.Equal(t, "hit-rate 0/0", hitRateLabel(CardRow{Done: 0, Reinvested: 0}), "no bets resolved yet — a calm 0/0, never NaN or a divide-by-zero")
+}
+
+func TestHitRateLabel_neverReadsMoreHitsThanResolvedBets(t *testing.T) {
+	t.Parallel()
+	// A "wo:" catch is Appended before its order's "done" status line (runOneOrder),
+	// so a board read can briefly observe Reinvested > Done. The standing is Hits over
+	// Bets — Hits can never exceed Bets, so the displayed numerator is clamped at the
+	// denominator, mirroring the Misses = max(0, Done−Reinvested) guard in BoardRows.
+	// Without the clamp this leaks a nonsense ratio like "hit-rate 1/0".
+	require.Equal(t, "hit-rate 0/0", hitRateLabel(CardRow{Reinvested: 1, Done: 0}), "a catch logged before its done line must not read Hits > Bets")
+	require.Equal(t, "hit-rate 2/2", hitRateLabel(CardRow{Reinvested: 3, Done: 2}), "the numerator is clamped to the resolved-bet count")
+}

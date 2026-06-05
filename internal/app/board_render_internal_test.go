@@ -43,8 +43,11 @@ func TestBoardCard_rendersACalmRowPerCardAsActivityNeverLeverage(t *testing.T) {
 	require.Contains(t, f, "bcA", "the board lists the bcA session row")
 	require.Contains(t, f, "queued", "rows surface queued ACTIVITY")
 	require.Contains(t, f, "misses", "rows surface the honest-loss MISS tally — a bet that didn't pay is visible, not discarded")
+	require.Contains(t, f, "hit-rate", "rows surface the hit-rate standing — the one honest progression number (a count ratio of logged bets)")
 	low := strings.ToLower(f)
-	for _, banned := range []string{"leverage", "priority", "rank", "highest-impact"} {
-		require.NotContainsf(t, low, banned, "the board is ACTIVITY, never %q — leverage is uncomputable and must never be faked", banned)
+	// The board is ACTIVITY + a logged COUNT standing, never a faked importance
+	// rank and never an inferred forecast — the antidote to catch-weight-not-redeemable.
+	for _, banned := range []string{"leverage", "priority", "rank", "highest-impact", "predicted", "likely", "trust score", "trust-score", "forecast"} {
+		require.NotContainsf(t, low, banned, "the board must never contain %q — it shows logged counts, never a fabricated rank or forecast", banned)
 	}
 }

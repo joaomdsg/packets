@@ -527,9 +527,29 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 // a fabricated importance rank).
 type BoardCard struct{}
 
+// hitRateLabel is the card's standing — the ONE honest progression number: Hits
+// (catches a bet minted, = Reinvested) over Bets (resolved dispatched orders,
+// = Done). A pure COUNT ratio of logged events, never an inferred probability or
+// forecast, so it redeems against the mint/miss the Lead actually earned. Done==0
+// reads a calm "hit-rate 0/0" — a string ratio, never a divide-by-zero.
+//
+// The numerator is clamped to Done: a "wo:" catch is Appended just before its
+// order's done-status line (runOneOrder), so a board read can briefly observe
+// Reinvested > Done. Hits can never exceed Bets, so the display clamps rather than
+// leak a nonsense "hit-rate 1/0" — mirroring the Misses = max(0, Done−Reinvested)
+// guard in BoardRows against the same transient window.
+func hitRateLabel(r CardRow) string {
+	hits := r.Reinvested
+	if hits > r.Done {
+		hits = r.Done
+	}
+	return "hit-rate " + strconv.Itoa(hits) + "/" + strconv.Itoa(r.Done)
+}
+
 // View renders one row per registered session: its confirmed/reinvested stock,
-// spendable balance, queued/running/done activity, and the distinct work still
-// awaiting a spend. Calm spans in the stock idiom — no gauges, no priority.
+// spendable balance, queued/running/done activity, the distinct work still
+// awaiting a spend, and the hit-rate standing. Calm spans in the stock idiom —
+// no gauges, no priority, no forecast.
 func (c *BoardCard) View(_ *via.CtxR) h.H {
 	parts := []h.H{h.Class("board"), h.Data("state", "board")}
 	for _, r := range BoardRows() {
@@ -541,6 +561,7 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 			h.Span(h.Class("board-row__balance"), h.Text("balance "+strconv.Itoa(r.Balance))),
 			h.Span(h.Class("board-row__activity"), h.Text("queued "+strconv.Itoa(r.Queued)+", running "+strconv.Itoa(r.Running)+", done "+strconv.Itoa(r.Done))),
 			h.Span(h.Class("board-row__misses"), h.Text(strconv.Itoa(r.Misses)+" misses")),
+			h.Span(h.Class("board-row__hitrate"), h.Text(hitRateLabel(r))),
 			h.Span(h.Class("board-row__backlog"), h.Text(strconv.Itoa(r.BacklogRemaining)+" awaiting")),
 		))
 	}
