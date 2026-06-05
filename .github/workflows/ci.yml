@@ -15,6 +15,12 @@ on:
 env:
   VIA_REPO: go-via/via
   VIA_REF: 60cf0cd775aa5a6f2d7c27ed24aff2ef6d38a277 # design/state-backplane; 36 ahead of v0.4.2
+  # NOT go-version-file: go.mod's `go 1.24.0` is the language MINIMUM, but via's
+  # SSE handshake relies on net/http streaming behavior that only flushes the way
+  # the tests expect on Go >= 1.26 (on 1.24 the SSE stream closes before the
+  # `: ready` frame and every live-card/surface test fails). Build on the Go the
+  # project actually targets, not the declared floor.
+  GO_VERSION: "1.26"
 
 jobs:
   build:
@@ -30,16 +36,12 @@ jobs:
           path: via
       - uses: actions/setup-go@v5
         with:
-          go-version-file: agntpr/go.mod
+          go-version: ${{ env.GO_VERSION }}
       - name: Build
         working-directory: agntpr
         run: go build ./...
 
-  # TEMPORARY diagnostic job: CI passes locally in every config but hangs on the
-  # hosted runner. Each step is bounded by `timeout` and continues on error so a
-  # single hang can't eat the whole budget and we still collect every signal in
-  # one run. Once the cause is confirmed this collapses back to a single test step.
-  diagnose:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,46 +54,13 @@ jobs:
           path: via
       - uses: actions/setup-go@v5
         with:
-          go-version-file: agntpr/go.mod
-
-      - name: Runner specs
-        run: |
-          echo "nproc=$(nproc)"; echo "--- memory ---"; free -h
-          echo "--- go env (toolchain/cache/flags) ---"
-          (cd agntpr && go env GOVERSION GOTOOLCHAIN GOFLAGS GOMAXPROCS GOCACHE GOMODCACHE)
-
-      # Q1: does surface 403 even when NOTHING heavy runs alongside it? If it
-      # fails here in isolation, the thrash theory is wrong and it's a real
-      # runner-specific SSE/session bug.
-      - name: surface alone (race, verbose)
-        continue-on-error: true
+          go-version: ${{ env.GO_VERSION }}
+      - name: Vet
         working-directory: agntpr
-        run: timeout 180 go test -race -v -timeout 150s ./internal/surface/ ; echo "exit=$?"
-
-      # Q2: does the app package pass WITHOUT -race? Isolates -race as the cause
-      # of the 900s hang. GOTOOLCHAIN=local forbids any toolchain fetch (a fixture
-      # go.mod could otherwise trigger a network hang on the nested `go test`).
-      - name: app no-race (verbose)
-        continue-on-error: true
+        run: go vet ./...
+      - name: Test
         working-directory: agntpr
-        env:
-          GOTOOLCHAIN: local
-        run: timeout 300 go test -v -timeout 270s ./internal/app/ ; echo "exit=$?"
-
-      # Q3: does the app package hang WITH -race? Verbose so the last line before
-      # a hang names the exact test that blocks.
-      - name: app with race (verbose)
-        continue-on-error: true
-        working-directory: agntpr
-        env:
-          GOTOOLCHAIN: local
-        run: timeout 300 go test -race -v -timeout 270s ./internal/app/ ; echo "exit=$?"
-
-      # Q4: the rest of the suite (no app/surface) under race — confirms the other
-      # nested-suite spawners (catch/mutation/pipe) are fine on the runner.
-      - name: rest of suite (race)
-        continue-on-error: true
-        working-directory: agntpr
-        env:
-          GOTOOLCHAIN: local
-        run: timeout 420 go test -race -timeout 390s $(go list ./... | grep -vE '/internal/app$|/internal/surface$') ; echo "exit=$?"
+        # The catch oracle and mutation tests shell out to `go test` and git in
+        # temp repos, so the suite needs git (present on ubuntu-latest) and a
+        # longer timeout than the default.
+        run: go test -race -timeout 15m ./...
