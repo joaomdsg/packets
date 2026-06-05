@@ -28,11 +28,12 @@ func catchForTarget(t ledger.Target) *ledger.CatchRecord {
 	return &ledger.CatchRecord{Outcome: catch.Catch, Path: t.Path, Line: t.Line, BeforeRev: t.BaseRev, AfterRev: t.FixRev, ReasonTag: "catch"}
 }
 
-func TestLiveCard_spendsDrawDistinctWorkFromTheBacklogThenExhaustHonestly(t *testing.T) {
-	// The work-source: a Spend pulls the NEXT unconsumed backlog target (head-first),
-	// so two spends fund TWO DISTINCT runs that each mint back — the loop compounds
-	// more than once. Once the backlog is drawn down, a further Spend is an HONEST
-	// no-op (balance unchanged, no order appended), not a silent dedup'd loss.
+func TestLiveCard_spendsDrawDistinctConfigWorkThenSupplyRefillsFromCatches(t *testing.T) {
+	// The work-source: a Spend pulls the NEXT unconsumed target (head-first),
+	// so two spends fund TWO DISTINCT config runs that each mint back — the loop
+	// compounds more than once. Once the config list is drawn down, supply is a
+	// GOING CONCERN: the minted catches seed from-catch candidates, so a further
+	// Spend funds NEW derived work (a 3rd order), never a silent dead-end.
 	restore := resolveCycle
 	t.Cleanup(func() { resolveCycle = restore })
 	t1, t2 := woTargetN(1), woTargetN(2)
@@ -87,48 +88,55 @@ func TestLiveCard_spendsDrawDistinctWorkFromTheBacklogThenExhaustHonestly(t *tes
 
 	pendingBefore, err := log.PendingDispatches()
 	require.NoError(t, err)
-	balBefore, err := log.Balance()
-	require.NoError(t, err)
+	require.Equal(t, 2, pendingBefore, "two config orders so far")
 
-	require.Equal(t, 200, tc.Action((&LiveCard{}).Spend).Fire()) // backlog exhausted → honest no-op (no runner launched)
-
-	pendingAfter, err := log.PendingDispatches()
-	require.NoError(t, err)
-	require.Equal(t, pendingBefore, pendingAfter, "an exhausted backlog funds NO further order — not a silent dedup loss")
-	balAfter, err := log.Balance()
-	require.NoError(t, err)
-	require.Equal(t, balBefore, balAfter, "the exhausted-backlog spend debited nothing — balance unchanged")
+	// Config drawn down — but the minted catches refill supply from their own
+	// neighborhood, so a 3rd Spend funds DERIVED work (here the neighborhood
+	// candidate resolves to an already-seen identity → an honest loss, but supply
+	// did NOT silently dead-end: a real order was funded).
+	require.Equal(t, 200, tc.Action((&LiveCard{}).Spend).Fire())
+	require.Eventually(t, func() bool {
+		p, e := log.PendingDispatches()
+		return e == nil && p > pendingBefore
+	}, 10*time.Second, 10*time.Millisecond, "a drawn-down config refills from the card's own catches — the 3rd spend funds a derived order, not a silent dead-end")
 }
 
 func TestNextUnconsumedTarget_isLogDerivedAndSurvivesReopen(t *testing.T) {
 	// Consumption is a pure projection of the persisted log (a target is consumed
-	// once a funded work-order carries it), so the head advances deterministically
-	// and a reopen re-derives the same exhaustion — no in-memory head pointer.
+	// once a funded work-order carries it), so the config head advances
+	// deterministically; and once config is drawn down, the from-catch candidates
+	// that refill supply are ALSO log-derived, so the whole supply replays
+	// identically after a reopen — no in-memory head pointer or counter.
 	t1, t2 := woTargetN(1), woTargetN(2)
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
 	l, err := ledger.Open(logPath)
 	require.NoError(t, err)
-	require.NoError(t, l.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"}))
-	require.NoError(t, l.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 2, ReasonTag: "catch"}))
+	require.NoError(t, l.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "x.go", Line: 1, ReasonTag: "catch"}))
+	require.NoError(t, l.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "x.go", Line: 2, ReasonTag: "catch"}))
 	cfg := LiveConfig{DispatchBacklog: []ledger.Target{t1, t2}}
 
 	got, ok := nextUnconsumedTarget(cfg, l)
 	require.True(t, ok)
-	require.Equal(t, t1, got, "head-first: the first unconsumed target is T1")
+	require.Equal(t, t1, got, "head-first: the first unconsumed CONFIG target is T1 (config precedes from-catch supply)")
 	require.NoError(t, l.AppendDispatch("dispatch", t1, ownTargetOf(cfg)))
 	got, ok = nextUnconsumedTarget(cfg, l)
 	require.True(t, ok)
 	require.Equal(t, t2, got, "after T1 is funded it is consumed — the head advances to T2")
 	require.NoError(t, l.AppendDispatch("dispatch", t2, ownTargetOf(cfg)))
-	_, ok = nextUnconsumedTarget(cfg, l)
-	require.False(t, ok, "both consumed → backlog exhausted")
+
+	// Config drawn down — supply is a going concern: a from-catch candidate refills it.
+	got, ok = nextUnconsumedTarget(cfg, l)
+	require.True(t, ok, "a drawn-down config still yields derived candidate work")
+	require.NotEqual(t, t1, got)
+	require.NotEqual(t, t2, got, "the next fundable target is a from-catch CANDIDATE, not a re-served config target")
 	require.NoError(t, l.Close())
 
 	reopened, err := ledger.Open(logPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reopened.Close() })
-	_, ok = nextUnconsumedTarget(cfg, reopened)
-	require.False(t, ok, "exhaustion is log-derived — it survives a reopen with no in-memory head pointer")
+	got2, ok := nextUnconsumedTarget(cfg, reopened)
+	require.True(t, ok, "supply (config-consumed + from-catch) replays from the log alone")
+	require.Equal(t, got, got2, "the SAME candidate is derived after reopen — pure log projection, no in-memory state")
 }
 
 func TestNextUnconsumedTarget_emptyBacklogIsExhausted(t *testing.T) {

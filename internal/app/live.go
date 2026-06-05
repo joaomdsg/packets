@@ -242,14 +242,14 @@ func nextUnconsumedTarget(cfg LiveConfig, log *ledger.Log) (ledger.Target, bool)
 	return ledger.Target{}, false
 }
 
-// fundableBacklog is the backlog targets a Spend can still fund, in head-first
-// order: those NOT yet CONSUMED (carried by a funded work-order, projected purely
-// from the log) and NOT the card's OWN caught cycle (which AppendDispatch refuses).
-// Its length is the board's BacklogRemaining — the honest "distinct work left."
+// fundableBacklog is the targets a Spend can still fund, in head-first order: the
+// hand-seeded config list THEN the card's own catches' neighborhoods (from-catch
+// supply), each filtered to those NOT yet CONSUMED (carried by a funded work-order,
+// projected purely from the log) and NOT the card's OWN caught cycle (which
+// AppendDispatch refuses). Its length is the board's BacklogRemaining — the honest
+// "distinct work left." A drained config still yields derived candidates, so supply
+// is a going concern; it returns empty only when neither source has fundable work.
 func fundableBacklog(cfg LiveConfig, log *ledger.Log) []ledger.Target {
-	if len(cfg.DispatchBacklog) == 0 {
-		return nil
-	}
 	consumed := map[ledger.Target]bool{}
 	if orders, err := log.WorkOrders(); err == nil {
 		for _, o := range orders {
@@ -257,11 +257,42 @@ func fundableBacklog(cfg LiveConfig, log *ledger.Log) []ledger.Target {
 		}
 	}
 	own := ownTargetOf(cfg)
+	seen := map[ledger.Target]bool{}
 	var out []ledger.Target
-	for _, t := range cfg.DispatchBacklog {
-		if t != own && !consumed[t] {
+	// The config list FIRST (the Lead's hand-seeded targets), then the card's own
+	// catches' neighborhoods — so a drained config keeps refilling from the card's
+	// own output. The same filter applies to both sources: never re-fund a consumed
+	// target, never the card's own caught cycle, never a duplicate within one call.
+	for _, t := range append(append([]ledger.Target{}, cfg.DispatchBacklog...), candidatesFromCatches(log)...) {
+		if t != own && !consumed[t] && !seen[t] {
+			seen[t] = true
 			out = append(out, t)
 		}
+	}
+	return out
+}
+
+// candidatesFromCatches derives CANDIDATE work from the card's own confirmed
+// catches — the from-catch supply that turns the loop into a going concern. Each
+// catch (at base→fix, anchored at Path:Line) proposes a candidate one line
+// FORWARD (same revs, Line+1): a real oracle QUESTION in the catch's neighborhood,
+// never a guaranteed mint. The oracle judges it — many neighbors yield no catch (an
+// honest loss). A candidate that mints seeds the next candidate, so supply refills
+// from its own output; a candidate that misses (or reproduces a seen identity, which
+// the dedup gate refuses) is a dead end. It is a PURE projection of the log — the
+// candidates are derived on read, never stored. Distinct identity from the catch
+// (Line+1), so it is never a self-recall of already-caught ground.
+func candidatesFromCatches(log *ledger.Log) []ledger.Target {
+	recs, err := log.Records()
+	if err != nil {
+		return nil
+	}
+	var out []ledger.Target
+	for _, r := range recs {
+		out = append(out, ledger.Target{
+			BaseRev: r.BeforeRev, FixRev: r.AfterRev, TipRev: r.AfterRev,
+			Path: r.Path, Line: r.Line + 1,
+		})
 	}
 	return out
 }
@@ -278,6 +309,7 @@ type CardRow struct {
 	Queued           int
 	Running          int
 	Done             int
+	Misses           int // done orders that minted NOTHING (Done − Reinvested) — honest losses made visible, not silently discarded
 	BacklogRemaining int
 	seq              int // registration ordinal — the deterministic tie-break, not rendered
 }
@@ -303,6 +335,12 @@ func BoardRows() []CardRow {
 			}
 			if c, err := e.log.DispatchStatusCounts(); err == nil {
 				row.Queued, row.Running, row.Done = c.Queued, c.Running, c.Done
+			}
+			// Misses = done orders that minted no catch (Done minus the reinvested
+			// catches, which each came from a done order). Clamp at 0 against the brief
+			// window where a "wo:" catch is appended just before its done-status line.
+			if m := row.Done - row.Reinvested; m > 0 {
+				row.Misses = m
 			}
 			row.BacklogRemaining = len(fundableBacklog(e.cfg, e.log))
 		}
@@ -438,7 +476,7 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 		}
 		if res.Record != nil && log != nil {
 			res.Record.Producer = "connect" // provenance: the connect-cycle producer, demuxed from a dispatched run's "wo:<id>"
-			_ = log.Append(*res.Record)      // best-effort; a logging failure must not hang the card
+			_ = log.Append(*res.Record)     // best-effort; a logging failure must not hang the card
 		}
 		result <- resolved{verdict: res.Verdict, land: string(res.Land)}
 	}()
@@ -502,6 +540,7 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 			h.Span(h.Class("board-row__stock"), h.Text(strconv.Itoa(r.Confirmed)+" confirmed, "+strconv.Itoa(r.Reinvested)+" reinvested")),
 			h.Span(h.Class("board-row__balance"), h.Text("balance "+strconv.Itoa(r.Balance))),
 			h.Span(h.Class("board-row__activity"), h.Text("queued "+strconv.Itoa(r.Queued)+", running "+strconv.Itoa(r.Running)+", done "+strconv.Itoa(r.Done))),
+			h.Span(h.Class("board-row__misses"), h.Text(strconv.Itoa(r.Misses)+" misses")),
 			h.Span(h.Class("board-row__backlog"), h.Text(strconv.Itoa(r.BacklogRemaining)+" awaiting")),
 		))
 	}

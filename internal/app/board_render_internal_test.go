@@ -42,6 +42,7 @@ func TestBoardCard_rendersACalmRowPerCardAsActivityNeverLeverage(t *testing.T) {
 	require.Contains(t, f, "bcB", "the board lists the bcB session row")
 	require.Contains(t, f, "bcA", "the board lists the bcA session row")
 	require.Contains(t, f, "queued", "rows surface queued ACTIVITY")
+	require.Contains(t, f, "misses", "rows surface the honest-loss MISS tally — a bet that didn't pay is visible, not discarded")
 	low := strings.ToLower(f)
 	for _, banned := range []string{"leverage", "priority", "rank", "highest-impact"} {
 		require.NotContainsf(t, low, banned, "the board is ACTIVITY, never %q — leverage is uncomputable and must never be faked", banned)

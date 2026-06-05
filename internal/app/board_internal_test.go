@@ -65,7 +65,7 @@ func TestBoardRows_ordersByQueuedActivitySoTheLeadSeesWhereTheWorkIsMoving(t *te
 	require.Equal(t, 2, b.Queued, "brd-B has two funded, undrained orders")
 	require.Equal(t, 1, b.Balance, "brd-B: 3 catches − 2 dispatched debits")
 	require.Equal(t, 3, b.Confirmed)
-	require.Equal(t, 0, b.BacklogRemaining, "both backlog targets are funded → none remaining")
+	require.Greater(t, b.BacklogRemaining, 0, "both config targets are funded, but from-catch supply keeps fundable candidate work — the faucet refills, no silent dead-end")
 
 	a := rowFor(t, rows, "brd-A")
 	require.Equal(t, 0, a.Queued)
@@ -100,4 +100,19 @@ func TestBoardRows_tieBreaksDeterministicallyByRegistrationOrderNotMapRandomness
 		rows := BoardRows()
 		requireBefore(t, rows, "tieEarly", "tieLate") // equal-queued cards hold registration order on every render
 	}
+}
+
+func TestBoardRows_surfacesADoneOrderThatMintedNothingAsAVisibleMiss(t *testing.T) {
+	// The honest loss must be VISIBLE on the board, never a silent discard: a done
+	// order that minted no catch (Done counted it, but no "wo:" catch joined the
+	// stock) shows as a MISS — the spend was a bet that did not pay, and the Lead
+	// can see it. Misses = Done − Reinvested (clamped at 0).
+	log := boardSession(t, "missK", 1, []ledger.Target{woTargetN(1)})
+	require.NoError(t, log.AppendDispatch("d", woTargetN(1), ownTargetOf(LiveConfig{BaseRev: "own-b-missK", FixRev: "own-f", Anchor: anchorForCap()})))
+	require.NoError(t, log.AppendStatus(1, "done")) // the order ran to done but minted NOTHING
+
+	r := rowFor(t, BoardRows(), "missK")
+	require.Equal(t, 1, r.Done, "the order reached done")
+	require.Equal(t, 0, r.Reinvested, "it minted no catch")
+	require.Equal(t, 1, r.Misses, "a done-but-no-mint order is a VISIBLE miss — the honest loss, not a silent discard")
 }
