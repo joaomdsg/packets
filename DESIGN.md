@@ -1,9 +1,86 @@
-# Review IDE — Design Doc
+# agntpr — Design Doc
 
-> Working title: **Review IDE** (name TBD).
-> Status: **Draft for review** · No code yet.
+> Status: **Reconciled draft.** A real slice is built (see §0.2); the
+> broader design ahead of it is spec. This doc has been edited to fold in
+> the validated findings and fixes from `RISKS.md` and the adversarial
+> rounds in `DESIGN-COUNCIL.md` — superseded passages are struck or
+> rewritten in place, not merely appended to.
+
+## 0. Reconciliation status (read first)
+
+This is the *how* doc. The *what/why* lives in `VISION.md`; the honest
+risk register and its fix-status live in `RISKS.md`; the round-by-round
+adversarial hardening lives in `DESIGN-COUNCIL.md`. Where those three
+forced a change to the technical design, the change has been applied
+here — this section is the index of what moved and where.
+
+### 0.1 Amends / superseded-by table
+
+Earlier passages that the panel rounds (§§29.x) and the RISKS audit
+superseded. Each row: the original claim → what now holds → where.
+
+- §16 / §15.2 "tear down container at **Landed**" → teardown happens at
+  **Merged** only; Landed is non-terminal (Queued → Integrating →
+  Merged | Bounced). See §29.2. *(contradiction #1)*
+- §15.2 / §24.1 "git-backed hibernation is lossless, keep 20 sessions
+  open ~free" → **false as written**: the session branch is local-only;
+  reopen after teardown cannot find it. The branch MUST be pushed to
+  durable storage before any teardown/hibernation. See §15.2, §16.
+  *(CRITICAL, contradiction #7)*
+- §28 "incremental `prevRev→curRev` re-anchor" → **from-base
+  re-anchoring on read**; §14 stores only the immutable base anchor, so
+  there is no home for a per-revision incremental position. See §28,
+  §14. *(contradiction #4)*
+- §12.2 "settle = `git add -A && git commit` every turn" → a no-edit /
+  net-zero turn must NOT mint a revision (guarded); settle also
+  secret-scans staged additions and **blocks** the commit on a hit, and
+  surfaces unreviewable binary artifacts. See §12.2. *(CRITICAL,
+  contradiction #5 — FIXED in code, `internal/settle`)*
+- §12.2 / §21 "read pass/fail from the harness Bash exit code" →
+  exit codes are maskable (`tee`, `; echo`, `|| true`); checks run via
+  controlled exec with structured output (`go test -json`). See §12.2,
+  §29.1. *(HIGH)*
+- §18 "fan-out is never a correctness risk" → **false**: two
+  disjoint-file edits can merge clean and still break the build.
+  Fan-out is gated on a build+test of the *integrated* branch; the
+  conflict guard is a latency optimization, not a safety guarantee. See
+  §18. *(HIGH)*
+- §29.3 "a confirmed catch = the *same* surviving mutant now killed" →
+  incoherent when the fix edits the anchored line. A catch is the
+  line's **survivor-set going non-empty → empty**. See §29.3. *(HIGH)*
+- §13.3 / §14 "the client is a pure projection of the event log" vs
+  command handlers writing tables directly → one append-only event
+  stream is the source of truth; the event schema carries a producer +
+  commit-status header to demux fan-out scratch branches. See §13.3,
+  §14. *(contradiction #3)*
+- §19.1 / §15.3 "the in-container shim enforces the sandbox" → a peer
+  process to a hijackable harness can't *enforce*; enforcement moves
+  below/outside the container (seccomp/LSM, netns + host egress proxy,
+  out-of-container permission broker). See §19.1. *(CRITICAL)*
+- §19.1 egress allowlist of enumerated upstream hosts → front all
+  package traffic with **one internal mirror**; the enumerated list
+  misses `sum.golang.org`, `files.pythonhosted.org`, VCS hosts and
+  breaks every build day one. See §19.1. *(CRITICAL)*
+
+Contradictions #2, #6, #8, #9, #10 (VISION side), #11, #12 are
+VISION-internal (its economy sections) and are tracked in `RISKS.md`;
+they don't live in this doc's prose. #10's DESIGN half is §29.6.
+
+### 0.2 What is actually built today
+
+The hardest non-gameable part of the thesis — the confirmed-catch pipe —
+is built and tested end-to-end against the real oracle (`internal/`
+packages: `mutation`, `catch`, `diff`, `reanchor`, `review`, `settle`,
+`orchestrator`, `ledger`, `surface`, `translate`, `refactor`, `pipe`,
+`app`; `cmd/agntpr`). The fleet board, live SSE card, append-only catch
+ledger, and multi-session isolation are real. Everything past that — the
+full trust economy, earned concurrency, merge-queue delivery, the
+management-sim UX — is designed here but not yet built.
 
 ## Contents
+
+**Read first**
+0. Reconciliation status (amends table · what's built)
 
 **Overview**
 1. The idea in one line
@@ -31,6 +108,9 @@
 25. Glossary · 26. Threat model: adversarial inputs ·
 27. Worked example: a full session trace ·
 28. Re-anchor algorithm (reference)
+
+**Panel-hardening deltas**
+29. Architectural deltas from the round-2 panel (29.1–29.9)
 
 ## 1. The idea in one line
 
@@ -240,7 +320,16 @@ concerns and merge their edits. → **Open decision §9.1.**
    the thread, don't just spin.
 4. **Container cost & cold start** at any scale (§9.3).
 5. **Trust/permissions** — running an agent with write+shell in a box
-   the user cares about; sandbox boundaries must be real (§9.4).
+   the user cares about; sandbox boundaries must be real (§9.4) and
+   enforced **below the container** (§19.1), not by the in-container shim.
+
+This list is the original gut-feel ranking. The **validated** register —
+40 empirically- or analytically-checked findings + 12 internal
+contradictions, with fix-status — is `RISKS.md`; this doc has folded its
+design-changing fixes into the sections above. One meta-finding worth
+stating here: **the build order de-risks the wrong thesis.** P0→P2
+proves the *pipe* (§17); the scoring / trust-integrity risks — the part
+VISION calls the groundbreaking work — almost all live *beyond* P2.
 
 ## 11. Build phases (when we proceed)
 
@@ -257,7 +346,12 @@ concerns and merge their edits. → **Open decision §9.1.**
 - **P4 — Editor + polish:** full Monaco hand-editing, file tree ops,
   session persistence, Git-host landing.
 
-P0→P2 proves the entire thesis; everything after is leverage.
+P0→P2 proves the **pipe** thesis (a reviewable changeset from a real
+harness in a real box); everything after is leverage. It does **not**
+prove the trust-economy thesis — confirmed-catch integrity, earned
+concurrency, the bet/Focus scoring — which lives beyond P2 and is where
+the genuinely novel risk sits (§10, RISKS.md). Sequence the oracle
+hardening (§29.3/§29.4) before any verdict gates trust.
 
 ## 12. Deep dive: the event-translation layer
 
@@ -282,17 +376,50 @@ The harness stream-json mode emits, roughly:
 |--------------------------------------------|-------------------|
 | `tool_use` Edit/Write/MultiEdit            | mark working tree dirty; defer revision until turn settles |
 | `tool_use` Bash running tests/lint         | open a **check** entry; stream stdout to checks panel |
-| `tool_result` for the above               | resolve check pass/fail with output |
+| `tool_result` for the above               | resolve check pass/fail via **structured output**, not the Bash exit code (see below) |
 | `assistant` text **inside a comment-reply turn** | append as a Message to that thread |
 | `assistant` text in the top-level turn     | append to the top-level thread |
 | permission request                         | emit `permission.request`; pause that tool until UI answers |
-| `result` (turn end)                        | **settle**: `git add -A && git commit` → new **Revision**; recompute diff; re-anchor threads (§12.4) |
+| `result` (turn end)                        | **settle**: mint a **Revision** *iff the working tree actually changed*; secret-scan + artifact-surface; recompute diff; re-anchor threads (§12.4) |
 
 Key design choice: **a Revision is minted at turn boundaries, not per
 edit.** A turn may touch ten files; the reviewer wants one coherent
 changeset, like one push — not ten flickering diffs. Mid-turn we show a
 live "Claude is editing…" indicator with file names, but the diff
 crystallizes only when the turn's `result` arrives.
+
+### 12.2.1 What settle actually does (hardened)
+
+The naive `git add -A && git commit` of the original draft is wrong in
+three ways the build surfaced; settle (`internal/settle`) now:
+
+- **Guards on a real change.** A `question:` reply or a net-zero turn
+  (edit-then-revert) leaves nothing to commit; a blind commit exits 1
+  and breaks the turn=revision invariant. Settle checks
+  `git status --porcelain` AND (after staging) `git diff --cached
+  --quiet`, returning `{Committed:false}` with no error when there is
+  nothing real to mint.
+- **Secret-scans the staged additions and blocks the commit on a hit.**
+  A per-settle scan over the *added* lines of the staged diff (pinned
+  canonical with `--no-color --no-ext-diff` so a hostile git config
+  can't smuggle a value past the parser) runs a high-confidence rule set
+  (PEM keys, cloud key-ids, provider tokens, secret-named long-value
+  assignments). A hit blocks the commit and surfaces `Result.Secrets`,
+  so a secret never enters history — not merely at land (§26.2), but at
+  *every* settle.
+- **Surfaces unreviewable artifacts rather than dropping them.** Staging
+  stays `git add -A` (never silently false-drops an intended file);
+  staged binary files are reported in `Result.Artifacts` for the
+  reviewer to see.
+
+### 12.2.2 Checks read structured output, never the exit code
+
+Reading pass/fail from the harness Bash exit code is **green-when-red**:
+`go test | tee`, `; echo`, `|| true` all exit 0 on a failing suite, so
+the approve guard (§16) would land broken code. Checks run via a
+controlled exec with machine-readable output (`go test -json`), the same
+discipline the mutation runner already uses. Two-tier authority for
+checks is in §29.1.
 
 ### 12.3 Routing a comment back into the harness
 
@@ -314,17 +441,21 @@ resolves it; the orchestrator does not auto-resolve.
 ### 12.4 Re-anchoring threads across revisions (risk #2)
 
 A thread filed on `rev2:auth.go:42` must follow that code as later
-revisions shift line numbers. Algorithm per new revision:
+revisions shift line numbers. **Re-anchoring is computed from the
+immutable base anchor on read**, not incrementally `prevRev→curRev` —
+§14 stores only `(originalRev, path, startLine, endLine, lineHash)` and
+has no column for a per-revision incremental position, so an incremental
+algorithm would need state the schema deliberately doesn't keep. Per
+read against `curRev`:
 
-1. Diff `prevRev → newRev` for the thread's file.
+1. Diff `originalRev → curRev` for the thread's file.
 2. Map the thread's original line range through the hunks (an interval
    rebase): unchanged region → shift by net delta above it.
-3. If the anchored lines were **modified or deleted** in the new
-   revision → mark the thread **outdated** (still visible, collapsed,
-   "shows on rev2"), exactly like GitHub.
+3. If the anchored lines were **modified or deleted** → mark the thread
+   **outdated** (still visible, collapsed, "shows on rev2"), like GitHub.
 
-Store the anchor as `(originalRev, path, startLine, endLine, lineHash)`;
-the `lineHash` lets us detect "same content moved" vs "content changed."
+The full algorithm, edge cases, and the rename-lost state are in §28.
+The `lineHash` lets us detect "same content moved" vs "content changed."
 
 ## 13. Deep dive: client/server protocol (WebSocket)
 
@@ -368,6 +499,22 @@ per-session **event log with a monotonic seq**; on reconnect the client
 sends `lastSeq` and the server replays everything after it, then
 resumes live. The same log backs audit (§5 EventLog) and is the source
 of truth for rebuilding UI state — the client is a pure projection.
+
+**One source of truth, not two.** Earlier drafts both called the client
+"a pure projection" of the log *and* had command handlers writing
+`threads`/`messages` tables directly (§13.1, §14) — two write paths that
+diverge on a partial failure or reconnect-replay, with re-anchor state
+having no defined home. The reconciliation: the append-only event stream
+is authoritative; the tables are a materialized projection rebuilt from
+it, never written ahead of it. (`RISKS.md` notes NATS/JetStream as the
+natural substrate once the event-sourcing/fan-out slice lands.)
+
+**The seq must demux producers.** A single monotonic seq breaks under
+fan-out (§18): a discarded scratch-branch's activity would be logged as
+source-of-truth and replay as phantom edits. Every published event
+carries a **producer + commit-status header** (which instance/branch,
+committed vs scratch), so replay can tell minted revisions from
+throwaway work.
 
 ## 14. Deep dive: database schema
 
@@ -440,6 +587,8 @@ CREATE TABLE events (
   session_id  uuid NOT NULL REFERENCES sessions(id),
   seq         bigint NOT NULL,
   type        text NOT NULL,            -- protocol event type (§13.2)
+  producer    text NOT NULL,            -- which harness instance/branch (§13.3)
+  commit_status text NOT NULL,          -- committed | scratch — demux fan-out
   payload     jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (session_id, seq)
@@ -452,14 +601,17 @@ CREATE INDEX idx_events_session_seq ON events(session_id, seq);
 
 Notes:
 
-- **`events` is the source of truth** for UI state; `threads`/`messages`
-  are a materialized projection of it for cheap querying. (Could be
-  derived, but storing both keeps reads simple — accept the small
-  duplication.)
+- **`events` is the single source of truth** for UI state (§13.3);
+  `threads`/`messages` are a materialized projection rebuilt from it,
+  **never written ahead of it** — the one write path that earlier drafts
+  contradicted. `producer`/`commit_status` let replay drop scratch-branch
+  events (§13.3).
 - `head_rev` on `sessions` is denormalized for the common "latest diff"
   read; revisions table is authoritative.
 - No file contents anywhere — `commit_sha` + the container's git is the
-  store. A landed/hibernated session can be rehydrated from the branch.
+  store. **A session can be rehydrated from the branch *only because the
+  branch is pushed to durable storage before any teardown* (§15.2)** — a
+  local-only branch would be lost when the container is removed.
 
 ## 15. Deep dive: container image & lifecycle
 
@@ -494,12 +646,20 @@ Per-language variant images keep size down later; v1 ships one
   `branch` off `base_ref`. Orchestrator holds the container handle.
 - **active** — primary harness instance alive (or spawned on demand per
   turn — tied to open decision §9.1).
-- **hibernated** — after idle timeout, `docker commit` or just stop +
-  keep the branch; container removed to reclaim cost. Reopen =
-  `git clone` fresh + checkout branch (state is in git, not the
-  container fs), so hibernation is cheap and lossless.
-- **landed** — approve flow ran (§9.2); branch pushed / PR opened;
-  container torn down.
+- **hibernated** — after idle timeout, stop + remove the container to
+  reclaim cost. **Reopen is lossless *only if* the branch was pushed to
+  durable storage first.** The original "state is in git, so reopen is a
+  cheap re-clone" was *false*: the working branch is created local-only
+  off `base_ref`, so removing the container destroys every unpushed
+  revision and a fresh-clone reopen can't find the branch (`git checkout`
+  fails — verified). **Invariant:** push the branch (to a server-side
+  bare repo or the Git host) before *any* teardown or hibernation. This
+  is also what makes "keep N sessions open ~free" (§24.1) actually true.
+- **landed** — approve flow ran (§9.2); branch pushed / PR opened. **The
+  container is NOT torn down here** — Landed is non-terminal (§29.2): the
+  change enters a merge queue and can Bounce. Teardown waits for the
+  **Merged** terminal state, and the branch stays durably pushed until
+  then so a Bounce can be retried.
 
 ### 15.3 The session-agent shim
 
@@ -508,13 +668,22 @@ The container's entrypoint is **our** binary, not the harness. It:
 - exposes a small local API (stdin/stdout or unix socket) the
   orchestrator drives over the Docker attach / exec channel;
 - spawns and supervises harness instances with stream-json I/O;
-- mediates permission requests (forwards to orchestrator → UI);
+- **mediates** permission requests (forwards to orchestrator → UI);
 - runs git operations for revision settling (§12.2);
-- enforces the sandbox: no egress except allowlisted hosts, writes
-  confined to the repo (open decision §9.4).
+- pushes the working branch to durable storage before teardown (§15.2).
+
+**The shim mediates; it does not *enforce*.** An earlier draft credited
+this in-container binary with *enforcing* the sandbox (egress, fs
+confinement, permission gating). It can't: it is a peer process to a
+hijackable harness and a live repo-RCE surface (§26.1) — hostile
+in-container code bypasses a peer. **Enforcement must live below or
+outside the container** (§19.1): kernel seccomp/LSM for syscalls, a
+network namespace + host-side egress proxy for the allowlist, and an
+out-of-container permission broker. The shim is a convenience and a
+forwarder, never the security boundary.
 
 This keeps the orchestrator host-side and dumb about harness internals;
-all container-local mechanics live in the shim. It's the spiritual heir
+all container-local *mechanics* live in the shim. It's the spiritual heir
 of agntpr's `Invoker` + `ForkManager`, fused and moved inside the box.
 
 ## 16. Deep dive: approve & land
@@ -530,8 +699,11 @@ review.approve { landMode } ──▶ orchestrator
    4. landMode branch:
         patch  → git format-patch base..head → return .patch artifact
         branch → git push origin <branch>     → return branch URL
-        pr     → git push + gh pr create       → return PR URL
-   5. session.status = landed; tear down container (§15.2)
+        pr     → git push + open against a MERGE QUEUE (§29.2), not a
+                 direct push to base; the queue rebases + CIs on real tip
+   5. session.status = landed (NON-terminal); KEEP the durably-pushed
+      branch + container rehydration path until the queue reaches Merged.
+      Tear down only on the terminal Merged state (§29.2, §15.2).
 ```
 
 - **Guards mirror PR etiquette**: you don't merge with unresolved
@@ -579,9 +751,13 @@ and de-risks §10 #1/#3 before we build review semantics on top.
    relays its events line-delimited to stdout. Test: feed a trivial
    task, assert ≥1 `assistant` + 1 `result` event parsed.
 4. **Event translator (v0)** — reduce harness events → `revision.created`
-   on turn end (`git commit` the working tree) + `activity.agent`
-   passthrough. Test: golden harness-event fixture → expected UI events
-   (this is the §12 reducer, born small).
+   on turn end + `activity.agent` passthrough. **Settle via
+   `internal/settle`, not a raw `git add -A && git commit`** (the
+   CRITICAL fix RISKS.md sequences first): mint a revision only on a real
+   change (no-edit guard), secret-scan staged additions and block on a
+   hit, surface binary artifacts (§12.2.1). Test: golden harness-event
+   fixture → expected UI events; plus no-edit-turn and staged-secret
+   cases (this is the §12 reducer, born small — and already built).
 5. **WS gateway** — one session, frames from §13, `events` table +
    monotonic seq, reconnect-replay. Test: two sequential connects with
    `lastSeq` get no dupes, no gaps.
@@ -640,8 +816,23 @@ else                                → serial (one instance, all threads)
 Each fan-out instance works on a scratch branch off `head`; the
 orchestrator does a sequential `git merge` (or cherry-pick) of each in a
 deterministic order. A merge conflict → abort that instance's branch,
-re-queue its threads onto the serial path. So fan-out is a *latency
-optimization that degrades to serial*, never a correctness risk.
+re-queue its threads onto the serial path.
+
+**The disjoint-files guard is a latency optimization, NOT a correctness
+guarantee** — the earlier "never a correctness risk" claim is false.
+Two edits to *different* files can merge with zero textual conflict and
+still break the build: rename a symbol in `A`, call it by its old name
+in `B` — git sees no overlap, the compiler does (verified). Textual
+disjointness ≠ semantic independence. Therefore:
+
+- The safety gate is a **build + test of the *integrated* branch**
+  after every fan-out merge, never the conflict check alone. A green
+  integrate is the only thing that authorizes the merged result.
+- Disjointness is better derived from a **symbol/dependency graph** than
+  from file paths; file-set disjointness is a cheap pre-filter for *which
+  instances to even attempt in parallel*, not a proof they compose.
+
+Fan-out degrades to serial on conflict *and* on a failed integrate.
 
 ### 18.3 Why not always fan-out
 
@@ -658,17 +849,31 @@ surface to the UI).
 
 ### 19.1 Hard sandbox (always on)
 
-Enforced by the container + session-agent shim (§15.3), not by trusting
-the harness:
+Enforced **below/outside the container** — kernel and network-layer, not
+the in-container shim (which only *mediates*, §15.3) and never by
+trusting the harness:
 
 - **Filesystem:** writes confined to the repo working dir; `/etc`,
-  home, and mounts read-only or absent.
-- **Network:** egress default-deny; allowlist = package registries
-  (npm/proxy.golang.org/PyPI) + the harness's Anthropic endpoint.
-  Everything else blocked at the container network layer.
+  home, and mounts read-only or absent. Enforced by mount namespaces /
+  read-only bind mounts + seccomp/LSM, not by the shim policing paths.
+- **Network:** egress default-deny via a **network namespace + a
+  host-side egress proxy**. Critically, do **not** allowlist enumerated
+  upstream hosts — the obvious list (`npm`, `proxy.golang.org`, PyPI)
+  *misses* `sum.golang.org` (Go checksum DB), `files.pythonhosted.org`
+  (pip wheels), and VCS hosts, so default-deny breaks `go build` / `pip`
+  / `npm` on the first dep fetch and the live RED→GREEN flow dies day
+  one (verified). Instead front **all** package traffic through **one
+  internal mirror/proxy**; the only other allowed destination is the
+  harness's Anthropic endpoint.
 - **No host creds:** the container never sees host GitHub tokens; land
-  tokens are injected transiently and only at land time (§16).
+  tokens are injected transiently and only at land time (§16). Enforced
+  by an out-of-container broker, not in-container secret handling.
 - **Resource caps:** CPU/mem/PID/disk limits; wall-clock kill switch.
+
+Why not the shim: §26.1 makes the harness and any `go test`/`npm
+install` a live RCE surface *inside* the box. A peer process there
+cannot contain code that can ptrace, kill, or out-race it. The boundary
+must be one the in-container attacker cannot reach.
 
 ### 19.2 Soft permission policy (tunable per session)
 
@@ -786,7 +991,9 @@ Both are bounded by design choices already made.
 
 - Git-backed hibernation (§15.2) means a session costs container-seconds
   only while *actively* working, not for its whole lifetime. An idle
-  "open" session = a branch + DB rows = ~free.
+  "open" session = a branch + DB rows = ~free — **but only because the
+  branch is pushed to durable storage before teardown** (§15.2); without
+  that push the model loses work, not just cost.
 - A warm pool (§9.3 / P3) trades a small idle-container baseline for
   sub-second task starts. Size the pool to concurrent-active-sessions,
   not total sessions.
@@ -874,9 +1081,16 @@ acts with tool access; that content is an untrusted attack surface.
   reference material, never concatenated as if it were the operator's
   command. The harness's own injection resistance is a backstop, not
   the only line.
-- **Land-time scrub** — before a push/PR (§16), diff the outbound commit
-  message + changed files for secret-looking strings; block + surface
-  if found. Defends the exfil-via-commit path.
+- **Secret scrub at every settle, not just at land** — the net
+  `base..head` diff a land-time scrub sees is the *wrong scope*: an
+  added-then-removed secret is invisible in the net diff yet present in
+  an intermediate pushed commit (branch / keep-revisions land carries
+  full history) — verified. So the primary scrub runs **per settle**
+  over staged additions and blocks the commit (§12.2.1), keeping secrets
+  out of *every* revision. The land-time pass then scans the **full
+  pushed commit range** (not the net diff) and **squashes on land** to
+  collapse intermediate commits. Regex rules have false negatives — this
+  is a high-confidence backstop, not a guarantee.
 - **Build/test runs inherit the same network + fs caps** — postinstall
   RCE is contained, not prevented; resource caps (§19.1) bound abuse.
 - **The reviewer is the final gate** — nothing lands unreviewed. The
@@ -926,22 +1140,33 @@ USER reads diff, comment.create {auth.go, 47-47, baseRev:1,
 USER thread.resolve {T1}     ← thread.updated {T1, status:resolved}
 USER review.approve {landMode:"pr"}
   → guards: no open threads ✓, checks green ✓
-  → squash rev1..rev2 → one commit; inject land token; git push; gh pr create
-  ← session.state {status:landed, prUrl:…}
-  → teardown container
+  → squash rev1..rev2 → one commit; inject land token; git push to MERGE QUEUE
+  ← session.state {status:landed, prUrl:…}      // NON-terminal (§29.2)
+  → queue rebases on tip, runs Pipeline CI:
+       ├▶ green → Merged (terminal) → NOW tear down container
+       └▶ red   → Bounced → card returns for a cheap rebase-retry
 ```
 
 Every arrow maps to a frame in §13; every SETTLE to §12.2; the
-re-anchor to §28. If this trace runs, the thesis holds.
+re-anchor to §28.
+
+**This trace is a demo, not the acceptance bar.** It exercises only the
+happy-path pipe and dodges every §10 / RISKS.md risk — a system that
+fails all of them would still run it green. The real acceptance suite is
+built from **adversarial traces**: a secret in a settle (§12.2.1), a
+masked test failure (§12.2.2), a semantically-colliding fan-out (§18), a
+non-terminating mutant (§29.4), a renamed+edited anchor (§28), a Bounced
+land (§29.2). "If this trace runs, the thesis holds" was the wrong bar.
 
 ## 28. Re-anchor algorithm (reference)
 
-Risk #2 made concrete. Given a thread anchored at
-`(path, s0..e0)` against `prevRev`, and a new `curRev`:
+Risk #2 made concrete. Computed **from the immutable base anchor on
+read** (§12.4) — given a thread anchored at `(path, s0..e0)` against its
+`originalRev`, and the revision being viewed `curRev`:
 
 ```text
-reanchor(thread, prevRev, curRev):
-  hunks = git_diff(prevRev, curRev, thread.path)   # ordered, old/new ranges
+reanchor(thread, originalRev, curRev):                 # always from base
+  hunks = git_diff(originalRev, curRev, thread.path)   # ordered, old/new ranges
   if path not in changed files: return SAME(s0, e0)
 
   # 1. Did any hunk OVERLAP the anchored range? → outdated.
@@ -962,14 +1187,26 @@ reanchor(thread, prevRev, curRev):
 
 Edge cases the impl must handle:
 
-- **File renamed** between revs → follow `git diff -M` rename detection;
-  re-anchor onto the new path or mark outdated if ambiguous.
-- **File deleted** → thread becomes outdated, pinned to `prevRev` view.
+- **File renamed** between revs → follow `git diff -M` rename detection
+  and re-anchor onto the new path. But `-M` is **similarity-threshold
+  based**: a renamed-*and*-heavily-edited file degrades to delete+add and
+  the thread is silently dropped, indistinguishable from a real deletion
+  (verified). So surface **`lost-via-rename` as a distinct state** rather
+  than a generic outdated/deleted — never assert a false cause; pin the
+  threshold and attempt content-hash relocation before giving up. (The
+  shipped card already carries this as a typed `Reason` so it renders
+  "edited"/"renamed" honestly instead of claiming "no operator".)
+- **File deleted** → thread becomes outdated, pinned to `originalRev`.
 - **Multiple hunks above** → deltas accumulate (the `sum` handles it).
 - **Anchor at EOF / line 0** → clamp to valid range.
 - **Whitespace-only change** in the range → still "overlap" → outdated;
   conservative is correct (better a false-outdated than a mis-anchored
   comment pointing at the wrong code).
+- **Non-ASCII paths** → git's default `core.quotepath=true` octal-quotes
+  non-ASCII paths in `--name-status`/`diff`, so an anchor path never
+  matches and the file is falsely read as unchanged. Pin
+  `-c core.quotepath=false` on every git invocation in both the reanchor
+  and diff paths.
 
 The `line_hash` in §14's `threads` table is what makes step 3 possible:
 it distinguishes "code moved" (re-anchor) from "code changed" (outdate)
@@ -1030,10 +1267,18 @@ CREATE TABLE landing_outcomes (
 );
 ```
 
-- **Confirmed-catch** = a thread's re-anchored lines (§28) ∩ a check
-  that went red→green *in the resolving revision*, AND a pre-existing
-  surviving mutant on that line is now killed (§29.4). Causal overlap,
-  not temporal coincidence.
+- **Confirmed-catch** = a thread's re-anchored lines (§28) where the
+  line's **mutant survivor-set goes from non-empty (at base) to empty
+  (at fix)** (§29.4). NOT "the same surviving mutant is now killed" —
+  that phrasing is incoherent whenever the fix *edits* the anchored
+  line: the base survivor (e.g. `>`→`>=`) and the post-fix mutant
+  (`>=`→`>`) are *different* mutants, and the survivor's own output can
+  literally be the fix. Survivor-set-emptied is well-defined for both
+  test-only fixes and line-editing fixes. Causal overlap, not temporal
+  coincidence. The oracle must be hardened (§29.4, and the
+  RISKS.md sequencing gate) *before* this verdict is rendered or allowed
+  to gate trust — an opaque, sometimes-fabricated causal chain is worse
+  than no verdict.
 - **Regression** = green→red later, attributed to the most-recent
   landing whose `files` intersect the failing test's covered files.
   **Penalty scaled by `verified_depth`**: glanced-and-regressed = full
@@ -1046,21 +1291,55 @@ CREATE TABLE landing_outcomes (
 
 ### 29.4 Diff-scoped mutation in the settle step (amends §12.2, §21)
 
-At each settle, run mutation testing **restricted to changed lines**
-(bounded by diff size, fits the turn budget). Store per-line
-survived/killed. The checks panel renders `mutants killed 9/11 — 2
-survived` with the surviving lines linked, and **each surviving mutant
-spawns an auto-generated `question:` thread** on that line. This is the
-independent oracle that makes "confirmed catch" (§29.3) honest. Full-repo
-mutation is out of the loop; only the diff is mutated.
+At each settle, run mutation testing **restricted to changed lines**.
+Store per-line survived/killed. The checks panel renders `mutants killed
+9/11 — 2 survived` with the surviving lines linked, and **each surviving
+mutant spawns an auto-generated `question:` thread** on that line. This
+is the independent oracle that makes "confirmed catch" (§29.3) honest.
+Full-repo mutation is out of the loop; only the diff is mutated.
+
+The oracle (`internal/mutation`, built) is hardened against the ways a
+naive runner lies:
+
+- **Cost is N_sites × suite, not "bounded by diff size."** The honest
+  floor is one full suite run per mutable site, so a multi-site diff is
+  expensive. Mutants now run **concurrently** across a worker pool of
+  isolated working copies (wall-clock ≈ ⌈N_sites/workers⌉ × suite); the
+  original tree is never mutated. Affected-test selection is the bigger
+  unbuilt lever (§29.9).
+- **Timeout ≠ killed.** A `+`→`-` mutant can be non-terminating; a
+  ctx-timeout must classify as `Undetermined`, never silently as
+  "killed" (which would fabricate a catch). `runTests` is tri-state; the
+  caller must pass a bounded `ctx`.
+- **"0 survivors" is ambiguous** between well-tested and
+  no-mutable-operator. The runner returns `MutantsConsidered`, so
+  `0 findings + considered>0` = genuinely killed, while
+  `0 findings + considered==0` = **no oracle signal** (must not read as
+  verified). The operator set spans comparisons, `+ - * / %`, all shifts
+  and bitwise ops, `&& ||` (19 operators) + unary `!`; statement- and
+  literal-level mutators remain deferred, and lines with no mutable
+  operator honestly report "no signal."
 
 ### 29.5 Flaky-test quarantine registry (new)
 
 Per-test pass/fail variance computed from `events`/Pipeline history. A
 test above a flake threshold is **quarantined**: its transitions are
 *inadmissible as evidence* — they neither confirm catches nor fire
-regressions, and show as `⚠ flaky, not scored`. Requires a test→file
-coverage map (so attribution is causal) and a rerun-on-failure policy.
+regressions, and show as `⚠ flaky, not scored`.
+
+Two caveats this must respect (both validated in RISKS.md):
+
+- **Pass/fail variance can't separate a flaky test from a real
+  intermittent bug.** Simulated: a 30%-race regression scores under a
+  k=3 rerun gate <1% of landings (it escapes), and variance-quarantine
+  marks the bug-*catching* test "flaky → inadmissible," hiding the bug.
+  The signal must be **failure-signature + change-correlation**, not raw
+  pass/fail variance.
+- **A per-test coverage map is real infra, not free.** `go test -cover`
+  is per-*run* aggregate; per-test attribution needs N isolated runs or
+  is inaccurate under shared setup. And coverage∩ ≠ causation — treat
+  file-intersection as a heuristic that needs a bisect tie-break, and
+  budget the coverage map as infrastructure.
 
 ### 29.6 Refactor task-type & the Invariant View (amends §4, §12, §28)
 
@@ -1068,13 +1347,22 @@ coverage map (so attribution is causal) and a rerun-on-failure policy.
 
 - **Behavior-preservation contract:** the agent touches no test
   assertions and adds no behavior; proof = *test suite unchanged & still
-  green* (a machine-checkable trust oracle features never have).
+  green*. **Caveat (validated):** green-and-unchanged only proves
+  *tested* behavior is preserved — a refactor that changes an
+  **uncovered** path passes this check while silently altering behavior.
+  So "safest to skim" must be conditioned on coverage of the touched
+  lines, not on green alone; otherwise the stamp points reviewers *away*
+  from the riskiest skim.
 - **Invariant View** replaces the hunk diff for refactors: *proof* (tests
   changed / green / API-surface diff) · *seam* (the one declared
   transformation) · *exceptions* (any hunk not a pure instance of the
-  transformation, promoted to top). Threads anchor to the
-  **transformation step**, a parallel anchor type to §28's line anchor
-  (which mass-outdates on refactors and must not be used here).
+  transformation, promoted to top). The "exceptions = the whole review"
+  framing leans on a **reliable pure-instance hunk classifier** — only
+  textual refactors classify cleanly; semantic ones (extract/inline/move)
+  don't, and an unreliable classifier hides the behavior-changing hunk it
+  misfiles as a pure instance. Threads anchor to the **transformation
+  step**, a parallel anchor type to §28's line anchor (which mass-outdates
+  on refactors and must not be used here).
 - **Bold:** a *Characterization Gate* — pin a characterization suite
   green, transform, replay the identical suite, diff behavior; the §13.x
   time-travel spine binary-searches to the step where equivalence broke.
@@ -1118,7 +1406,11 @@ same way the token economy teaches task scoping.
 
 ### Next step
 
-The design is comprehensive. Natural next move is **building P0 (§17)**,
-not more design. Or confirm/override the **open decisions (§9)** — especially #1 (instance
-fan-out), #2 (where work lands), and #3 (container lifecycle). Those
-three set the shape of P0. Then I can turn §11 into a concrete P0 plan.
+The pipe slice is built and reconciled (§0.2). The natural next moves,
+in the order RISKS.md sequences them: (1) the CRITICAL infra the build
+not yet covers — enforcement below the container + internal package
+mirror (§19.1), push-before-teardown (§15.2); (2) finish hardening the
+confirmed-catch oracle (§29.3/§29.4) **before** any verdict gates trust;
+(3) the doc reconciliation pass — *this edit* — so P0 reads one spec.
+Open decisions §9 (#1 fan-out, #2 land target, #3 lifecycle) still set
+the shape of the next phases.
