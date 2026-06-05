@@ -8,11 +8,11 @@ each test verifies.
 Rule: Use `Test` + PascalCase subject + underscore + camelCase behavior
 (present tense verb). The underscore separates *what* from *does what*.
 
-- ✅ `TestSignal_returnAsString`
-- ✅ `TestPage_panicsOnNoView`
-- ✅ `TestPlugin_servesGzipWhenAccepted`
-- ❌ `TestSignal` (vague — what about it?)
-- ❌ `Test_signal_return_as_string` (wrong casing)
+- ✅ `TestCounter_returnsZeroWhenEmpty`
+- ✅ `TestParser_panicsOnEmptyInput`
+- ✅ `TestServer_servesGzipWhenAccepted`
+- ❌ `TestCounter` (vague — what about it?)
+- ❌ `Test_counter_returns_zero` (wrong casing)
 
 The name should read as a behavioral claim, not a description of what the
 test does internally.
@@ -72,7 +72,7 @@ Rule:
 
 Examples:
 
-- ✅ `assert.Contains(t, body, "Hello Via!")`
+- ✅ `assert.Contains(t, body, "Hello, world!")`
 - ✅ `assert.Equal(t, http.StatusOK, resp.StatusCode)`
 - ❌ `assert.Equal(t, 3, len(v.handlers))` (internal state)
 - ❌ `mockDep.AssertCalled(t, "Write", ...)` (call verification on owned code)
@@ -129,25 +129,25 @@ Rule:
 ## Field-Embeddable Types Keep Fields Unexported
 
 Reasoning: Callers should work with behavior, not struct internals.
-Composition handles like `Signal[T]` / `State[T]` are *exported* because
-users declare them as struct fields (`Step via.Signal[int]`), but their
-internals are bound by the runtime via reflection — exposing fields
-would let callers desync the wire key, slot index, and stored value.
+Composition handles are *exported* because users declare them as struct
+fields (`Step Field[int]`), but their internals are bound by a runtime
+via reflection — exposing fields would let callers desync the wire key,
+slot index, and stored value.
 
 Rule: For types whose zero value is meaningful via reflection-driven
-binding (Signal, StateTab, StateSess, StateApp), keep all stored state
-in unexported fields. The type name is exported; the contents aren't.
+binding, keep all stored state in unexported fields. The type name is
+exported; the contents aren't.
 
 ```go
 // ✅ Exported type, unexported fields — runtime binds via reflection
-type Signal[T any] struct {
+type Field[T any] struct {
     val    T
     slot   uint16
     key    string
 }
 
 // ❌ Exported fields — caller can desync internal state
-type Signal[T any] struct { ID string; Val T }
+type Field[T any] struct { ID string; Val T }
 ```
 
 ## Plugin Constructor Naming
@@ -156,14 +156,14 @@ Reasoning: A uniform constructor name across all plugin packages makes the
 API predictable and call sites consistent.
 
 Rule: Every plugin package exposes `Plugin(...)` as its public constructor,
-not `New(...)`. This keeps `via.WithPlugins(...)` call sites uniform.
+not `New(...)`. This keeps the registration call sites uniform.
 
 ```go
 // ✅
-via.WithPlugins(picocss.Plugin(), echarts.Plugin())
+WithPlugins(logging.Plugin(), metrics.Plugin())
 
 // ❌
-via.WithPlugins(picocss.New(), echarts.Plugin())
+WithPlugins(logging.New(), metrics.Plugin())
 ```
 
 ## Functional Options
@@ -184,7 +184,7 @@ type Option func(*config)
 func WithDarkMode() Option {
     return func(cfg *config) {
         if cfg.themeSet {
-            panic("via: conflicting theme options")
+            panic("config: conflicting theme options")
         }
         cfg.theme = "dark"
         cfg.themeSet = true
@@ -240,11 +240,11 @@ func MustJSON(v any) string
 // ✅ States a non-obvious contract
 // Toast JSON-encodes message so arbitrary user text is safe inside
 // the rendered alert(...) call.
-func (ctx *Ctx) Toast(message string)
+func Toast(message string)
 
 // ❌ Restates the name
-// WithTitle sets the chart title.
-func WithTitle(title string) ChartOption
+// WithTitle sets the title.
+func WithTitle(title string) Option
 ```
 
 ### Unexported symbols and inner logic
@@ -260,11 +260,11 @@ otherwise require the reader to reconstruct non-obvious reasoning:
 ```go
 // ✅ Non-obvious invariant
 // underscore prefix keeps the name a valid JS identifier; dots are not allowed.
-return fmt.Sprintf("echart_%d", c.seq)
+return fmt.Sprintf("widget_%d", c.seq)
 
 // ❌ Obvious from context
 // increment the counter
-chartCounter.Add(1)
+requestCounter.Add(1)
 ```
 
 ### Tests
@@ -279,13 +279,13 @@ precondition whose absence would make the test logic misleading:
 
 ```go
 // ✅ Non-obvious precondition
-// Two charts share a page; both must render without ID collision.
-c1 := echarts.NewChart()
-c2 := echarts.NewChart()
+// Two widgets share a page; both must render without ID collision.
+w1 := NewWidget()
+w2 := NewWidget()
 
 // ❌ Describes what the next line already says
-// Create a new chart with a title.
-chart := echarts.NewChart(echarts.WithTitle("CPU"))
+// Create a new widget with a title.
+widget := NewWidget(WithTitle("CPU"))
 ```
 
 ## Errors
@@ -313,10 +313,10 @@ internal errors are terminal and wrapping adds noise.
 
 ```go
 // ✅ Clear origin, no unnecessary wrapping
-return fmt.Errorf("pico: fetch %s: status %d", url, resp.StatusCode)
+return fmt.Errorf("fetch: get %s: status %d", url, resp.StatusCode)
 
 // ❌ Wrapping an error nobody will unwrap
-return fmt.Errorf("pico: fetch failed: %w", err)
+return fmt.Errorf("fetch: get failed: %w", err)
 ```
 
 ### No Custom Error Types
@@ -342,7 +342,7 @@ circular concerns.
 
 Rule: Group by responsibility, not by type. A file contains the types,
 functions, and methods that serve a single concern. Name files after the
-concern, not the type (`state.go`, not `signal_of.go`).
+concern, not the type (`parsing.go`, not `tokentype.go`).
 
 Split a file when it exceeds ~300 lines or when it contains two concerns
 that change for different reasons. Don't split preemptively.
