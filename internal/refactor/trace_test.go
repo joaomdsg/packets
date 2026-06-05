@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/joaomdsg/agntpr/internal/diff"
-	"github.com/joaomdsg/agntpr/internal/mutation"
-	"github.com/joaomdsg/agntpr/internal/reanchor"
+	"github.com/joaomdsg/packets/internal/diff"
+	"github.com/joaomdsg/packets/internal/mutation"
+	"github.com/joaomdsg/packets/internal/reanchor"
 )
 
 func runGit(t *testing.T, dir string, args ...string) string {

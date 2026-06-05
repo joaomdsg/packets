@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/joaomdsg/agntpr/internal/pipe"
-	"github.com/joaomdsg/agntpr/internal/surface"
+	"github.com/joaomdsg/packets/internal/pipe"
+	"github.com/joaomdsg/packets/internal/surface"
 )
 
 func renderLand(t *testing.T, land pipe.LandState) string {

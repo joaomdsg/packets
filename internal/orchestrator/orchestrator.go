@@ -10,8 +10,8 @@ package orchestrator
 import (
 	"context"
 
-	"github.com/joaomdsg/agntpr/internal/diff"
-	"github.com/joaomdsg/agntpr/internal/settle"
+	"github.com/joaomdsg/packets/internal/diff"
+	"github.com/joaomdsg/packets/internal/settle"
 )
 
 // TurnOutcome is the result of settling one harness turn:

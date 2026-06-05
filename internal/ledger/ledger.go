@@ -12,7 +12,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/joaomdsg/agntpr/internal/catch"
+	"github.com/joaomdsg/packets/internal/catch"
 )
 
 // CatchRecord is one confirmed-catch event, carrying the mint-time facts that

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/joaomdsg/agntpr/internal/mutation"
+	"github.com/joaomdsg/packets/internal/mutation"
 )
 
 // BenchmarkRunManySites characterises the dominant cost of the oracle:

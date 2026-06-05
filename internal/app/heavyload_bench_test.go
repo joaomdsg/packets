@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/joaomdsg/agntpr/internal/app"
+	"github.com/joaomdsg/packets/internal/app"
 )
 
 // BenchmarkHeavyConcurrentCycle pushes the uncapped per-connect fan-out well past

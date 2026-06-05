@@ -13,9 +13,9 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/vt"
 
-	"github.com/joaomdsg/agntpr/internal/app"
-	"github.com/joaomdsg/agntpr/internal/catch"
-	"github.com/joaomdsg/agntpr/internal/ledger"
+	"github.com/joaomdsg/packets/internal/app"
+	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/ledger"
 )
 
 func TestLiveServer_streamsAVerdictFromInFlightToCaughtAndLogsIt(t *testing.T) {

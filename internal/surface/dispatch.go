@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-via/via/h"
 
-	"github.com/joaomdsg/agntpr/internal/ledger"
+	"github.com/joaomdsg/packets/internal/ledger"
 )
 
 // RenderDispatch renders the dispatched-work tally — split by status so it MOVES

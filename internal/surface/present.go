@@ -1,8 +1,8 @@
 package surface
 
 import (
-	"github.com/joaomdsg/agntpr/internal/catch"
-	"github.com/joaomdsg/agntpr/internal/pipe"
+	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/pipe"
 )
 
 // LostViaRename is the surface verdict for a quiet card whose anchor was lost

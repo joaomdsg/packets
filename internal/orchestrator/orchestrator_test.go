@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/joaomdsg/agntpr/internal/orchestrator"
+	"github.com/joaomdsg/packets/internal/orchestrator"
 )
 
 func runGit(t *testing.T, dir string, args ...string) string {

@@ -96,7 +96,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 
 	// Isolated working copies — never touch opts.Dir. One copy per worker,
 	// reused across the mutants that worker processes.
-	parent, err := os.MkdirTemp("", "agntpr-mutation-*")
+	parent, err := os.MkdirTemp("", "packets-mutation-*")
 	if err != nil {
 		return Result{}, fmt.Errorf("create temp work dir: %w", err)
 	}

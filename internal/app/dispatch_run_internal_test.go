@@ -13,10 +13,10 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/vt"
 
-	"github.com/joaomdsg/agntpr/internal/catch"
-	"github.com/joaomdsg/agntpr/internal/ledger"
-	"github.com/joaomdsg/agntpr/internal/pipe"
-	"github.com/joaomdsg/agntpr/internal/reanchor"
+	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/ledger"
+	"github.com/joaomdsg/packets/internal/pipe"
+	"github.com/joaomdsg/packets/internal/reanchor"
 )
 
 func woDispatchTarget() ledger.Target {

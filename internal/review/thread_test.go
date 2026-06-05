@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/joaomdsg/agntpr/internal/mutation"
-	"github.com/joaomdsg/agntpr/internal/review"
+	"github.com/joaomdsg/packets/internal/mutation"
+	"github.com/joaomdsg/packets/internal/review"
 )
 
 func TestQuestionThreadsFromMutations_makesOpenQuestionThreadPerFinding(t *testing.T) {
@@ -29,7 +29,7 @@ func TestQuestionThreadsFromMutations_makesOpenQuestionThreadPerFinding(t *testi
 	assert.Equal(t, 42, got.StartLine)
 	assert.Equal(t, 42, got.EndLine)
 	assert.Equal(t, "question", got.Tag)
-	assert.Equal(t, "agntpr", got.Author)
+	assert.Equal(t, "packets", got.Author)
 	assert.Equal(t, review.Open, got.Status)
 	assert.Equal(t, findings[0].Message, got.Body)
 }

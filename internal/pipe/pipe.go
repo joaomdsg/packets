@@ -7,8 +7,8 @@ package pipe
 import (
 	"context"
 
-	"github.com/joaomdsg/agntpr/internal/catch"
-	"github.com/joaomdsg/agntpr/internal/reanchor"
+	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/reanchor"
 )
 
 // Reason is the orthogonal cause behind a quiet (NoOracleSignal) verdict — a

@@ -12,8 +12,8 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/vt"
 
-	"github.com/joaomdsg/agntpr/internal/catch"
-	"github.com/joaomdsg/agntpr/internal/surface"
+	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/surface"
 )
 
 // newCard mounts a fresh ReviewCard and returns a typed handle (for action

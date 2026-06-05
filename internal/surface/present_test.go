@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/joaomdsg/agntpr/internal/catch"
-	"github.com/joaomdsg/agntpr/internal/pipe"
-	"github.com/joaomdsg/agntpr/internal/surface"
+	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/pipe"
+	"github.com/joaomdsg/packets/internal/surface"
 )
 
 func TestPresentVerdict_inFlightWinsOverAnyOutcomeWhileRunning(t *testing.T) {

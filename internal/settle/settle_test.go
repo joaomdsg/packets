@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joaomdsg/agntpr/internal/settle"
+	"github.com/joaomdsg/packets/internal/settle"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

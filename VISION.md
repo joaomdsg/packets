@@ -1,12 +1,20 @@
-# agntpr — Vision
+# Packets — Vision
 
 > The agentic coding experience as a management game you actually want
-> to play. You don't write the code. You run the shop.
+> to play. You don't write the code. You route it.
 > Companion to `DESIGN.md` (the how); this is the *what* and the *why*.
+
+> **Lexicon (Packets lens).** Work routes as **packets** — a header you skim, a
+> payload you inspect — across **the Fabric** (the board). You **ACCEPT**,
+> **DROP** with a reason, or send one back to **retransmit**. Sessions are
+> **flows**; the Trust Ledger is a **flow-table**; calibrated delegation is
+> **cut-through vs store-and-forward** switching; tokens are **bandwidth**. The
+> existing terms below ("shop", "board", "card", "lead") read under this lens —
+> the re-skin is deliberately light, and the in-code rename is a later pass.
 
 ## 0. One line
 
-**agntpr** turns you from a coder into a *lead*: you command a fleet of
+**Packets** turns you from a coder into a *lead*: you command a fleet of
 Claude Code agents, review their work like pull requests, and ship — and
 because the real dynamics of that job already are a management game, we
 lean all the way in and make it *feel* like one. A tycoon / management

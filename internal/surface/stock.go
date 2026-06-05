@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-via/via/h"
 
-	"github.com/joaomdsg/agntpr/internal/ledger"
+	"github.com/joaomdsg/packets/internal/ledger"
 )
 
 // RenderStock renders the confirmed-catch STOCK as its own retrospective row — a

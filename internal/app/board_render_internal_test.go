@@ -11,7 +11,7 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/vt"
 
-	"github.com/joaomdsg/agntpr/internal/ledger"
+	"github.com/joaomdsg/packets/internal/ledger"
 )
 
 func TestBoardCard_rendersACalmRowPerCardAsActivityNeverLeverage(t *testing.T) {

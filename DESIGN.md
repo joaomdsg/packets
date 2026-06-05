@@ -1,10 +1,18 @@
-# agntpr — Design Doc
+# Packets — Design Doc
 
 > Status: **Reconciled draft.** A real slice is built (see §0.2); the
 > broader design ahead of it is spec. This doc has been edited to fold in
 > the validated findings and fixes from `RISKS.md` and the adversarial
 > rounds in `DESIGN-COUNCIL.md` — superseded passages are struck or
 > rewritten in place, not merely appended to.
+
+> **Lexicon (Packets lens).** Work routes as **packets** (header + payload)
+> across **the Fabric** (the board); review actions are **ACCEPT / DROP /
+> retransmit**; sessions are **flows**; the Trust Ledger is a **flow-table**;
+> calibrated delegation is **cut-through vs store-and-forward** switching. The
+> existing technical terms below read under this lens — the re-skin is
+> deliberately light, and the in-code rename (binary/packages/flags) is a later
+> pass kept out of this spec so the suite stays green.
 
 ## 0. Reconciliation status (read first)
 

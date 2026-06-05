@@ -10,7 +10,7 @@ package catch
 import (
 	"sort"
 
-	"github.com/joaomdsg/agntpr/internal/mutation"
+	"github.com/joaomdsg/packets/internal/mutation"
 )
 
 // Outcome is the verdict of comparing a line's mutation survivor-set across two

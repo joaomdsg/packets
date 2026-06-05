@@ -1,6 +1,6 @@
 package app
 
-import "github.com/joaomdsg/agntpr/internal/ledger"
+import "github.com/joaomdsg/packets/internal/ledger"
 
 // nextUnconsumedTarget returns the first backlog target a Spend can still fund —
 // head-first (FIFO), skipping targets already CONSUMED (carried by a funded

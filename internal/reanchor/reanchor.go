@@ -15,7 +15,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/joaomdsg/agntpr/internal/diff"
+	"github.com/joaomdsg/packets/internal/diff"
 )
 
 // State is how an anchor fared across the two revisions.

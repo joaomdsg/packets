@@ -1,4 +1,4 @@
-module github.com/joaomdsg/agntpr
+module github.com/joaomdsg/packets
 
 go 1.24.0
 

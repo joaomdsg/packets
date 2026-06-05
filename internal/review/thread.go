@@ -3,7 +3,7 @@
 // into the `question:` threads a reviewer sees pinned to the diff.
 package review
 
-import "github.com/joaomdsg/agntpr/internal/mutation"
+import "github.com/joaomdsg/packets/internal/mutation"
 
 // Status is the lifecycle state of a review Thread.
 type Status string
@@ -18,7 +18,7 @@ type Thread struct {
 	StartLine int
 	EndLine   int
 	Tag       string // Conventional Comment label, e.g. "question"
-	Author    string // "agntpr" for oracle-authored threads
+	Author    string // "packets" for oracle-authored threads
 	Body      string
 	Status    Status
 }
@@ -45,7 +45,7 @@ func QuestionThreadsFromMutations(findings []mutation.Finding) []Thread {
 			StartLine: f.Line,
 			EndLine:   f.Line,
 			Tag:       "question",
-			Author:    "agntpr",
+			Author:    "packets",
 			Body:      f.Message,
 			Status:    Open,
 		})

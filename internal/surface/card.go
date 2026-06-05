@@ -10,7 +10,7 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
 
-	"github.com/joaomdsg/agntpr/internal/catch"
+	"github.com/joaomdsg/packets/internal/catch"
 )
 
 // Tested is the surface verdict for the most common screen: the oracle ran and

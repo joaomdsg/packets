@@ -15,7 +15,7 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/vt"
 
-	"github.com/joaomdsg/agntpr/internal/app"
+	"github.com/joaomdsg/packets/internal/app"
 )
 
 // countingTestCmd records one byte per suite execution to an absolute counter

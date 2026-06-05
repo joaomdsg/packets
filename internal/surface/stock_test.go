@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/joaomdsg/agntpr/internal/ledger"
-	"github.com/joaomdsg/agntpr/internal/surface"
+	"github.com/joaomdsg/packets/internal/ledger"
+	"github.com/joaomdsg/packets/internal/surface"
 )
 
 func renderStock(t *testing.T, s ledger.Stock) string {

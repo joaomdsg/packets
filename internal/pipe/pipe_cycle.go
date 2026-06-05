@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joaomdsg/agntpr/internal/catch"
-	"github.com/joaomdsg/agntpr/internal/mutation"
-	"github.com/joaomdsg/agntpr/internal/reanchor"
+	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/mutation"
+	"github.com/joaomdsg/packets/internal/reanchor"
 )
 
 // LandState is the integration verdict for a settled revision: the result of
@@ -181,7 +181,7 @@ func integrateOnTip(ctx context.Context, repoDir, fixRev, tipRev string, testCmd
 	if tipRev == "" {
 		return "", fmt.Errorf("pipe: empty trunk tip revision")
 	}
-	parent, err := os.MkdirTemp("", "agntpr-land-*")
+	parent, err := os.MkdirTemp("", "packets-land-*")
 	if err != nil {
 		return "", fmt.Errorf("pipe: temp worktree dir: %w", err)
 	}
@@ -220,7 +220,7 @@ func integrateOnTip(ctx context.Context, repoDir, fixRev, tipRev string, testCmd
 // mutation oracle scoped to the given line, and returns the result plus the
 // file's content at that revision. The worktree is always cleaned up.
 func runOracleAt(ctx context.Context, repoDir, rev, file string, line int, testCmd []string) (mutation.Result, []byte, error) {
-	parent, err := os.MkdirTemp("", "agntpr-pipe-*")
+	parent, err := os.MkdirTemp("", "packets-pipe-*")
 	if err != nil {
 		return mutation.Result{}, nil, fmt.Errorf("pipe: temp worktree dir: %w", err)
 	}

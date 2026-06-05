@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/joaomdsg/agntpr/internal/translate"
+	"github.com/joaomdsg/packets/internal/translate"
 )
 
 func TestTranslate_mapsAssistantTextToThinkingActivity(t *testing.T) {

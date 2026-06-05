@@ -12,9 +12,9 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/vt"
 
-	"github.com/joaomdsg/agntpr/internal/app"
-	"github.com/joaomdsg/agntpr/internal/ledger"
-	"github.com/joaomdsg/agntpr/internal/reanchor"
+	"github.com/joaomdsg/packets/internal/app"
+	"github.com/joaomdsg/packets/internal/ledger"
+	"github.com/joaomdsg/packets/internal/reanchor"
 )
 
 // The golden fixture: two adjacent under-tested >= comparisons whose strengthened

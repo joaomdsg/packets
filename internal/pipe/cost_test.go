@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/joaomdsg/agntpr/internal/pipe"
+	"github.com/joaomdsg/packets/internal/pipe"
 )
 
 // countingTestCmd returns a testCmd that records one byte to counterPath per

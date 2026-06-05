@@ -3,7 +3,7 @@ package surface
 import (
 	"github.com/go-via/via/h"
 
-	"github.com/joaomdsg/agntpr/internal/pipe"
+	"github.com/joaomdsg/packets/internal/pipe"
 )
 
 // RenderLand renders the integration verdict (the result of rebasing the fix

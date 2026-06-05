@@ -7,7 +7,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/joaomdsg/agntpr/internal/mutation"
+	"github.com/joaomdsg/packets/internal/mutation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

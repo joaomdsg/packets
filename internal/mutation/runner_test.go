@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/joaomdsg/agntpr/internal/mutation"
+	"github.com/joaomdsg/packets/internal/mutation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -90,7 +90,7 @@ func TestRun_returnsErrorWhenTestCommandCannotStart(t *testing.T) {
 		Dir:     "testdata/adult_weak",
 		File:    "adult.go",
 		Lines:   []mutation.LineRange{{Start: 4, End: 4}},
-		TestCmd: []string{"agntpr_no_such_command_zzz"},
+		TestCmd: []string{"packets_no_such_command_zzz"},
 	})
 	assert.Error(t, err)
 }
