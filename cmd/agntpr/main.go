@@ -1,409 +1,211 @@
+// Command agntpr serves the single-user review wire (DESIGN §17): it runs one
+// confirmed-catch cycle over two revisions and streams the verdict to a live
+// review card over SSE, so a human opens a browser and watches one verdict go
+// in-flight → resolved, with any catch appended to the ledger.
+//
+//	agntpr -repo . -base <weakSHA> -fix <fixSHA> -file adult.go -line 4
+//	open http://localhost:3000
 package main
 
 import (
-	"context"
-	"encoding/json"
+	"bytes"
+	"flag"
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
+	"net/http"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
-	"syscall"
-	"time"
 
-	"github.com/joaomdsg/agntpr/internal/agent"
-	"github.com/joaomdsg/agntpr/internal/config"
-	"github.com/joaomdsg/agntpr/internal/db"
-	"github.com/joaomdsg/agntpr/internal/fork"
-	"github.com/joaomdsg/agntpr/internal/orchestrator"
-	"github.com/joaomdsg/agntpr/internal/watcher"
+	"github.com/joaomdsg/agntpr/internal/app"
+	"github.com/joaomdsg/agntpr/internal/reanchor"
 )
 
+// primarySessionKey is the registry key the "/" card registers under (mirrors
+// app's defaultSessionKey). A -session may not reuse it: doing so would clobber
+// the primary card's registry entry while main still holds both ledgers.
+const primarySessionKey = "default"
+
+// sessionRef is the identity of one registered review target — the registry key
+// it Stores under and the ledger file it appends to. validateSessions checks
+// these for collisions before any ledger is opened.
+type sessionRef struct {
+	key        string
+	ledgerPath string
+}
+
+// validateSessions rejects -session sets that would silently corrupt state:
+// a key duplicating another session's or the reserved primary card's (the
+// second Store clobbers the first entry, orphaning a ledger), or a ledger path
+// shared by two targets including the primary -ledger (two *os.File appending
+// one JSONL interleave the file and fuse two economies that must stay isolated).
+// Paths are compared after filepath.Clean so equivalent spellings still collide.
+func validateSessions(primaryLedgerPath string, refs []sessionRef) error {
+	seenKey := map[string]bool{primarySessionKey: true}
+	seenPath := map[string]bool{filepath.Clean(primaryLedgerPath): true}
+	for _, r := range refs {
+		if seenKey[r.key] {
+			return fmt.Errorf("session key %q is already in use (duplicate or reserved)", r.key)
+		}
+		clean := filepath.Clean(r.ledgerPath)
+		if seenPath[clean] {
+			return fmt.Errorf("ledger path %q is shared by another session (would corrupt the JSONL / fuse economies)", r.ledgerPath)
+		}
+		seenKey[r.key] = true
+		seenPath[clean] = true
+	}
+	return nil
+}
+
+// sessionFlag collects repeatable -session specs so one server can stand up ≥2
+// review targets: the default card at "/" plus a keyed card at /?key=<key> per
+// -session, each its own isolated economy.
+type sessionFlag struct{ specs []string }
+
+func (s *sessionFlag) String() string { return strings.Join(s.specs, " ") }
+
+func (s *sessionFlag) Set(v string) error {
+	s.specs = append(s.specs, v)
+	return nil
+}
+
+// parseSessionSpec parses a "key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA][,ledger=PATH]"
+// spec into the session key and its cycle config. tip defaults to fix (clean
+// integration by construction); ledger defaults to "<key>.jsonl" so two
+// sessions never share a ledger by accident (isolated economies).
+func parseSessionSpec(repo, spec string) (string, app.LiveConfig, error) {
+	kv := map[string]string{}
+	for _, pair := range strings.Split(spec, ",") {
+		k, v, ok := strings.Cut(pair, "=")
+		if !ok {
+			return "", app.LiveConfig{}, fmt.Errorf("session %q: %q is not key=value", spec, pair)
+		}
+		kv[strings.TrimSpace(k)] = strings.TrimSpace(v)
+	}
+	for _, req := range []string{"key", "base", "fix", "file", "line"} {
+		if kv[req] == "" {
+			return "", app.LiveConfig{}, fmt.Errorf("session %q: missing %s", spec, req)
+		}
+	}
+	line, err := strconv.Atoi(kv["line"])
+	if err != nil || line < 1 {
+		return "", app.LiveConfig{}, fmt.Errorf("session %q: line must be a positive integer", spec)
+	}
+	hash, err := lineHashAt(repo, kv["base"], kv["file"], line)
+	if err != nil {
+		return "", app.LiveConfig{}, err
+	}
+	tip := kv["tip"]
+	if tip == "" {
+		tip = kv["fix"]
+	}
+	ledgerPath := kv["ledger"]
+	if ledgerPath == "" {
+		ledgerPath = kv["key"] + ".jsonl"
+	}
+	return kv["key"], app.LiveConfig{
+		RepoDir:       repo,
+		BaseRev:       kv["base"],
+		FixRev:        kv["fix"],
+		TipRev:        tip,
+		Anchor:        reanchor.Anchor{Path: kv["file"], Start: line, End: line, LineHash: hash},
+		TestCmd:       []string{"go", "test", "./..."},
+		LedgerPath:    ledgerPath,
+		MaxConcurrent: 2,
+	}, nil
+}
+
 func main() {
-	cfg, err := config.Load()
+	repo := flag.String("repo", ".", "git repo directory")
+	base := flag.String("base", "", "base (pre-fix) revision")
+	fix := flag.String("fix", "", "fix revision")
+	tip := flag.String("tip", "", "trunk tip to integrate onto (defaults to -fix)")
+	file := flag.String("file", "", "anchored file, relative to repo")
+	line := flag.Int("line", 0, "1-based anchored line")
+	ledgerPath := flag.String("ledger", "catches.jsonl", "catch ledger path")
+	addr := flag.String("addr", ":3000", "listen address")
+	var sessions sessionFlag
+	flag.Var(&sessions, "session", "additional keyed review target served at /?key=NAME; repeatable: key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA][,ledger=PATH]")
+	flag.Parse()
+
+	if *base == "" || *fix == "" || *file == "" || *line == 0 {
+		log.Fatal("agntpr: -base, -fix, -file and -line are required")
+	}
+	tipRev := *tip
+	if tipRev == "" {
+		tipRev = *fix // no separate trunk tip given → integrate onto the fix itself (clean by construction)
+	}
+
+	hash, err := lineHashAt(*repo, *base, *file, *line)
 	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+		log.Fatalf("agntpr: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigCh
-		log.Println("shutting down...")
-		cancel()
-	}()
-
-	if err := run(ctx, cfg); err != nil {
-		log.Fatalf("error: %v", err)
-	}
-}
-
-func run(ctx context.Context, cfg *config.Config) error {
-	// Initialize authentication
-	authProvider, agentUsername, err := initAuth(ctx, cfg)
+	application, ledgerLog, err := app.NewServer(app.LiveConfig{
+		RepoDir:    *repo,
+		BaseRev:    *base,
+		FixRev:     *fix,
+		TipRev:     tipRev,
+		Anchor:     reanchor.Anchor{Path: *file, Start: *line, End: *line, LineHash: hash},
+		TestCmd:    []string{"go", "test", "./..."},
+		LedgerPath: *ledgerPath,
+		// Cap concurrent catch cycles: each is several full-suite runs (#15), and
+		// per-cycle wall-time stays flat through ~2 concurrent on the bench, so 2 is
+		// the honest default ceiling — connects beyond it queue, never pile on.
+		MaxConcurrent: 2,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to initialize auth: %w", err)
+		log.Fatalf("agntpr: %v", err)
 	}
+	defer ledgerLog.Close()
 
-	log.Printf("agntpr starting as @%s (%s mode), watching %s",
-		agentUsername, cfg.GitHubAuthMode, cfg.TargetRepo)
-
-	ghCli := watcher.NewGHCli(authProvider)
-
-	if cfg.ResetDB {
-		log.Printf("RESET_DB set, removing database at %s", cfg.DatabasePath)
-		if err := os.Remove(cfg.DatabasePath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove database: %w", err)
+	// Parse every -session and validate the whole set for key/ledger-path
+	// collisions BEFORE opening any session ledger — a clobbered registry entry
+	// or two handles on one JSONL must fail fast, not corrupt state at runtime.
+	type parsedSession struct {
+		key string
+		cfg app.LiveConfig
+	}
+	var parsed []parsedSession
+	var refs []sessionRef
+	for _, spec := range sessions.specs {
+		key, cfg, err := parseSessionSpec(*repo, spec)
+		if err != nil {
+			log.Fatalf("agntpr: %v", err)
 		}
+		parsed = append(parsed, parsedSession{key: key, cfg: cfg})
+		refs = append(refs, sessionRef{key: key, ledgerPath: cfg.LedgerPath})
 	}
-
-	agentMention := "@" + agentUsername
-
-	// Create work directory if it doesn't exist
-	if err := os.MkdirAll(cfg.WorkDir, 0755); err != nil {
-		return fmt.Errorf("failed to create work directory: %w", err)
+	if err := validateSessions(*ledgerPath, refs); err != nil {
+		log.Fatalf("agntpr: %v", err)
 	}
-
-	// Create database directory if it doesn't exist
-	dbDir := filepath.Dir(cfg.DatabasePath)
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
-		return fmt.Errorf("failed to create database directory: %w", err)
-	}
-
-	database, err := db.Open(cfg.DatabasePath)
-	if err != nil {
-		return err
-	}
-	defer database.Close()
-
-	w := watcher.New(
-		ghCli, cfg.RepoOwner, cfg.RepoName, agentMention,
-	)
-
-	gitCli := fork.NewGitCli()
-	ghAdapter := &ghForkAdapter{cli: ghCli}
-	useFork := (cfg.GitHubAuthMode == "token") // Fork mode for PAT, direct for app
-	fm := fork.NewManager(
-		gitCli, ghAdapter, cfg.WorkDir,
-		"upstream", "origin", agentUsername,
-		useFork,
-	)
-
-	// Create AI runner based on backend configuration
-	var runner agent.Runner
-	if cfg.AIBackend == "claude" {
-		runner = agent.NewClaudeRunner(30*time.Minute, cfg.ClaudeModel)
-		log.Printf("using AI backend: claude (model: %s)", cfg.ClaudeModel)
-	} else {
-		runner = agent.NewOpenCodeRunner(30*time.Minute, cfg.OpenCodeModel)
-		if cfg.OpenCodeModel != "" {
-			log.Printf("using AI backend: opencode (model: %s)", cfg.OpenCodeModel)
-		} else {
-			log.Printf("using AI backend: opencode (default model)")
+	for _, p := range parsed {
+		sessionLog, err := app.AddSession(p.key, p.cfg)
+		if err != nil {
+			log.Fatalf("agntpr: %v", err)
 		}
+		defer sessionLog.Close()
+		log.Printf("agntpr: also serving session %q at /?key=%s — watch %s:%d resolve", p.key, p.key, p.cfg.Anchor.Path, p.cfg.Anchor.Start)
 	}
 
-	agentWrapper := &agentAdapter{
-		invoker: agent.NewInvoker(runner),
-		debug:   cfg.Debug,
-	}
-
-	if cfg.Debug {
-		log.Println("DEBUG mode enabled")
-	}
-
-	orch := orchestrator.New(
-		database, w, fm, agentWrapper,
-		cfg.RepoOwner, cfg.RepoName,
-	)
-
-	ticker := time.NewTicker(cfg.PollInterval)
-	defer ticker.Stop()
-
-	log.Printf("polling every %s", cfg.PollInterval)
-
-	// Initial poll
-	if err := orch.ProcessIssues(ctx); err != nil {
-		log.Printf("poll error: %v", err)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("shutdown complete")
-			return nil
-		case <-ticker.C:
-			if err := orch.ProcessIssues(ctx); err != nil {
-				log.Printf("poll error: %v", err)
-			}
-		}
-	}
+	log.Printf("agntpr: serving the review card on %s — open it and watch %s:%d resolve", *addr, *file, *line)
+	log.Fatal(http.ListenAndServe(*addr, application))
 }
 
-type agentAdapter struct {
-	invoker *agent.Invoker
-	debug   bool
-}
-
-func (a *agentAdapter) Plan(
-	ctx context.Context, workDir string, issue *db.Issue,
-) (string, error) {
-	// Determine if this is a revision by checking plan history
-	// This will be set when called from orchestrator with plan version > 1
-	isRevision := false
-	planVersion := 1
-
-	// Note: We'd need to pass this info from orchestrator, but for now
-	// the context file will contain the history
-
-	req := &agent.Request{
-		WorkDir:     workDir,
-		IssueNumber: issue.Number,
-		IssueTitle:  issue.Title,
-		IssueBody:   issue.Body,
-		BaseBranch:  "main", // TODO: Make this configurable
-		IsRevision:  isRevision,
-		PlanVersion: planVersion,
+// lineHashAt returns the content hash of the anchored line at the base
+// revision, the anchor's identity the re-anchor step verifies against.
+func lineHashAt(repo, rev, file string, line int) (string, error) {
+	cmd := exec.Command("git", "show", rev+":"+file)
+	cmd.Dir = repo
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("read %s@%s: %w", file, rev, err)
 	}
-
-	if a.debug {
-		prompt := agent.BuildPlanningPrompt(req)
-		log.Printf("[DEBUG] Plan() prompt:\n%s", prompt)
+	lines := strings.Split(out.String(), "\n")
+	if line < 1 || line > len(lines) {
+		return "", fmt.Errorf("line %d out of range in %s@%s", line, file, rev)
 	}
-
-	result, err := a.invoker.Plan(ctx, req)
-	if err != nil {
-		return "", err
-	}
-	if !result.Success {
-		return "", &agentError{msg: result.Error}
-	}
-
-	if a.debug {
-		log.Printf("[DEBUG] Plan() result: success=%v, output_len=%d", result.Success, len(result.Output))
-	}
-
-	return result.Output, nil
-}
-
-func (a *agentAdapter) Implement(
-	ctx context.Context, workDir string, issue *db.Issue, plan string,
-) error {
-	req := &agent.Request{
-		WorkDir:     workDir,
-		IssueNumber: issue.Number,
-		IssueTitle:  issue.Title,
-		IssueBody:   issue.Body,
-		Plan:        plan,
-		BaseBranch:  "main", // TODO: Make this configurable
-	}
-
-	if a.debug {
-		prompt := agent.BuildImplementationPrompt(req)
-		log.Printf("[DEBUG] Implement() prompt:\n%s", prompt)
-	}
-
-	result, err := a.invoker.Implement(ctx, req)
-	if err != nil {
-		return err
-	}
-	if !result.Success {
-		return &agentError{msg: result.Error}
-	}
-
-	if a.debug {
-		log.Printf("[DEBUG] Implement() result: success=%v", result.Success)
-	}
-
-	return nil
-}
-
-func (a *agentAdapter) RespondToReview(
-	ctx context.Context, workDir, comment string,
-) error {
-	req := &agent.Request{
-		WorkDir:       workDir,
-		ReviewComment: comment,
-		BaseBranch:    "main", // TODO: Make this configurable
-	}
-
-	if a.debug {
-		prompt := agent.BuildReviewResponsePrompt(req)
-		log.Printf("[DEBUG] RespondToReview() prompt:\n%s", prompt)
-	}
-
-	result, err := a.invoker.RespondToReview(ctx, req)
-	if err != nil {
-		return err
-	}
-	if !result.Success {
-		return &agentError{msg: result.Error}
-	}
-
-	if a.debug {
-		log.Printf("[DEBUG] RespondToReview() result: success=%v", result.Success)
-	}
-
-	return nil
-}
-
-func (a *agentAdapter) SummarizeChanges(
-	ctx context.Context, workDir string,
-) (string, error) {
-	if a.debug {
-		prompt := agent.BuildSummaryPrompt()
-		log.Printf("[DEBUG] SummarizeChanges() prompt:\n%s", prompt)
-	}
-
-	result, err := a.invoker.SummarizeChanges(ctx, workDir)
-	if err != nil {
-		return "", err
-	}
-	if !result.Success {
-		return "", &agentError{msg: result.Error}
-	}
-
-	if a.debug {
-		log.Printf("[DEBUG] SummarizeChanges() result: success=%v, output_len=%d", result.Success, len(result.Output))
-	}
-
-	return result.Output, nil
-}
-
-func (a *agentAdapter) AnswerQuestion(
-	ctx context.Context, workDir, question, issueContext string,
-) (string, error) {
-	req := &agent.AnswerRequest{
-		WorkDir:      workDir,
-		Question:     question,
-		IssueContext: issueContext,
-	}
-
-	if a.debug {
-		prompt := agent.BuildAnswerPrompt(req)
-		log.Printf("[DEBUG] AnswerQuestion() prompt:\n%s", prompt)
-	}
-
-	result, err := a.invoker.AnswerQuestion(ctx, req)
-	if err != nil {
-		return "", err
-	}
-	if !result.Success {
-		return "", &agentError{msg: result.Error}
-	}
-
-	if a.debug {
-		log.Printf("[DEBUG] AnswerQuestion() result: success=%v, output_len=%d", result.Success, len(result.Output))
-	}
-
-	return result.Output, nil
-}
-
-func (a *agentAdapter) EvaluateIntent(
-	ctx context.Context, issueTitle, issueBody string, labels []string, comments []string,
-) (*orchestrator.Intent, error) {
-	req := &agent.IntentRequest{
-		IssueTitle: issueTitle,
-		IssueBody:  issueBody,
-		Labels:     labels,
-		Comments:   comments,
-	}
-
-	if a.debug {
-		prompt := agent.BuildIntentPrompt(req)
-		log.Printf("[DEBUG] EvaluateIntent() prompt:\n%s", prompt)
-	}
-
-	result, err := a.invoker.EvaluateIntent(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	if !result.Success {
-		return nil, &agentError{msg: result.Error}
-	}
-
-	if a.debug {
-		log.Printf("[DEBUG] EvaluateIntent() raw output:\n%s", result.Output)
-	}
-
-	// Parse JSON from result
-	intent := &orchestrator.Intent{}
-	if err := parseIntentJSON(result.Output, intent); err != nil {
-		return nil, fmt.Errorf("parse intent failed: %w", err)
-	}
-
-	if a.debug {
-		log.Printf("[DEBUG] EvaluateIntent() parsed: skip_planning=%v, skip_approval=%v, is_approval=%v, is_revision=%v, is_question=%v, needs_clarify=%v",
-			intent.SkipPlanning, intent.SkipApproval, intent.IsApproval, intent.IsRevision, intent.IsQuestion, intent.NeedsClarify)
-	}
-
-	return intent, nil
-}
-
-func parseIntentJSON(output string, intent *orchestrator.Intent) error {
-	// Extract JSON from output (may be wrapped in markdown code block)
-	output = strings.TrimSpace(output)
-	if strings.HasPrefix(output, "```") {
-		lines := strings.Split(output, "\n")
-		var jsonLines []string
-		inBlock := false
-		for _, line := range lines {
-			if strings.HasPrefix(line, "```") {
-				inBlock = !inBlock
-				continue
-			}
-			if inBlock {
-				jsonLines = append(jsonLines, line)
-			}
-		}
-		output = strings.Join(jsonLines, "\n")
-	}
-
-	var parsed agent.IntentResult
-	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
-		// Truncate output for error message
-		preview := output
-		if len(preview) > 200 {
-			preview = preview[:200] + "..."
-		}
-		return fmt.Errorf("%w (got: %q)", err, preview)
-	}
-
-	intent.SkipPlanning = parsed.SkipPlanning
-	intent.SkipApproval = parsed.SkipApproval
-	intent.IsApproval = parsed.IsApproval
-	intent.IsRevision = parsed.IsRevision
-	intent.IsQuestion = parsed.IsQuestion
-	intent.Feedback = parsed.Feedback
-	intent.NeedsClarify = parsed.NeedsClarify
-	intent.Question = parsed.Question
-
-	return nil
-}
-
-type agentError struct {
-	msg string
-}
-
-func (e *agentError) Error() string {
-	return e.msg
-}
-
-type ghForkAdapter struct {
-	cli *watcher.GHCli
-}
-
-func (g *ghForkAdapter) ForkRepo(ctx context.Context, owner, repo string) error {
-	return g.cli.ForkRepo(ctx, owner, repo)
-}
-
-func (g *ghForkAdapter) CloneRepo(
-	ctx context.Context, owner, repo, dest string,
-) error {
-	return g.cli.CloneRepo(ctx, owner, repo, dest)
+	return reanchor.HashLines(lines[line-1]), nil
 }

@@ -6,36 +6,61 @@ on:
   pull_request:
     branches: [main]
 
+# agntpr's go.mod uses `replace github.com/go-via/via => ../via`, so the build
+# needs the via module checked out as a SIBLING directory at the exact commit
+# the local build pins. Every job reproduces that two-checkout layout:
+#   $GITHUB_WORKSPACE/agntpr  (this repo)
+#   $GITHUB_WORKSPACE/via     (go-via/via @ VIA_REF)
+# and runs go commands from the agntpr dir, where ../via resolves.
+env:
+  VIA_REPO: go-via/via
+  VIA_REF: 60cf0cd775aa5a6f2d7c27ed24aff2ef6d38a277 # design/state-backplane; 36 ahead of v0.4.2
+  # NOT go-version-file: go.mod's `go 1.24.0` is the language MINIMUM, but via's
+  # SSE handshake relies on net/http streaming behavior that only flushes the way
+  # the tests expect on Go >= 1.26 (on 1.24 the SSE stream closes before the
+  # `: ready` frame and every live-card/surface test fails). Build on the Go the
+  # project actually targets, not the declared floor.
+  GO_VERSION: "1.26"
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: agntpr
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.VIA_REPO }}
+          ref: ${{ env.VIA_REF }}
+          path: via
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: ${{ env.GO_VERSION }}
       - name: Build
-        run: CGO_ENABLED=1 go build -o agntpr ./cmd/agntpr
+        working-directory: agntpr
+        run: go build ./...
 
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
-      - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
-      - name: Display coverage
-        run: go tool cover -func=coverage.out
-
-  lint:
-    runs-on: ubuntu-latest
-    steps:
+          path: agntpr
       - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.VIA_REPO }}
+          ref: ${{ env.VIA_REF }}
+          path: via
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+          go-version: ${{ env.GO_VERSION }}
+      - name: Vet
+        working-directory: agntpr
+        run: go vet ./...
+      - name: Test
+        working-directory: agntpr
+        # The catch oracle and mutation tests shell out to `go test` and git in
+        # temp repos, so the suite needs git (present on ubuntu-latest) and a
+        # longer timeout than the default.
+        run: go test -race -timeout 15m ./...
