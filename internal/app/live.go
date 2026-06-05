@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -229,142 +228,6 @@ func (c *LiveCard) Spend(ctx *via.Ctx) {
 	go drainQueuedOrders(c.Key) // the order RUNS in the background — spend-to-earn
 }
 
-// nextUnconsumedTarget returns the first backlog target a Spend can still fund —
-// head-first (FIFO), skipping targets already CONSUMED (carried by a funded
-// work-order, projected purely from the log so it survives a reopen) and the
-// card's OWN caught cycle (which AppendDispatch would refuse, so leaving it in
-// would stall the head forever, starving the targets behind it). ok=false when
-// the backlog is empty or fully drawn down — the honest scarcity signal.
-func nextUnconsumedTarget(cfg LiveConfig, log *ledger.Log) (ledger.Target, bool) {
-	if f := fundableBacklog(cfg, log); len(f) > 0 {
-		return f[0], true
-	}
-	return ledger.Target{}, false
-}
-
-// fundableBacklog is the targets a Spend can still fund, in head-first order: the
-// hand-seeded config list THEN the card's own catches' neighborhoods (from-catch
-// supply), each filtered to those NOT yet CONSUMED (carried by a funded work-order,
-// projected purely from the log) and NOT the card's OWN caught cycle (which
-// AppendDispatch refuses). Its length is the board's BacklogRemaining — the honest
-// "distinct work left." A drained config still yields derived candidates, so supply
-// is a going concern; it returns empty only when neither source has fundable work.
-func fundableBacklog(cfg LiveConfig, log *ledger.Log) []ledger.Target {
-	consumed := map[ledger.Target]bool{}
-	if orders, err := log.WorkOrders(); err == nil {
-		for _, o := range orders {
-			consumed[o.Target] = true
-		}
-	}
-	own := ownTargetOf(cfg)
-	seen := map[ledger.Target]bool{}
-	var out []ledger.Target
-	// The config list FIRST (the Lead's hand-seeded targets), then the card's own
-	// catches' neighborhoods — so a drained config keeps refilling from the card's
-	// own output. The same filter applies to both sources: never re-fund a consumed
-	// target, never the card's own caught cycle, never a duplicate within one call.
-	for _, t := range append(append([]ledger.Target{}, cfg.DispatchBacklog...), candidatesFromCatches(log)...) {
-		if t != own && !consumed[t] && !seen[t] {
-			seen[t] = true
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// candidatesFromCatches derives CANDIDATE work from the card's own confirmed
-// catches — the from-catch supply that turns the loop into a going concern. Each
-// catch (at base→fix, anchored at Path:Line) proposes a candidate one line
-// FORWARD (same revs, Line+1): a real oracle QUESTION in the catch's neighborhood,
-// never a guaranteed mint. The oracle judges it — many neighbors yield no catch (an
-// honest loss). A candidate that mints seeds the next candidate, so supply refills
-// from its own output; a candidate that misses (or reproduces a seen identity, which
-// the dedup gate refuses) is a dead end. It is a PURE projection of the log — the
-// candidates are derived on read, never stored. Distinct identity from the catch
-// (Line+1), so it is never a self-recall of already-caught ground.
-func candidatesFromCatches(log *ledger.Log) []ledger.Target {
-	recs, err := log.Records()
-	if err != nil {
-		return nil
-	}
-	var out []ledger.Target
-	for _, r := range recs {
-		out = append(out, ledger.Target{
-			BaseRev: r.BeforeRev, FixRev: r.AfterRev, TipRev: r.AfterRev,
-			Path: r.Path, Line: r.Line + 1,
-		})
-	}
-	return out
-}
-
-// CardRow is one session's line on the fleet board — a calm cross-card tally
-// projected purely from that session's own log. It is ACTIVITY, never priority:
-// the board orders rows by Queued (work awaiting drain) so the Lead sees where
-// motion is, NOT a leverage rank (blocked-downstream is uncomputable today).
-type CardRow struct {
-	Key              string
-	Confirmed        int
-	Reinvested       int
-	Balance          int
-	Queued           int
-	Running          int
-	Done             int
-	Misses           int // done orders that minted NOTHING (Done − Reinvested) — honest losses made visible, not silently discarded
-	BacklogRemaining int
-	seq              int // registration ordinal — the deterministic tie-break, not rendered
-}
-
-// BoardRows projects one row per registered session by ranging liveReg, reading
-// ONLY each session's own log projections (a ledger read failure degrades that
-// field to zero, never breaks the board). Rows are ordered by Queued descending
-// — the queued-awaiting-drain ACTIVITY signal — tie-broken by registration order
-// (seq), so the order is deterministic across renders despite sync.Map's
-// nondeterministic Range and the absence of any timestamp to sort by.
-func BoardRows() []CardRow {
-	var rows []CardRow
-	liveReg.Range(func(k, v any) bool {
-		e := v.(*liveEntry)
-		row := CardRow{Key: k.(string), seq: e.seq}
-		if e.log != nil {
-			if recs, err := e.log.Records(); err == nil {
-				st := ledger.ConfirmedCatches(recs)
-				row.Confirmed, row.Reinvested = st.Count, st.Reinvested
-			}
-			if b, err := e.log.Balance(); err == nil {
-				row.Balance = b
-			}
-			if c, err := e.log.DispatchStatusCounts(); err == nil {
-				row.Queued, row.Running, row.Done = c.Queued, c.Running, c.Done
-			}
-			// Misses = done orders that minted no catch (Done minus the reinvested
-			// catches, which each came from a done order). Clamp at 0 against the brief
-			// window where a "wo:" catch is appended just before its done-status line.
-			if m := row.Done - row.Reinvested; m > 0 {
-				row.Misses = m
-			}
-			row.BacklogRemaining = len(fundableBacklog(e.cfg, e.log))
-		}
-		rows = append(rows, row)
-		return true
-	})
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].Queued != rows[j].Queued {
-			return rows[i].Queued > rows[j].Queued // most work awaiting drain first
-		}
-		return rows[i].seq < rows[j].seq // deterministic tie-break: earlier-registered first
-	})
-	return rows
-}
-
-// ownTargetOf is the card's OWN caught cycle as a Target — what a dispatch must
-// NOT re-run (it is already caught; re-running it mints nothing).
-func ownTargetOf(cfg LiveConfig) ledger.Target {
-	return ledger.Target{
-		BaseRev: cfg.BaseRev, FixRev: cfg.FixRev, TipRev: cfg.TipRev,
-		Path: cfg.Anchor.Path, Line: cfg.Anchor.Start, LineHash: cfg.Anchor.LineHash,
-	}
-}
-
 // maxOrderAttempts bounds how many times the runner will pick a single queued
 // order before giving up on it. A status write that fails permanently (e.g. a
 // closed ledger handle) would otherwise leave an order forever queued and spin
@@ -518,54 +381,6 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 		}
 	})
 	return nil
-}
-
-// BoardCard is the cross-card FLEET surface: a calm row-per-session tally of the
-// whole registry, ordered by queued ACTIVITY (see BoardRows). It is read-only —
-// it holds no per-tab state, it re-projects liveReg on render — and it never
-// labels a card by priority or leverage (the Lead sees where work is MOVING, not
-// a fabricated importance rank).
-type BoardCard struct{}
-
-// hitRateLabel is the card's standing — the ONE honest progression number: Hits
-// (catches a bet minted, = Reinvested) over Bets (resolved dispatched orders,
-// = Done). A pure COUNT ratio of logged events, never an inferred probability or
-// forecast, so it redeems against the mint/miss the Lead actually earned. Done==0
-// reads a calm "hit-rate 0/0" — a string ratio, never a divide-by-zero.
-//
-// The numerator is clamped to Done: a "wo:" catch is Appended just before its
-// order's done-status line (runOneOrder), so a board read can briefly observe
-// Reinvested > Done. Hits can never exceed Bets, so the display clamps rather than
-// leak a nonsense "hit-rate 1/0" — mirroring the Misses = max(0, Done−Reinvested)
-// guard in BoardRows against the same transient window.
-func hitRateLabel(r CardRow) string {
-	hits := r.Reinvested
-	if hits > r.Done {
-		hits = r.Done
-	}
-	return "hit-rate " + strconv.Itoa(hits) + "/" + strconv.Itoa(r.Done)
-}
-
-// View renders one row per registered session: its confirmed/reinvested stock,
-// spendable balance, queued/running/done activity, the distinct work still
-// awaiting a spend, and the hit-rate standing. Calm spans in the stock idiom —
-// no gauges, no priority, no forecast.
-func (c *BoardCard) View(_ *via.CtxR) h.H {
-	parts := []h.H{h.Class("board"), h.Data("state", "board")}
-	for _, r := range BoardRows() {
-		parts = append(parts, h.Div(
-			h.Class("board-row"),
-			h.Data("key", r.Key),
-			h.Span(h.Class("board-row__key"), h.Text(r.Key)),
-			h.Span(h.Class("board-row__stock"), h.Text(strconv.Itoa(r.Confirmed)+" confirmed, "+strconv.Itoa(r.Reinvested)+" reinvested")),
-			h.Span(h.Class("board-row__balance"), h.Text("balance "+strconv.Itoa(r.Balance))),
-			h.Span(h.Class("board-row__activity"), h.Text("queued "+strconv.Itoa(r.Queued)+", running "+strconv.Itoa(r.Running)+", done "+strconv.Itoa(r.Done))),
-			h.Span(h.Class("board-row__misses"), h.Text(strconv.Itoa(r.Misses)+" misses")),
-			h.Span(h.Class("board-row__hitrate"), h.Text(hitRateLabel(r))),
-			h.Span(h.Class("board-row__backlog"), h.Text(strconv.Itoa(r.BacklogRemaining)+" awaiting")),
-		))
-	}
-	return h.Div(parts...)
 }
 
 // NewServer wires the live review server: it opens the catch ledger, stashes
