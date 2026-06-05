@@ -279,6 +279,22 @@ plus an "amends/superseded-by" table atop each doc.
    identity, 0-survivors) *before* building Ship Quality / the Trust Ledger on it.
 5. **Do the doc reconciliation pass** (13 contradictions) so P0 reads one spec.
 6. **Resolve live-vs-post-hoc Focus** (the economy keystone) before any economy UI.
+7. **Harden the oracle before surfacing its verdict — opacity kills, not bad math.**
+   Game Dev Tycoon's review score was near-deterministic and skill-based, but
+   hidden and unattributable, so players who repeated identical steps saw 10/10
+   then 3/10, concluded it was RNG, and offloaded all mastery to wikis
+   ([postmortem][gdt]). agntpr's confirmed-catch is structurally the same object —
+   a backend verdict on a line — and inherits the same risk, made *worse* by the
+   oracle-fragility entries above (hang-misclassify, catch-identity, 0-survivors):
+   rendering a confident causal chain ("mutant killed ✓") that is fabricated for
+   the common fix shapes is GDT's failure with a fake explanation bolted on, which
+   is strictly worse than no explanation. *Rule:* the oracle must reach
+   timeout-as-equivocal, survivor-set catch definition, and explicit
+   coverage-surfacing (all tracked above) **before** any verdict is rendered inline
+   or allowed to gate Ship Quality / Trust / auto-land. Sequencing constraint, not
+   a feature.
+
+[gdt]: https://gamecritics.com/tayo-stalnaker/game-dev-tycoon-review/
 
 ---
 
