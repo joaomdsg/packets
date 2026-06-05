@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-via/via"
@@ -54,7 +56,16 @@ type liveEntry struct {
 	// runMu serializes the per-key order runner so two concurrent Spends can't both
 	// drain (and double-run) the same queued order. One drainer per session at a time.
 	runMu sync.Mutex
+	// seq is the registration ordinal — a monotonic stamp assigned when the session
+	// is registered. The fleet board orders ties (equal queued counts) by it, since
+	// sync.Map.Range is nondeterministic and a CatchRecord carries no timestamp to
+	// order by; registration order is the only stable, honest ordinal.
+	seq int
 }
+
+// regSeq is the monotonic source of liveEntry.seq — incremented once per session
+// registration so the board's tie-break is deterministic across renders.
+var regSeq int64
 
 // defaultSessionKey is the one entry seeded today. The registry can hold an entry
 // per session key so ≥2 distinct cards can coexist; until a second session is
@@ -79,7 +90,7 @@ func registerSession(key string, cfg LiveConfig, log *ledger.Log) {
 	if cfg.MaxConcurrent > 0 {
 		sem = make(chan struct{}, cfg.MaxConcurrent)
 	}
-	liveReg.Store(key, &liveEntry{cfg: cfg, log: log, sem: sem})
+	liveReg.Store(key, &liveEntry{cfg: cfg, log: log, sem: sem, seq: int(atomic.AddInt64(&regSeq, 1))})
 }
 
 func setLiveState(cfg LiveConfig, log *ledger.Log) {
@@ -225,8 +236,19 @@ func (c *LiveCard) Spend(ctx *via.Ctx) {
 // would stall the head forever, starving the targets behind it). ok=false when
 // the backlog is empty or fully drawn down — the honest scarcity signal.
 func nextUnconsumedTarget(cfg LiveConfig, log *ledger.Log) (ledger.Target, bool) {
+	if f := fundableBacklog(cfg, log); len(f) > 0 {
+		return f[0], true
+	}
+	return ledger.Target{}, false
+}
+
+// fundableBacklog is the backlog targets a Spend can still fund, in head-first
+// order: those NOT yet CONSUMED (carried by a funded work-order, projected purely
+// from the log) and NOT the card's OWN caught cycle (which AppendDispatch refuses).
+// Its length is the board's BacklogRemaining — the honest "distinct work left."
+func fundableBacklog(cfg LiveConfig, log *ledger.Log) []ledger.Target {
 	if len(cfg.DispatchBacklog) == 0 {
-		return ledger.Target{}, false
+		return nil
 	}
 	consumed := map[ledger.Target]bool{}
 	if orders, err := log.WorkOrders(); err == nil {
@@ -235,12 +257,65 @@ func nextUnconsumedTarget(cfg LiveConfig, log *ledger.Log) (ledger.Target, bool)
 		}
 	}
 	own := ownTargetOf(cfg)
+	var out []ledger.Target
 	for _, t := range cfg.DispatchBacklog {
 		if t != own && !consumed[t] {
-			return t, true
+			out = append(out, t)
 		}
 	}
-	return ledger.Target{}, false
+	return out
+}
+
+// CardRow is one session's line on the fleet board — a calm cross-card tally
+// projected purely from that session's own log. It is ACTIVITY, never priority:
+// the board orders rows by Queued (work awaiting drain) so the Lead sees where
+// motion is, NOT a leverage rank (blocked-downstream is uncomputable today).
+type CardRow struct {
+	Key              string
+	Confirmed        int
+	Reinvested       int
+	Balance          int
+	Queued           int
+	Running          int
+	Done             int
+	BacklogRemaining int
+	seq              int // registration ordinal — the deterministic tie-break, not rendered
+}
+
+// BoardRows projects one row per registered session by ranging liveReg, reading
+// ONLY each session's own log projections (a ledger read failure degrades that
+// field to zero, never breaks the board). Rows are ordered by Queued descending
+// — the queued-awaiting-drain ACTIVITY signal — tie-broken by registration order
+// (seq), so the order is deterministic across renders despite sync.Map's
+// nondeterministic Range and the absence of any timestamp to sort by.
+func BoardRows() []CardRow {
+	var rows []CardRow
+	liveReg.Range(func(k, v any) bool {
+		e := v.(*liveEntry)
+		row := CardRow{Key: k.(string), seq: e.seq}
+		if e.log != nil {
+			if recs, err := e.log.Records(); err == nil {
+				st := ledger.ConfirmedCatches(recs)
+				row.Confirmed, row.Reinvested = st.Count, st.Reinvested
+			}
+			if b, err := e.log.Balance(); err == nil {
+				row.Balance = b
+			}
+			if c, err := e.log.DispatchStatusCounts(); err == nil {
+				row.Queued, row.Running, row.Done = c.Queued, c.Running, c.Done
+			}
+			row.BacklogRemaining = len(fundableBacklog(e.cfg, e.log))
+		}
+		rows = append(rows, row)
+		return true
+	})
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].Queued != rows[j].Queued {
+			return rows[i].Queued > rows[j].Queued // most work awaiting drain first
+		}
+		return rows[i].seq < rows[j].seq // deterministic tie-break: earlier-registered first
+	})
+	return rows
 }
 
 // ownTargetOf is the card's OWN caught cycle as a Target — what a dispatch must
@@ -407,6 +482,32 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 	return nil
 }
 
+// BoardCard is the cross-card FLEET surface: a calm row-per-session tally of the
+// whole registry, ordered by queued ACTIVITY (see BoardRows). It is read-only —
+// it holds no per-tab state, it re-projects liveReg on render — and it never
+// labels a card by priority or leverage (the Lead sees where work is MOVING, not
+// a fabricated importance rank).
+type BoardCard struct{}
+
+// View renders one row per registered session: its confirmed/reinvested stock,
+// spendable balance, queued/running/done activity, and the distinct work still
+// awaiting a spend. Calm spans in the stock idiom — no gauges, no priority.
+func (c *BoardCard) View(_ *via.CtxR) h.H {
+	parts := []h.H{h.Class("board"), h.Data("state", "board")}
+	for _, r := range BoardRows() {
+		parts = append(parts, h.Div(
+			h.Class("board-row"),
+			h.Data("key", r.Key),
+			h.Span(h.Class("board-row__key"), h.Text(r.Key)),
+			h.Span(h.Class("board-row__stock"), h.Text(strconv.Itoa(r.Confirmed)+" confirmed, "+strconv.Itoa(r.Reinvested)+" reinvested")),
+			h.Span(h.Class("board-row__balance"), h.Text("balance "+strconv.Itoa(r.Balance))),
+			h.Span(h.Class("board-row__activity"), h.Text("queued "+strconv.Itoa(r.Queued)+", running "+strconv.Itoa(r.Running)+", done "+strconv.Itoa(r.Done))),
+			h.Span(h.Class("board-row__backlog"), h.Text(strconv.Itoa(r.BacklogRemaining)+" awaiting")),
+		))
+	}
+	return h.Div(parts...)
+}
+
 // NewServer wires the live review server: it opens the catch ledger, stashes
 // the cycle config, mounts the LiveCard, and returns the Via app (an
 // http.Handler) plus the ledger handle for the caller to close. Extra Via
@@ -419,5 +520,6 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 	setLiveState(cfg, log)
 	app := via.New(opts...)
 	via.Mount[LiveCard](app, "/")
+	via.Mount[BoardCard](app, "/board") // the cross-card fleet view (read-only projection of liveReg)
 	return app, log, nil
 }
