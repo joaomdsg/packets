@@ -5,7 +5,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)](go.mod)
 [![Status](https://img.shields.io/badge/status-research%20prototype-orange)](#project-status)
-[![License](https://img.shields.io/badge/license-TBD-lightgrey)](#license)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
@@ -217,4 +217,4 @@ pathology). Run them on your own hardware for the actual numbers.
 
 ## License
 
-License TBD.
+[MIT](LICENSE) © João Gonçalves
