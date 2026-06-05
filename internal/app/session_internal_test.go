@@ -52,8 +52,8 @@ func TestLiveCard_distinctSessionKeysHaveIsolatedBalances(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = defLog.Close() })
 
-	registerSession("ssnA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: aPath, DispatchTarget: woDispatchTarget()}, logA)
-	registerSession("ssnB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: bPath, DispatchTarget: woDispatchTarget()}, logB)
+	registerSession("ssnA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: aPath, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logA)
+	registerSession("ssnB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: bPath, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logB)
 
 	ca := vt.NewClient(t, server, "/?key=ssnA")
 	fa, cancelA := ca.SSE()

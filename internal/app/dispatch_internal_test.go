@@ -65,7 +65,7 @@ func TestLiveCard_spendFundsAWorkOrderAndTheDispatchRowRisesAsTheBalanceDrains(t
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
 		TestCmd: []string{"true"}, LedgerPath: logPath,
-		DispatchTarget: woDispatchTarget(),
+		DispatchBacklog: []ledger.Target{woDispatchTarget()},
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
@@ -124,8 +124,8 @@ func TestLiveCard_spendDispatchesOnlyIntoItsOwnSessionNotAnother(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = defLog.Close() })
 
-	registerSession("dspA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: aPath, DispatchTarget: woDispatchTarget()}, logA)
-	registerSession("dspB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: bPath, DispatchTarget: woDispatchTarget()}, logB)
+	registerSession("dspA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: aPath, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logA)
+	registerSession("dspB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: bPath, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logB)
 
 	ca := vt.NewClient(t, server, "/?key=dspA")
 	fa, cancelA := ca.SSE()

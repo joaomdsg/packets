@@ -49,7 +49,7 @@ func TestLiveCard_spendDispatchesAnOrderThatRunsAndMintsBackADistinctCatch(t *te
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
-		TestCmd: []string{"true"}, LedgerPath: logPath, DispatchTarget: tgt,
+		TestCmd: []string{"true"}, LedgerPath: logPath, DispatchBacklog: []ledger.Target{tgt},
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
@@ -108,7 +108,7 @@ func TestLiveCard_dispatchingOwnAlreadyCaughtWorkIsAnHonestLossNotAFarm(t *testi
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
-		TestCmd: []string{"true"}, LedgerPath: logPath, DispatchTarget: tgt,
+		TestCmd: []string{"true"}, LedgerPath: logPath, DispatchBacklog: []ledger.Target{tgt},
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
@@ -159,7 +159,7 @@ func TestLiveCard_connectAndDispatchMintsCarryDistinctProducerProvenance(t *test
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
-		TestCmd: []string{"true"}, LedgerPath: logPath, DispatchTarget: tgt,
+		TestCmd: []string{"true"}, LedgerPath: logPath, DispatchBacklog: []ledger.Target{tgt},
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
@@ -222,7 +222,7 @@ func TestLiveCard_dispatchedRunDoesNotLeakItsBeatsDiscardGoroutine(t *testing.T)
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
-		TestCmd: []string{"true"}, LedgerPath: logPath, DispatchTarget: tgt,
+		TestCmd: []string{"true"}, LedgerPath: logPath, DispatchBacklog: []ledger.Target{tgt},
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
@@ -269,7 +269,7 @@ func TestLiveCard_dispatchedOrderProgressIsWatchableQueuedRunningDoneOverSSE(t *
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
-		TestCmd: []string{"true"}, LedgerPath: logPath, DispatchTarget: tgt,
+		TestCmd: []string{"true"}, LedgerPath: logPath, DispatchBacklog: []ledger.Target{tgt},
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })

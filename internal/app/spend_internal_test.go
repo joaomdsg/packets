@@ -39,7 +39,7 @@ func TestLiveCard_spendVerbDrainsTheBalanceRowOverSSE(t *testing.T) {
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
 		TestCmd: []string{"true"}, LedgerPath: logPath,
-		DispatchTarget: woDispatchTarget(),
+		DispatchBacklog: []ledger.Target{woDispatchTarget()},
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
@@ -77,7 +77,7 @@ func TestLiveCard_overBudgetSpendIsASilentNoOpNotASpuriousFrame(t *testing.T) {
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
 		TestCmd: []string{"true"}, LedgerPath: logPath,
-		DispatchTarget: woDispatchTarget(),
+		DispatchBacklog: []ledger.Target{woDispatchTarget()},
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })

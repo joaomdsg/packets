@@ -32,10 +32,11 @@ type LiveConfig struct {
 	// full-suite executions — see internal/pipe and the #15 benchmark). Connects
 	// beyond the cap QUEUE on a slot, they are never dropped. 0 means unbounded.
 	MaxConcurrent int
-	// DispatchTarget is the DISTINCT work a Spend on this card buys — the rev/anchor
-	// triple a funded order runs (never the card's OWN cycle). The zero value means
-	// there is no distinct work to dispatch, so a Spend is a silent no-op.
-	DispatchTarget ledger.Target
+	// DispatchBacklog is the ordered supply of DISTINCT work a card's Spends draw
+	// down — the rev/anchor triple each funded order runs. A Spend consumes the next
+	// not-yet-funded target head-first; an empty or fully-drawn-down backlog makes a
+	// Spend a silent no-op (the honest scarcity signal — no distinct work to buy).
+	DispatchBacklog []ledger.Target
 }
 
 // resolveCycle is the seam OnConnect runs the catch cycle through. It defaults to
@@ -201,10 +202,11 @@ func (c *LiveCard) Spend(ctx *via.Ctx) {
 	if log == nil {
 		return
 	}
-	if cfg.DispatchTarget == (ledger.Target{}) {
-		return // no distinct work to buy this round: a silent no-op
+	tgt, ok := nextUnconsumedTarget(cfg, log)
+	if !ok {
+		return // backlog exhausted / empty: no distinct work to buy — a silent no-op
 	}
-	if err := log.AppendDispatch("dispatch", cfg.DispatchTarget, ownTargetOf(cfg)); err != nil {
+	if err := log.AppendDispatch("dispatch", tgt, ownTargetOf(cfg)); err != nil {
 		return // over-budget / nothing to spend / own work: a no-op, never an error to the Lead
 	}
 	if b, err := log.Balance(); err == nil {
@@ -216,6 +218,31 @@ func (c *LiveCard) Spend(ctx *via.Ctx) {
 	go drainQueuedOrders(c.Key) // the order RUNS in the background — spend-to-earn
 }
 
+// nextUnconsumedTarget returns the first backlog target a Spend can still fund —
+// head-first (FIFO), skipping targets already CONSUMED (carried by a funded
+// work-order, projected purely from the log so it survives a reopen) and the
+// card's OWN caught cycle (which AppendDispatch would refuse, so leaving it in
+// would stall the head forever, starving the targets behind it). ok=false when
+// the backlog is empty or fully drawn down — the honest scarcity signal.
+func nextUnconsumedTarget(cfg LiveConfig, log *ledger.Log) (ledger.Target, bool) {
+	if len(cfg.DispatchBacklog) == 0 {
+		return ledger.Target{}, false
+	}
+	consumed := map[ledger.Target]bool{}
+	if orders, err := log.WorkOrders(); err == nil {
+		for _, o := range orders {
+			consumed[o.Target] = true
+		}
+	}
+	own := ownTargetOf(cfg)
+	for _, t := range cfg.DispatchBacklog {
+		if t != own && !consumed[t] {
+			return t, true
+		}
+	}
+	return ledger.Target{}, false
+}
+
 // ownTargetOf is the card's OWN caught cycle as a Target — what a dispatch must
 // NOT re-run (it is already caught; re-running it mints nothing).
 func ownTargetOf(cfg LiveConfig) ledger.Target {
@@ -225,6 +252,13 @@ func ownTargetOf(cfg LiveConfig) ledger.Target {
 	}
 }
 
+// maxOrderAttempts bounds how many times the runner will pick a single queued
+// order before giving up on it. A status write that fails permanently (e.g. a
+// closed ledger handle) would otherwise leave an order forever queued and spin
+// the suite-exec loop without end; the cap turns that into a bounded, abandoned
+// order instead of an unbounded #15-multiplier burn.
+const maxOrderAttempts = 3
+
 // drainQueuedOrders runs every queued work-order for a session to completion — the
 // second in-process producer. It serializes per session (runMu) so two concurrent
 // Spends never double-run an order. Each order: mark running, run its DISTINCT
@@ -232,7 +266,10 @@ func ownTargetOf(cfg LiveConfig) ledger.Target {
 // cost), route any Catch through the idempotent Append stamped with the order's
 // producer (a re-run that reproduces a seen identity mints nothing — an honest
 // loss), then mark done. The mint is the only thing logged; intermediate beats
-// stay off-ledger.
+// stay off-ledger. An order whose status can never advance is retried at most
+// maxOrderAttempts times then GIVEN UP (a best-effort terminal "failed" line, so
+// it leaves the queued set when the log is writable), guaranteeing the drain
+// always returns.
 func drainQueuedOrders(key string) {
 	e := lookupLiveEntry(key)
 	if e == nil || e.log == nil {
@@ -240,17 +277,37 @@ func drainQueuedOrders(key string) {
 	}
 	e.runMu.Lock()
 	defer e.runMu.Unlock()
+	attempts := map[int]int{}
+	givenUp := map[int]bool{}
 	for {
 		queued, err := e.log.QueuedWorkOrders()
-		if err != nil || len(queued) == 0 {
+		if err != nil {
 			return
 		}
-		runOneOrder(e, queued[0])
+		var order *ledger.WorkOrderRecord
+		for i := range queued {
+			if !givenUp[queued[i].ID] {
+				order = &queued[i]
+				break
+			}
+		}
+		if order == nil {
+			return // nothing left that hasn't been given up
+		}
+		attempts[order.ID]++
+		if attempts[order.ID] > maxOrderAttempts {
+			givenUp[order.ID] = true
+			_ = e.log.AppendStatus(order.ID, "failed") // best-effort terminal line; if this too fails, givenUp still bounds the loop
+			continue
+		}
+		runOneOrder(e, *order)
 	}
 }
 
 func runOneOrder(e *liveEntry, order ledger.WorkOrderRecord) {
-	_ = e.log.AppendStatus(order.ID, "running")
+	if err := e.log.AppendStatus(order.ID, "running"); err != nil {
+		return // could not advance the order's status — don't run; the drain loop retries under the attempts cap
+	}
 	if e.sem != nil {
 		e.sem <- struct{}{}
 		defer func() { <-e.sem }()
