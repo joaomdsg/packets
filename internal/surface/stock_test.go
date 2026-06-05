@@ -39,6 +39,25 @@ func TestRenderStock_showsTheConfirmedCountAndTallies(t *testing.T) {
 	assert.Contains(t, html, "would-have-shipped 1", "the would-have-shipped tally (a mint-time fact) is shown")
 }
 
+func TestRenderStock_showsTheReinvestedShareSoCompoundingIsVisible(t *testing.T) {
+	t.Parallel()
+	// The reinvested share (catches a spend bought by dispatching distinct work) is
+	// its own span, byte-disjoint from the flat count — so the Lead SEES that some
+	// catches were born of spends (the reinvestment chain), not two equal bumps.
+	html := renderStock(t, ledger.Stock{Count: 3, Reinvested: 2, ByReason: map[string]int{"catch": 3}})
+	assert.Contains(t, html, "3 confirmed", "the total held quantity")
+	assert.Contains(t, html, `class="stock__reinvested"`, "the reinvested share is its own span, distinct from the flat count")
+	assert.Contains(t, html, "reinvested 2", "two of the three catches were minted by dispatched runs")
+}
+
+func TestRenderStock_zeroReinvestedRendersCalmlyWithoutAPhantomBadge(t *testing.T) {
+	t.Parallel()
+	// A connect-only run (no spends yet) must read calm: the reinvested span is
+	// present at 0, never an error or a phantom "you should be reinvesting" nudge.
+	html := renderStock(t, ledger.Stock{Count: 1, Reinvested: 0, ByReason: map[string]int{"catch": 1}})
+	assert.Contains(t, html, "reinvested 0", "a connect-only stock shows a calm reinvested 0, no phantom badge")
+}
+
 func TestRenderStock_rowIsDisjointFromEveryVerdictAndLandAndBeatState(t *testing.T) {
 	t.Parallel()
 	html := renderStock(t, ledger.Stock{Count: 1, ByReason: map[string]int{"catch": 1}})

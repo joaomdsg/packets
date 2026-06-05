@@ -21,6 +21,10 @@ func RenderStock(s ledger.Stock) h.H {
 		h.Class("stock-row"),
 		h.Data("state", "stock"),
 		h.Span(h.Class("stock__count"), h.Text(strconv.Itoa(s.Count)+" confirmed")),
+		// The reinvested share (dispatch-minted) is its own span beside the count, so
+		// the Lead SEES compounding — a spend's catch distinct from a fresh mint — not
+		// two equal bumps. At 0 it reads calm: a held fact, never a nudge.
+		h.Span(h.Class("stock__reinvested"), h.Text("reinvested "+strconv.Itoa(s.Reinvested))),
 	}
 	reasons := make([]string, 0, len(s.ByReason))
 	for r := range s.ByReason {

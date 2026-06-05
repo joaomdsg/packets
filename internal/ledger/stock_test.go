@@ -30,6 +30,35 @@ func TestConfirmedCatches_countsAndTalliesEveryRealCatch(t *testing.T) {
 	assert.Equal(t, 2, s.WouldHaveShipped)
 }
 
+func TestConfirmedCatches_splitsReinvestedFromConnectMintedSoCompoundingIsLegible(t *testing.T) {
+	t.Parallel()
+	// A catch minted by a dispatched run carries Producer "wo:<id>"; a connect-cycle
+	// mint carries "connect". Reinvested is an ADDITIVE PARTITION of Count (the
+	// dispatch-minted share), so the surface can show a spend's catch as distinct
+	// from a fresh connect mint — the reinvestment chain made visible.
+	s := ledger.ConfirmedCatches([]ledger.CatchRecord{
+		{Outcome: catch.Catch, ReasonTag: "catch", Producer: "connect"},
+		{Outcome: catch.Catch, ReasonTag: "catch", Producer: "wo:7"},
+		{Outcome: catch.Catch, ReasonTag: "catch", Producer: "wo:8"},
+		{Outcome: catch.NoCatch, Producer: "wo:9"}, // a non-catch never counts, even tagged wo:
+	})
+	assert.Equal(t, 3, s.Count, "three real catches")
+	assert.Equal(t, 2, s.Reinvested, "two were minted by dispatched runs (wo: prefix); the non-catch wo:9 never counts")
+	assert.Equal(t, 1, s.Count-s.Reinvested, "the remainder is connect-minted — an exact partition")
+}
+
+func TestConfirmedCatches_aPreProvenanceCatchIsConnectMintedNotReinvested(t *testing.T) {
+	t.Parallel()
+	// A catch with an empty/absent Producer (a pre-provenance or connect mint) must
+	// NOT read as reinvested — the compounding claim can never be silently inflated.
+	s := ledger.ConfirmedCatches([]ledger.CatchRecord{
+		{Outcome: catch.Catch, ReasonTag: "catch", Producer: ""},
+		{Outcome: catch.Catch, ReasonTag: "catch"}, // zero-value Producer
+	})
+	assert.Equal(t, 2, s.Count)
+	assert.Equal(t, 0, s.Reinvested, "no wo: prefix → not reinvested; an empty Producer never inflates the compounding count")
+}
+
 func TestConfirmedCatches_ignoresNonCatchRecordsSoTheStockCannotInflate(t *testing.T) {
 	t.Parallel()
 	s := ledger.ConfirmedCatches([]ledger.CatchRecord{

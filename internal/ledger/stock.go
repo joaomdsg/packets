@@ -1,5 +1,7 @@
 package ledger
 
+import "strings"
+
 // Stock is the held quantity projected from the confirmed-catch ledger: how many
 // real catches have been minted, tallied by reason and by the mint-time bits. It
 // is a pure projection of the logged records — never a live counter, never an
@@ -9,6 +11,12 @@ type Stock struct {
 	ByReason         map[string]int
 	SelfFlagged      int
 	WouldHaveShipped int
+	// Reinvested is the dispatch-minted share of Count — catches a SPEND bought by
+	// dispatching distinct work (Producer "wo:<id>"), as opposed to a connect-cycle
+	// mint. It is an ADDITIVE PARTITION of Count (connect-minted = Count − Reinvested),
+	// so the surface can show compounding: a spend's catch is distinguishable from a
+	// fresh mint, making the reinvestment chain legible rather than two equal bumps.
+	Reinvested int
 }
 
 // ConfirmedCatches projects a Stock from a slice of records. It is a TOTAL
@@ -22,6 +30,9 @@ func ConfirmedCatches(recs []CatchRecord) Stock {
 			continue
 		}
 		s.Count++
+		if strings.HasPrefix(r.Producer, "wo:") {
+			s.Reinvested++ // minted by a dispatched run — the spend-to-earn share
+		}
 		s.ByReason[r.ReasonTag]++
 		if r.SelfFlagged {
 			s.SelfFlagged++
