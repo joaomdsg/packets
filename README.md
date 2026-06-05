@@ -3,8 +3,7 @@
 > **The agentic-coding experience as a management game you actually want to play.**
 > You don't write the code. You run the shop.
 
-[![Go](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)](go.mod)
-[![Tests](https://img.shields.io/badge/tests-281%20passing-success)](#testing)
+[![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)](go.mod)
 [![Status](https://img.shields.io/badge/status-research%20prototype-orange)](#project-status)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey)](#license)
 
@@ -138,7 +137,7 @@ Run **several review targets** from one server — each its own isolated economy
 ## Architecture
 
 A thin `cmd/` wiring shell over focused `internal/` packages, each owning one
-concern of the pipe. ~3,600 lines of production Go, ~281 tests.
+concern of the pipe.
 
 | Package                 | Responsibility |
 |-------------------------|----------------|
@@ -186,22 +185,23 @@ Known risks and open design tensions are tracked candidly in
 ## Testing & benchmarks
 
 ```bash
-env -u GOROOT go test ./...                    # full suite (281 tests)
+env -u GOROOT go test ./...                    # full suite
 ```
 
 Heavy concurrent-load benchmarks quantify the per-connect fan-out's saturation
-knee (each cycle fires 3 full suite-execs):
+knee (each cycle fires several full suite-execs):
 
 ```bash
 env -u GOROOT go test ./internal/app -run='^$' -benchtime=2x \
   -bench='BenchmarkHeavyConcurrentCycle|BenchmarkSaturationSweep'
 ```
 
-On a 20-core box, throughput plateaus hard at concurrency ~16: pushing past it
-buys **~5% more throughput while tripling memory and scheduler pressure** —
-the empirical bound the Board's concurrency cap is meant to sit at. Past the
-core count, degradation is clean and linear (≈59 ms/cycle, allocations flat
-per cycle — no leak, no lock pathology).
+They show throughput plateauing once concurrency exceeds the host's core count
+— past that point, more agents buy little throughput while multiplying memory
+and scheduler pressure. That knee is the empirical bound the Board's
+concurrency cap is meant to sit at; degradation past it is clean and linear
+(per-cycle latency flat, allocations flat per cycle — no leak, no lock
+pathology). Run them on your own hardware for the actual numbers.
 
 ---
 
