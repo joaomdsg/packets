@@ -32,6 +32,13 @@ type CatchRecord struct {
 	ReasonTag         string `json:"reason_tag"`
 	SelfFlagged       bool   `json:"self_flagged"`
 	WouldHaveShipped  bool   `json:"would_have_shipped"`
+	// Producer names which producer minted this catch — the connect-cycle
+	// ("connect") or a dispatched work-order ("wo:<id>"). It is NOT part of the
+	// catch identity (a re-mint of the same identity is deduped regardless of
+	// producer); it is provenance, so a catch from a dispatched run reads as
+	// reinvestment, byte-distinguishable from a connect mint, and the field demuxes
+	// the two real producers on replay (the DESIGN §13.3 P0, now load-bearing).
+	Producer string `json:"producer,omitempty"`
 }
 
 // ShouldRecord reports whether an outcome warrants a ledger entry: only a real
@@ -47,7 +54,29 @@ func ShouldRecord(o catch.Outcome) bool {
 const (
 	kindSpend     = "spend"
 	kindWorkOrder = "workorder"
+	kindWOStatus  = "wostatus"
 )
+
+// Target is the work a funded order will run: the rev/anchor triple a dispatched
+// catch cycle executes. It is bound at funding time so the order is self-describing
+// (the runner needs no other state) and so a dispatch can be refused when it would
+// re-run the card's OWN already-caught cycle (a guaranteed loss).
+type Target struct {
+	BaseRev  string `json:"base_rev"`
+	FixRev   string `json:"fix_rev"`
+	TipRev   string `json:"tip_rev"`
+	Path     string `json:"path"`
+	Line     int    `json:"line"`
+	LineHash string `json:"line_hash,omitempty"`
+}
+
+// DispatchCounts is the work-order tally split by current status — the watchable
+// shape the Lead sees move queued→running→done as a dispatched order runs.
+type DispatchCounts struct {
+	Queued  int
+	Running int
+	Done    int
+}
 
 // inProcessProducer is the producer tag every work-order carries this round —
 // the single in-process writer. It is pre-paid onto the line now (DESIGN §13.3
@@ -67,6 +96,17 @@ type WorkOrderRecord struct {
 	Producer string `json:"producer"`
 	Status   string `json:"status"`
 	Reason   string `json:"reason,omitempty"`
+	Target   Target `json:"target"`
+}
+
+// woStatusRecord is one appended status transition for a work-order id. Status is
+// NEVER mutated in place — each transition is a new line, so the log stays
+// append-only and an order's current status replays as the last status line for
+// its id (defaulting to the order's funded Status when none has been appended).
+type woStatusRecord struct {
+	Kind   string `json:"kind"`
+	ID     int    `json:"id"`
+	Status string `json:"status"`
 }
 
 // SpendRecord is a debit against the confirmed-catch balance — the economy's
@@ -152,8 +192,8 @@ func identityKey(r CatchRecord) string {
 func (l *Log) Records() ([]CatchRecord, error) {
 	var out []CatchRecord
 	err := l.scan(func(kind string, line []byte) error {
-		if kind == kindSpend || kind == kindWorkOrder {
-			return nil // a debit or a work-order is not a catch
+		if kind == kindSpend || kind == kindWorkOrder || kind == kindWOStatus {
+			return nil // a debit, a work-order, or a status transition is not a catch
 		}
 		var r CatchRecord
 		if err := json.Unmarshal(line, &r); err != nil {
@@ -171,8 +211,8 @@ func (l *Log) Records() ([]CatchRecord, error) {
 func (l *Log) Balance() (int, error) {
 	balance := 0
 	err := l.scan(func(kind string, line []byte) error {
-		if kind == kindWorkOrder {
-			return nil // a work-order is not a credit; its paired debit (the spend line) drains the balance
+		if kind == kindWorkOrder || kind == kindWOStatus {
+			return nil // a work-order / its status transition is not a credit; the paired debit drains the balance
 		}
 		if kind == kindSpend {
 			var s SpendRecord
@@ -242,7 +282,16 @@ func (l *Log) AppendSpend(amount int, reason string) error {
 // conserved. The work-order id is monotonic, derived from the persisted log
 // (count of existing work-orders + 1) so it survives a reopen with no in-memory
 // counter. The order is queued — this round it does not run.
-func (l *Log) AppendDispatch(reason string) error {
+//
+// target is the distinct work the order will run; own is the card's OWN caught
+// cycle. A dispatch whose target equals own is refused (writing nothing): it
+// would re-run already-caught work, reproducing an identity the dedup gate would
+// mint nothing for — a guaranteed loss, so it is rejected up front (the
+// distinct-work requirement; the identity dedup in Append is the backstop).
+func (l *Log) AppendDispatch(reason string, target, own Target) error {
+	if target == own {
+		return fmt.Errorf("ledger: refusing to dispatch the card's own caught work — fund DISTINCT work")
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	balance, err := l.Balance()
@@ -266,6 +315,7 @@ func (l *Log) AppendDispatch(reason string) error {
 		Producer: inProcessProducer,
 		Status:   "queued",
 		Reason:   reason,
+		Target:   target,
 	})
 	if err != nil {
 		return fmt.Errorf("ledger: marshal work-order: %w", err)
@@ -300,15 +350,100 @@ func (l *Log) WorkOrders() ([]WorkOrderRecord, error) {
 	return out, err
 }
 
-// PendingDispatches counts the funded work-orders — the dispatched-work tally the
-// Lead sees. Every order is queued this round (none run yet), so it is the count
-// of work-order lines, projected purely from the log.
+// PendingDispatches counts the funded work-orders projected purely from the log
+// — the total dispatched-work tally (every funded order, regardless of status).
 func (l *Log) PendingDispatches() (int, error) {
 	orders, err := l.WorkOrders()
 	if err != nil {
 		return 0, err
 	}
 	return len(orders), nil
+}
+
+// AppendStatus records a work-order's status transition as a NEW append-only line
+// keyed by id — never mutating the order, so the log stays a pure append-only
+// substrate and an order's current status replays as its last status line.
+func (l *Log) AppendStatus(id int, status string) error {
+	line, err := json.Marshal(woStatusRecord{Kind: kindWOStatus, ID: id, Status: status})
+	if err != nil {
+		return fmt.Errorf("ledger: marshal status: %w", err)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, err := l.f.Write(append(line, '\n')); err != nil {
+		return fmt.Errorf("ledger: append status: %w", err)
+	}
+	return nil
+}
+
+// DispatchStatusCounts is the work-order tally split by CURRENT status — the
+// watchable shape the Lead sees move queued→running→done. Each order starts at
+// its funded Status ("queued") and advances to the last status line appended for
+// its id (last-writer-wins per id), so every order is counted in exactly one
+// bucket. A pure projection of the persisted log.
+func (l *Log) DispatchStatusCounts() (DispatchCounts, error) {
+	orders, status, err := l.ordersWithStatus()
+	if err != nil {
+		return DispatchCounts{}, err
+	}
+	var c DispatchCounts
+	for _, o := range orders {
+		switch status[o.ID] {
+		case "running":
+			c.Running++
+		case "done":
+			c.Done++
+		default:
+			c.Queued++
+		}
+	}
+	return c, nil
+}
+
+// QueuedWorkOrders returns the funded orders whose CURRENT status is queued, in
+// funding (id) order — the runner's input: the work waiting to be executed.
+func (l *Log) QueuedWorkOrders() ([]WorkOrderRecord, error) {
+	orders, status, err := l.ordersWithStatus()
+	if err != nil {
+		return nil, err
+	}
+	var queued []WorkOrderRecord
+	for _, o := range orders {
+		if status[o.ID] == "queued" {
+			queued = append(queued, o)
+		}
+	}
+	return queued, nil
+}
+
+// ordersWithStatus projects the funded orders (in id order) plus each order's
+// CURRENT status (its funded Status, advanced by the last status line for its id).
+// The shared read behind DispatchStatusCounts and QueuedWorkOrders.
+func (l *Log) ordersWithStatus() ([]WorkOrderRecord, map[int]string, error) {
+	var orders []WorkOrderRecord
+	status := map[int]string{}
+	err := l.scan(func(kind string, line []byte) error {
+		switch kind {
+		case kindWorkOrder:
+			var w WorkOrderRecord
+			if err := json.Unmarshal(line, &w); err != nil {
+				return fmt.Errorf("ledger: decode work-order: %w", err)
+			}
+			orders = append(orders, w)
+			status[w.ID] = w.Status
+		case kindWOStatus:
+			var s woStatusRecord
+			if err := json.Unmarshal(line, &s); err != nil {
+				return fmt.Errorf("ledger: decode status: %w", err)
+			}
+			status[s.ID] = s.Status // last status line for an id wins
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return orders, status, nil
 }
 
 // scan reads each non-empty JSONL line in order, probing its "kind" discriminator

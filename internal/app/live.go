@@ -32,6 +32,10 @@ type LiveConfig struct {
 	// full-suite executions — see internal/pipe and the #15 benchmark). Connects
 	// beyond the cap QUEUE on a slot, they are never dropped. 0 means unbounded.
 	MaxConcurrent int
+	// DispatchTarget is the DISTINCT work a Spend on this card buys — the rev/anchor
+	// triple a funded order runs (never the card's OWN cycle). The zero value means
+	// there is no distinct work to dispatch, so a Spend is a silent no-op.
+	DispatchTarget ledger.Target
 }
 
 // resolveCycle is the seam OnConnect runs the catch cycle through. It defaults to
@@ -46,6 +50,9 @@ type liveEntry struct {
 	cfg LiveConfig
 	log *ledger.Log
 	sem chan struct{}
+	// runMu serializes the per-key order runner so two concurrent Spends can't both
+	// drain (and double-run) the same queued order. One drainer per session at a time.
+	runMu sync.Mutex
 }
 
 // defaultSessionKey is the one entry seeded today. The registry can hold an entry
@@ -158,7 +165,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	_, log := readLiveState(c.Key)
 	var stock ledger.Stock
 	balance := 0
-	dispatched := 0
+	var dispatch ledger.DispatchCounts
 	if log != nil {
 		if recs, err := log.Records(); err == nil {
 			stock = ledger.ConfirmedCatches(recs)
@@ -166,14 +173,14 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 		if b, err := log.Balance(); err == nil {
 			balance = b
 		}
-		if d, err := log.PendingDispatches(); err == nil {
-			dispatched = d
+		if c, err := log.DispatchStatusCounts(); err == nil {
+			dispatch = c
 		}
 	}
 	return h.Div(
 		surface.RenderStock(stock),
 		surface.RenderBalance(balance),
-		surface.RenderDispatch(dispatched),
+		surface.RenderDispatch(dispatch),
 		surface.RenderBeats(c.Beats.Read(ctx)),
 		surface.RenderVerdict(c.Verdict.Read(ctx)),
 		surface.RenderLand(pipe.LandState(c.Land.Read(ctx))),
@@ -190,12 +197,15 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 // balance drains and the dispatch row rises together — the spend is visibly
 // converted into work, not just a vanishing number.
 func (c *LiveCard) Spend(ctx *via.Ctx) {
-	_, log := readLiveState(c.Key)
+	cfg, log := readLiveState(c.Key)
 	if log == nil {
 		return
 	}
-	if err := log.AppendDispatch("dispatch"); err != nil {
-		return // over-budget / nothing to spend: a no-op, never an error to the Lead
+	if cfg.DispatchTarget == (ledger.Target{}) {
+		return // no distinct work to buy this round: a silent no-op
+	}
+	if err := log.AppendDispatch("dispatch", cfg.DispatchTarget, ownTargetOf(cfg)); err != nil {
+		return // over-budget / nothing to spend / own work: a no-op, never an error to the Lead
 	}
 	if b, err := log.Balance(); err == nil {
 		c.Balance.Write(ctx, strconv.Itoa(b)) // announce the drain
@@ -203,6 +213,68 @@ func (c *LiveCard) Spend(ctx *via.Ctx) {
 	if d, err := log.PendingDispatches(); err == nil {
 		c.Dispatch.Write(ctx, strconv.Itoa(d)) // announce the funded work-order so the dispatch row rises in the same render
 	}
+	go drainQueuedOrders(c.Key) // the order RUNS in the background — spend-to-earn
+}
+
+// ownTargetOf is the card's OWN caught cycle as a Target — what a dispatch must
+// NOT re-run (it is already caught; re-running it mints nothing).
+func ownTargetOf(cfg LiveConfig) ledger.Target {
+	return ledger.Target{
+		BaseRev: cfg.BaseRev, FixRev: cfg.FixRev, TipRev: cfg.TipRev,
+		Path: cfg.Anchor.Path, Line: cfg.Anchor.Start, LineHash: cfg.Anchor.LineHash,
+	}
+}
+
+// drainQueuedOrders runs every queued work-order for a session to completion — the
+// second in-process producer. It serializes per session (runMu) so two concurrent
+// Spends never double-run an order. Each order: mark running, run its DISTINCT
+// target through the catch cycle under the admission sem (bounding the suite-exec
+// cost), route any Catch through the idempotent Append stamped with the order's
+// producer (a re-run that reproduces a seen identity mints nothing — an honest
+// loss), then mark done. The mint is the only thing logged; intermediate beats
+// stay off-ledger.
+func drainQueuedOrders(key string) {
+	e := lookupLiveEntry(key)
+	if e == nil || e.log == nil {
+		return
+	}
+	e.runMu.Lock()
+	defer e.runMu.Unlock()
+	for {
+		queued, err := e.log.QueuedWorkOrders()
+		if err != nil || len(queued) == 0 {
+			return
+		}
+		runOneOrder(e, queued[0])
+	}
+}
+
+func runOneOrder(e *liveEntry, order ledger.WorkOrderRecord) {
+	_ = e.log.AppendStatus(order.ID, "running")
+	if e.sem != nil {
+		e.sem <- struct{}{}
+		defer func() { <-e.sem }()
+	}
+	beats := make(chan pipe.TraceEvent, 64)
+	go func() { // discard beats: the dispatched run's tempo is off-ledger this round
+		for range beats {
+		}
+	}()
+	res, err := resolveCycle(context.Background(), e.cfg.RepoDir,
+		order.Target.BaseRev, order.Target.FixRev, order.Target.TipRev,
+		anchorFromTarget(order.Target), e.cfg.TestCmd, false, false, beats)
+	close(beats) // the cycle only SENDS on beats; the caller owns the close, so the discard goroutine exits (mirrors OnConnect)
+	if err == nil && res.Record != nil {
+		res.Record.Producer = "wo:" + strconv.Itoa(order.ID)
+		_ = e.log.Append(*res.Record) // deduped: a re-run of a seen identity mints nothing
+	}
+	_ = e.log.AppendStatus(order.ID, "done")
+}
+
+// anchorFromTarget reconstructs the re-anchor anchor a funded order runs against
+// from the target's persisted rev/anchor fields.
+func anchorFromTarget(t ledger.Target) reanchor.Anchor {
+	return reanchor.Anchor{Path: t.Path, Start: t.Line, End: t.Line, LineHash: t.LineHash}
 }
 
 // OnConnect kicks off the catch cycle and streams its beats live: each pipe
@@ -233,11 +305,13 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 			return
 		}
 		if res.Record != nil && log != nil {
-			_ = log.Append(*res.Record) // best-effort; a logging failure must not hang the card
+			res.Record.Producer = "connect" // provenance: the connect-cycle producer, demuxed from a dispatched run's "wo:<id>"
+			_ = log.Append(*res.Record)      // best-effort; a logging failure must not hang the card
 		}
 		result <- resolved{verdict: res.Verdict, land: string(res.Land)}
 	}()
 	var accrued []string
+	lastDispatch := -1
 	via.Stream(ctx, 100*time.Millisecond, func(ctx *via.Ctx, _ time.Time) {
 		for { // drain every beat available this tick, flushing the growing row
 			select {
@@ -252,6 +326,19 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 			default:
 			}
 			break
+		}
+		// Poll the dispatch tally so a BACKGROUND order runner (drainQueuedOrders has
+		// no request ctx, cannot write cells) still surfaces over SSE: when the
+		// per-status counts change, write the Dispatch cell to re-render, so the Lead
+		// watches the order move queued→running→done live. Keyed on a cheap signature
+		// so an unchanged tally writes nothing (no spurious frames).
+		if log != nil {
+			if cnt, err := log.DispatchStatusCounts(); err == nil {
+				if sig := cnt.Queued*1_000_000 + cnt.Running*1_000 + cnt.Done; sig != lastDispatch {
+					lastDispatch = sig
+					c.Dispatch.Write(ctx, strconv.Itoa(sig))
+				}
+			}
 		}
 		select {
 		case r := <-result:

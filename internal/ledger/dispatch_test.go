@@ -17,8 +17,8 @@ func TestAppendDispatch_fundsExactlyOneWorkOrderPerDebitConserved(t *testing.T) 
 	require.NoError(t, l.Append(distinctRecord(0)))
 	require.NoError(t, l.Append(distinctRecord(1)))
 
-	require.NoError(t, l.AppendDispatch("dispatch"))
-	require.NoError(t, l.AppendDispatch("dispatch"))
+	require.NoError(t, l.AppendDispatch("dispatch", distinctTarget(), ownTarget()))
+	require.NoError(t, l.AppendDispatch("dispatch", distinctTarget(), ownTarget()))
 
 	bal, err := l.Balance()
 	require.NoError(t, err)
@@ -44,8 +44,8 @@ func TestAppendDispatch_workOrdersReplayFromThePersistedLogAlone(t *testing.T) {
 	l, path := openLog(t)
 	require.NoError(t, l.Append(distinctRecord(0)))
 	require.NoError(t, l.Append(distinctRecord(1)))
-	require.NoError(t, l.AppendDispatch("dispatch-a"))
-	require.NoError(t, l.AppendDispatch("dispatch-b"))
+	require.NoError(t, l.AppendDispatch("dispatch-a", distinctTarget(), ownTarget()))
+	require.NoError(t, l.AppendDispatch("dispatch-b", distinctTarget(), ownTarget()))
 	require.NoError(t, l.Close())
 
 	reopened, err := ledger.Open(path)
@@ -75,7 +75,7 @@ func TestPendingDispatches_doesNotPolluteTheConfirmedCatchCount(t *testing.T) {
 	t.Parallel()
 	l, _ := openLog(t)
 	require.NoError(t, l.Append(sampleRecord()))
-	require.NoError(t, l.AppendDispatch("dispatch"))
+	require.NoError(t, l.AppendDispatch("dispatch", distinctTarget(), ownTarget()))
 
 	recs, err := l.Records()
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestAppendDispatch_overBudgetFundsNoOrderAndWritesNothing(t *testing.T) {
 	t.Parallel()
 	l, _ := openLog(t)
 
-	require.Error(t, l.AppendDispatch("dispatch"), "a dispatch with nothing to fund is refused — you cannot dispatch what you did not catch")
+	require.Error(t, l.AppendDispatch("dispatch", distinctTarget(), ownTarget()), "a dispatch with nothing to fund is refused — you cannot dispatch what you did not catch")
 
 	bal, err := l.Balance()
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestAppendDispatch_isAtomicUnderRaceNeverTearsOrOverFunds(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			if err := l.AppendDispatch("dispatch"); err == nil {
+			if err := l.AppendDispatch("dispatch", distinctTarget(), ownTarget()); err == nil {
 				atomic.AddInt64(&ok, 1)
 			}
 		}()

@@ -65,6 +65,7 @@ func TestLiveCard_spendFundsAWorkOrderAndTheDispatchRowRisesAsTheBalanceDrains(t
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
 		TestCmd: []string{"true"}, LedgerPath: logPath,
+		DispatchTarget: woDispatchTarget(),
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
@@ -72,21 +73,24 @@ func TestLiveCard_spendFundsAWorkOrderAndTheDispatchRowRisesAsTheBalanceDrains(t
 	tc := vt.NewClient(t, server, "/")
 	frames, cancel := tc.SSE()
 	defer cancel()
-	awaitFrameContaining(t, frames, 10*time.Second, `data-balance="1"`, `data-dispatch="0"`)
+	awaitFrameContaining(t, frames, 10*time.Second, `data-balance="1"`, `data-dispatch-queued="0"`)
 
 	require.Equal(t, 200, tc.Action((&LiveCard{}).Spend).Fire())
-	awaitFrameContaining(t, frames, 10*time.Second, `data-dispatch="1"`, `data-balance="0"`)
+	// The spend drains the balance to 0 and funds an order; the order then RUNS
+	// (its fake target mints nothing) to done, surfaced live by the dispatch poll.
+	vt.AwaitFrame(t, frames, 10*time.Second, `data-balance="0"`)
+	vt.AwaitFrame(t, frames, 10*time.Second, `data-dispatch-done="1"`)
 
 	pending, err := log.PendingDispatches()
 	require.NoError(t, err)
 	require.Equal(t, 1, pending, "the spend funded exactly one work-order in this session's ledger")
 
 	// Balance is now 0. A further Spend is over-budget: AppendDispatch must refuse,
-	// so it funds NO work-order and broadcasts NO dispatch frame — the consequence
-	// honors the over-budget guard exactly as the balance drain does.
+	// so it funds NO second work-order — the consequence honors the over-budget
+	// guard exactly as the balance drain does.
 	require.Equal(t, 200, tc.Action((&LiveCard{}).Spend).Fire())
 	tail := drainFramesFor(frames, 500*time.Millisecond)
-	require.NotContains(t, tail, `data-dispatch="2"`, "an over-budget spend must fund no second work-order")
+	require.NotContains(t, tail, `data-dispatch-done="2"`, "an over-budget spend must fund no second work-order")
 	stillOne, err := log.PendingDispatches()
 	require.NoError(t, err)
 	require.Equal(t, 1, stillOne, "the refused dispatch left the work-order count unchanged")
@@ -120,8 +124,8 @@ func TestLiveCard_spendDispatchesOnlyIntoItsOwnSessionNotAnother(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = defLog.Close() })
 
-	registerSession("dspA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: aPath}, logA)
-	registerSession("dspB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: bPath}, logB)
+	registerSession("dspA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: aPath, DispatchTarget: woDispatchTarget()}, logA)
+	registerSession("dspB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: bPath, DispatchTarget: woDispatchTarget()}, logB)
 
 	ca := vt.NewClient(t, server, "/?key=dspA")
 	fa, cancelA := ca.SSE()

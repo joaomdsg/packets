@@ -26,7 +26,10 @@ func TestLiveCard_distinctSessionKeysHaveIsolatedBalances(t *testing.T) {
 	// never debits the other (the R18 farm-denial verdict, per-session enforced).
 	restore := resolveCycle
 	t.Cleanup(func() { resolveCycle = restore })
-	resolveCycle = func(_ context.Context, _, _, _, _ string, _ reanchor.Anchor, _ []string, _, _ bool, _ chan<- pipe.TraceEvent) (Resolution, error) {
+	resolveCycle = func(_ context.Context, _, base, _, _ string, _ reanchor.Anchor, _ []string, _, _ bool, _ chan<- pipe.TraceEvent) (Resolution, error) {
+		if base == woDispatchTarget().BaseRev {
+			return Resolution{}, nil // the dispatched run mints nothing here, so the spend's drain stays observable
+		}
 		return Resolution{Verdict: string(catch.Catch), Record: &ledger.CatchRecord{Outcome: catch.Catch, ReasonTag: "catch"}}, nil
 	}
 
@@ -49,8 +52,8 @@ func TestLiveCard_distinctSessionKeysHaveIsolatedBalances(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = defLog.Close() })
 
-	registerSession("ssnA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: aPath}, logA)
-	registerSession("ssnB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: bPath}, logB)
+	registerSession("ssnA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: aPath, DispatchTarget: woDispatchTarget()}, logA)
+	registerSession("ssnB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: bPath, DispatchTarget: woDispatchTarget()}, logB)
 
 	ca := vt.NewClient(t, server, "/?key=ssnA")
 	fa, cancelA := ca.SSE()

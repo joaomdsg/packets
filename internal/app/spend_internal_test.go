@@ -39,6 +39,7 @@ func TestLiveCard_spendVerbDrainsTheBalanceRowOverSSE(t *testing.T) {
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
 		TestCmd: []string{"true"}, LedgerPath: logPath,
+		DispatchTarget: woDispatchTarget(),
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
@@ -76,6 +77,7 @@ func TestLiveCard_overBudgetSpendIsASilentNoOpNotASpuriousFrame(t *testing.T) {
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
 		TestCmd: []string{"true"}, LedgerPath: logPath,
+		DispatchTarget: woDispatchTarget(),
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
@@ -89,15 +91,20 @@ func TestLiveCard_overBudgetSpendIsASilentNoOpNotASpuriousFrame(t *testing.T) {
 	vt.AwaitFrame(t, frames, 10*time.Second, `data-balance="0"`)
 
 	// Spend past 0: a no-op. The action still returns 200 (never an error to the
-	// Lead), but it must NOT write the Balance cell — so no re-render frame fires.
+	// Lead). The card may still re-render as the first spend's funded order runs in
+	// the background (a legitimate dispatch-progress frame showing an UNCHANGED
+	// balance), but the refused spend must never drive the balance negative nor fund
+	// a second order.
 	require.Equal(t, 200, tc.Action((&LiveCard{}).Spend).Fire())
 	tail := drainFramesFor(frames, 500*time.Millisecond)
-	require.NotContains(t, tail, "data-balance", "an over-budget spend must broadcast no balance frame")
 	require.NotContains(t, tail, `data-balance="-1"`, "the balance must never render negative")
 
 	bal, err := log.Balance()
 	require.NoError(t, err)
 	require.Equal(t, 0, bal, "the refused spend left no debit in the ledger")
+	pending, err := log.PendingDispatches()
+	require.NoError(t, err)
+	require.Equal(t, 1, pending, "the over-budget spend funded NO second order — only the first spend's order exists")
 }
 
 // drainFramesFor collects every SSE frame that arrives within d, then returns
