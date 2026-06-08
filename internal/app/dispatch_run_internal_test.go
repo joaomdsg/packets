@@ -127,7 +127,7 @@ func TestLiveCard_dispatchingOwnAlreadyCaughtWorkIsAnHonestLossNotAFarm(t *testi
 func TestLiveCard_connectAndDispatchMintsCarryDistinctProducerProvenance(t *testing.T) {
 	// Two real producers on one log: the connect-cycle stamps Producer="connect",
 	// the dispatched run stamps "wo:<id>". Both mint distinct identities; the field
-	// demuxes them on replay (the in-process discharge of the P0 two-producer seq).
+	// demuxes them on replay.
 	restore := resolveCycle
 	t.Cleanup(func() { resolveCycle = restore })
 	tgt := woDispatchTarget()

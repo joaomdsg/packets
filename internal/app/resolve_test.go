@@ -129,7 +129,7 @@ func TestResolve_rendersLostViaRenameVerdictForARenamedAnchor(t *testing.T) {
 	res, err := app.Resolve(context.Background(), dir, base, fix, fix, anchor(), goTestCmd, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, surface.LostViaRename, res.Verdict,
-		"a lost-via-rename anchor must reach the card as its own honest verdict, NEVER the false 'no mutable operator' — Clash G's surface closing gate")
+		"a lost-via-rename anchor must reach the card as its own honest verdict, NEVER the false 'no mutable operator'")
 	assert.NotEqual(t, string(catch.NoOracleSignal), res.Verdict, "the renamed cause must not collapse into operator-free silence")
 	assert.Nil(t, res.Record, "a lost anchor mints nothing to persist")
 }

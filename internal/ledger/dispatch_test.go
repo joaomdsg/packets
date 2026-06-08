@@ -32,8 +32,8 @@ func TestAppendDispatch_fundsExactlyOneWorkOrderPerDebitConserved(t *testing.T) 
 	assert.NotEqual(t, orders[0].ID, orders[1].ID, "work-order ids are distinct and monotonic")
 	assert.Less(t, orders[0].ID, orders[1].ID, "ids increase in funding order")
 	for _, o := range orders {
-		assert.NotEmpty(t, o.Producer, "each order carries a producer (pre-paid for the cross-process fan-out the P0 log-schema needs)")
-		assert.Equal(t, "queued", o.Status, "this round funds the order queued — it does not run")
+		assert.NotEmpty(t, o.Producer, "each order carries a producer (pre-paid for the cross-process fan-out the log schema needs)")
+		assert.Equal(t, "queued", o.Status, "a funded order is queued — it does not run")
 	}
 }
 

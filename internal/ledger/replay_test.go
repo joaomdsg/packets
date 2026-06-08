@@ -42,11 +42,8 @@ func (e evt) publish(t *testing.T, ctx context.Context, f *fabric.Fabric, sessio
 }
 
 // The economy fold is the live read path: every projecting Log method delegates
-// to ReplayProjection, so this pins the substrate-independent economy logic the
-// Round-28 swap moved onto the stream. (Its pre-swap twin compared this fold to
-// the JSONL file scan — that comparison gated the swap when both substrates
-// agreed; the file scan is now retired, so the fold stands alone against the
-// concrete worked economy.)
+// to ReplayProjection, so this pins the economy logic against a concrete worked
+// economy folded from the stream.
 func TestReplayProjection_foldsTheWorkedEconomyFromTheStream(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
