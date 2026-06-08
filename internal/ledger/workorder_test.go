@@ -124,16 +124,14 @@ func TestQueuedWorkOrders_returnsOnlyTheNotYetRunOrdersInFundingOrder(t *testing
 
 func TestDispatchStatus_replaysFromThePersistedLogAlone(t *testing.T) {
 	t.Parallel()
-	l, path := openLog(t)
+	l, _ := openLog(t)
 	require.NoError(t, l.Append(distinctRecord(0)))
 	require.NoError(t, l.AppendDispatch("dispatch", distinctTarget(), ownTarget()))
 	require.NoError(t, l.AppendStatus(1, "running"))
 	require.NoError(t, l.AppendStatus(1, "done"))
 	require.NoError(t, l.Close())
 
-	reopened, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = reopened.Close() })
+	reopened := boundLog(t)
 	c, err := reopened.DispatchStatusCounts()
 	require.NoError(t, err)
 	assert.Equal(t, ledger.DispatchCounts{Done: 1}, c, "status is appended ID-keyed lines (never mutated), so it replays purely from disk")

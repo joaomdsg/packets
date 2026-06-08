@@ -2,9 +2,6 @@ package ledger_test
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,35 +13,16 @@ import (
 )
 
 // evt is one logical ledger event in the characterization fixture: exactly the
-// field matching kind is populated. The SAME marshaled payload is written to a
-// JSONL file AND published to the stream, so the lock compares two substrates
-// holding byte-identical events.
+// field matching kind is populated. Publishing forged events directly (a
+// non-catch on the catch subject, a zero-amount spend) exercises the fold over
+// sequences the public writers would refuse — the substrate-tolerance the old
+// hand-edited-JSONL tests covered, now at the stream level.
 type evt struct {
 	kind  string
 	catch ledger.CatchRecord
 	spend ledger.SpendRecord
 	order ledger.WorkOrderRecord
 	stat  ledger.StatusRecord
-}
-
-func (e evt) payload(t *testing.T) []byte {
-	t.Helper()
-	var v any
-	switch e.kind {
-	case "catch":
-		v = e.catch
-	case "spend":
-		v = e.spend
-	case "workorder":
-		v = e.order
-	case "wostatus":
-		v = e.stat
-	default:
-		t.Fatalf("unknown kind %q", e.kind)
-	}
-	b, err := json.Marshal(v)
-	require.NoError(t, err)
-	return b
 }
 
 func (e evt) publish(t *testing.T, ctx context.Context, f *fabric.Fabric, session, instance string) {
@@ -63,13 +41,13 @@ func (e evt) publish(t *testing.T, ctx context.Context, f *fabric.Fabric, sessio
 	require.NoError(t, err)
 }
 
-// The migration's safety precondition: every projection the economy exposes must
-// fold to IDENTICAL state whether the events live in the JSONL file (the proven
-// scan) or on the JetStream (the new replay fold). If these two independent
-// implementations ever disagree, the substrate swap would silently change the
-// balance, the board, the hit-rate, or the work-order ledger — so this lock must
-// be green before any swap, and stay green through it.
-func TestEconomyProjectionsAreIdenticalFromJSONLAndFromStreamReplay(t *testing.T) {
+// The economy fold is the live read path: every projecting Log method delegates
+// to ReplayProjection, so this pins the substrate-independent economy logic the
+// Round-28 swap moved onto the stream. (Its pre-swap twin compared this fold to
+// the JSONL file scan — that comparison gated the swap when both substrates
+// agreed; the file scan is now retired, so the fold stands alone against the
+// concrete worked economy.)
+func TestReplayProjection_foldsTheWorkedEconomyFromTheStream(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -80,7 +58,7 @@ func TestEconomyProjectionsAreIdenticalFromJSONLAndFromStreamReplay(t *testing.T
 		return ledger.CatchRecord{Outcome: catch.Catch, Path: "a.go", Line: line, BeforeRev: "base", AfterRev: "fix", ReasonTag: reason, Producer: "connect"}
 	}
 
-	// A worked economy: a connect win, a forged NON-catch catch-kind line (locks
+	// A worked economy: a connect win, a forged NON-catch catch-kind event (locks
 	// the ShouldRecord asymmetry — counted by Records, never by Balance), a
 	// zero-amount spend (locks the amount<=0 guard), three dispatched orders where
 	// order 1 mints back (a reinvested HIT), order 2 mints nothing (an honest
@@ -103,19 +81,6 @@ func TestEconomyProjectionsAreIdenticalFromJSONLAndFromStreamReplay(t *testing.T
 		{kind: "catch", catch: connectCatch(11, "bounds")},
 	}
 
-	// --- JSONL substrate: write the raw lines, project via the proven file scan.
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	var buf []byte
-	for _, e := range fixture {
-		buf = append(buf, e.payload(t)...)
-		buf = append(buf, '\n')
-	}
-	require.NoError(t, os.WriteFile(path, buf, 0o644))
-	log, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, log.Close()) })
-
-	// --- Stream substrate: publish the same events, project via the replay fold.
 	f := startFabric(t)
 	for _, e := range fixture {
 		e.publish(t, ctx, f, "s1", "i1")
@@ -123,57 +88,25 @@ func TestEconomyProjectionsAreIdenticalFromJSONLAndFromStreamReplay(t *testing.T
 	proj, err := ledger.ReplayProjection(ctx, f, "s1", "i1")
 	require.NoError(t, err)
 
-	// Balance.
-	fileBal, err := log.Balance()
-	require.NoError(t, err)
-	assert.Equal(t, fileBal, proj.Balance(), "balance must fold identically across substrates")
 	assert.Equal(t, 1, proj.Balance(), "4 confirmed credits − 3 positive debits (the 0-amount spend never debits)")
 
-	// Catch records (Records is unfiltered by ShouldRecord — the forged NoCatch
-	// line survives the projection on BOTH substrates).
-	fileRecs, err := log.Records()
-	require.NoError(t, err)
-	assert.Equal(t, fileRecs, proj.Records(), "the catch-kind record stream must fold identically")
-	require.Len(t, proj.Records(), 5)
+	require.Len(t, proj.Records(), 5, "Records is unfiltered: the forged NoCatch event survives the fold")
+	stock := ledger.ConfirmedCatches(proj.Records())
+	assert.Equal(t, 4, stock.Count, "the forged NoCatch event is never counted as confirmed")
+	assert.Equal(t, 1, stock.Reinvested, "exactly the wo:1 mint is reinvested")
 
-	// Stock / hit-rate inputs: the shared pure fold over each substrate's records.
-	fileStock := ledger.ConfirmedCatches(fileRecs)
-	streamStock := ledger.ConfirmedCatches(proj.Records())
-	assert.Equal(t, fileStock, streamStock, "confirmed/reinvested stock must agree")
-	assert.Equal(t, 4, streamStock.Count, "the forged NoCatch line is never counted as confirmed")
-	assert.Equal(t, 1, streamStock.Reinvested, "exactly the wo:1 mint is reinvested")
-
-	// Work orders.
-	fileOrders, err := log.WorkOrders()
-	require.NoError(t, err)
-	assert.Equal(t, fileOrders, proj.WorkOrders(), "the funded work-order ledger must fold identically")
 	require.Len(t, proj.WorkOrders(), 3)
-
-	// Dispatch status counts (current status: last-writer-wins per id).
-	fileCounts, err := log.DispatchStatusCounts()
-	require.NoError(t, err)
-	assert.Equal(t, fileCounts, proj.DispatchStatusCounts(), "dispatch status tally must fold identically")
 	assert.Equal(t, ledger.DispatchCounts{Queued: 1, Running: 0, Done: 2}, proj.DispatchStatusCounts())
 
-	// Queued work orders (the runner's input).
-	fileQueued, err := log.QueuedWorkOrders()
-	require.NoError(t, err)
-	assert.Equal(t, fileQueued, proj.QueuedWorkOrders(), "the queued-order input must fold identically")
 	require.Len(t, proj.QueuedWorkOrders(), 1)
 	assert.Equal(t, 3, proj.QueuedWorkOrders()[0].ID, "only order 3 is still queued")
 
-	// Board-derived honest losses + hit-rate: the same derivation over each
-	// substrate's projections must agree (Misses = max(0, Done−Reinvested)).
-	fileMisses := boardMisses(fileCounts.Done, fileStock.Reinvested)
-	streamMisses := boardMisses(proj.DispatchStatusCounts().Done, streamStock.Reinvested)
-	assert.Equal(t, fileMisses, streamMisses, "honest misses must fold identically")
-	assert.Equal(t, 1, streamMisses, "order 2 is done but minted nothing — one honest miss")
+	assert.Equal(t, 1, boardMisses(proj.DispatchStatusCounts().Done, stock.Reinvested), "order 2 is done but minted nothing — one honest miss")
 }
 
-// An order mid-flight (running, not yet done) must tally identically across
-// substrates: the watchable queued→running→done shape the Lead sees is a
-// projection too, and the swap must not silently miscount in-flight work.
-func TestReplayProjection_countsAnOrderLeftRunningLikeTheFileScan(t *testing.T) {
+// An order mid-flight (running, not yet done) must tally correctly: the watchable
+// queued→running→done shape the Lead sees is a projection too.
+func TestReplayProjection_countsAnOrderStillRunning(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -182,17 +115,6 @@ func TestReplayProjection_countsAnOrderLeftRunningLikeTheFileScan(t *testing.T) 
 		{kind: "wostatus", stat: ledger.StatusRecord{Kind: "wostatus", ID: 1, Status: "running"}},
 	}
 
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	var buf []byte
-	for _, e := range fixture {
-		buf = append(buf, e.payload(t)...)
-		buf = append(buf, '\n')
-	}
-	require.NoError(t, os.WriteFile(path, buf, 0o644))
-	log, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, log.Close()) })
-
 	f := startFabric(t)
 	for _, e := range fixture {
 		e.publish(t, ctx, f, "s2", "i2")
@@ -200,9 +122,6 @@ func TestReplayProjection_countsAnOrderLeftRunningLikeTheFileScan(t *testing.T) 
 	proj, err := ledger.ReplayProjection(ctx, f, "s2", "i2")
 	require.NoError(t, err)
 
-	fileCounts, err := log.DispatchStatusCounts()
-	require.NoError(t, err)
-	assert.Equal(t, fileCounts, proj.DispatchStatusCounts(), "an in-flight order must tally identically")
 	assert.Equal(t, ledger.DispatchCounts{Queued: 0, Running: 1, Done: 0}, proj.DispatchStatusCounts())
 	assert.Empty(t, proj.QueuedWorkOrders(), "a running order is not queued")
 }

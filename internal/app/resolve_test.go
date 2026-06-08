@@ -13,7 +13,6 @@ import (
 
 	"github.com/joaomdsg/packets/internal/app"
 	"github.com/joaomdsg/packets/internal/catch"
-	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
 	"github.com/joaomdsg/packets/internal/surface"
@@ -87,10 +86,7 @@ func TestResolve_mintsAndLogsACatchWhenTheTestIsStrengthened(t *testing.T) {
 	assert.NotEmpty(t, res.Record.BeforeInventory)
 	assert.NotEmpty(t, res.Record.AfterInventory)
 
-	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
+	l := scratchLog(t)
 	require.NoError(t, l.Append(*res.Record))
 	got, err := l.Records()
 	require.NoError(t, err)
@@ -114,10 +110,7 @@ func TestResolve_mintsNothingWhenTheFixEditsTheAnchoredLine(t *testing.T) {
 	assert.Equal(t, surface.AnchorEdited, res.Verdict,
 		"the card must say the anchored line was EDITED, never the false 'no mutable operator'")
 
-	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
+	l := scratchLog(t)
 	got, err := l.Records()
 	require.NoError(t, err)
 	assert.Empty(t, got, "edit/no-op work leaves no trace in the ledger")

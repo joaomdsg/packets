@@ -14,7 +14,6 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -28,32 +27,26 @@ import (
 const primarySessionKey = "default"
 
 // sessionRef is the identity of one registered review target — the registry key
-// it Stores under and the ledger file it appends to. validateSessions checks
-// these for collisions before any ledger is opened.
+// it Stores under. validateSessions checks these for key collisions before any
+// session is registered.
 type sessionRef struct {
-	key        string
-	ledgerPath string
+	key string
 }
 
-// validateSessions rejects -session sets that would silently corrupt state:
-// a key duplicating another session's or the reserved primary card's (the
-// second Store clobbers the first entry, orphaning a ledger), or a ledger path
-// shared by two targets including the primary -ledger (two *os.File appending
-// one JSONL interleave the file and fuse two economies that must stay isolated).
-// Paths are compared after filepath.Clean so equivalent spellings still collide.
-func validateSessions(primaryLedgerPath string, refs []sessionRef) error {
+// validateSessions rejects -session sets that would silently corrupt state: a key
+// duplicating another session's or the reserved primary card's. Two sessions
+// sharing a key would have the second registerSession Store clobber the first
+// liveReg entry (orphaning a review target) AND fuse two economies onto one
+// session subtree of the shared fabric — the isolation is now keyed by the
+// session token, so a unique key IS the isolation guarantee (the per-file
+// validation the JSONL substrate needed is retired with it).
+func validateSessions(refs []sessionRef) error {
 	seenKey := map[string]bool{primarySessionKey: true}
-	seenPath := map[string]bool{filepath.Clean(primaryLedgerPath): true}
 	for _, r := range refs {
 		if seenKey[r.key] {
 			return fmt.Errorf("session key %q is already in use (duplicate or reserved)", r.key)
 		}
-		clean := filepath.Clean(r.ledgerPath)
-		if seenPath[clean] {
-			return fmt.Errorf("ledger path %q is shared by another session (would corrupt the JSONL / fuse economies)", r.ledgerPath)
-		}
 		seenKey[r.key] = true
-		seenPath[clean] = true
 	}
 	return nil
 }
@@ -70,10 +63,10 @@ func (s *sessionFlag) Set(v string) error {
 	return nil
 }
 
-// parseSessionSpec parses a "key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA][,ledger=PATH]"
+// parseSessionSpec parses a "key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA]"
 // spec into the session key and its cycle config. tip defaults to fix (clean
-// integration by construction); ledger defaults to "<key>.jsonl" so two
-// sessions never share a ledger by accident (isolated economies).
+// integration by construction). The session's economy is isolated by its key on
+// the shared fabric, so it carries no ledger path — a unique key IS the isolation.
 func parseSessionSpec(repo, spec string) (string, app.LiveConfig, error) {
 	kv := map[string]string{}
 	for _, pair := range strings.Split(spec, ",") {
@@ -100,10 +93,6 @@ func parseSessionSpec(repo, spec string) (string, app.LiveConfig, error) {
 	if tip == "" {
 		tip = kv["fix"]
 	}
-	ledgerPath := kv["ledger"]
-	if ledgerPath == "" {
-		ledgerPath = kv["key"] + ".jsonl"
-	}
 	return kv["key"], app.LiveConfig{
 		RepoDir:       repo,
 		BaseRev:       kv["base"],
@@ -111,7 +100,6 @@ func parseSessionSpec(repo, spec string) (string, app.LiveConfig, error) {
 		TipRev:        tip,
 		Anchor:        reanchor.Anchor{Path: kv["file"], Start: line, End: line, LineHash: hash},
 		TestCmd:       []string{"go", "test", "./..."},
-		LedgerPath:    ledgerPath,
 		MaxConcurrent: 2,
 	}, nil
 }
@@ -123,10 +111,10 @@ func main() {
 	tip := flag.String("tip", "", "trunk tip to integrate onto (defaults to -fix)")
 	file := flag.String("file", "", "anchored file, relative to repo")
 	line := flag.Int("line", 0, "1-based anchored line")
-	ledgerPath := flag.String("ledger", "catches.jsonl", "catch ledger path")
+	ledgerPath := flag.String("ledger", "catches", "durable economy store base; the JetStream log lives in a <ledger>-fabric directory beside it")
 	addr := flag.String("addr", ":3000", "listen address")
 	var sessions sessionFlag
-	flag.Var(&sessions, "session", "additional keyed review target served at /?key=NAME; repeatable: key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA][,ledger=PATH]")
+	flag.Var(&sessions, "session", "additional keyed review target served at /?key=NAME; repeatable: key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA]")
 	flag.Parse()
 
 	if *base == "" || *fix == "" || *file == "" || *line == 0 {
@@ -175,9 +163,9 @@ func main() {
 			log.Fatalf("packets: %v", err)
 		}
 		parsed = append(parsed, parsedSession{key: key, cfg: cfg})
-		refs = append(refs, sessionRef{key: key, ledgerPath: cfg.LedgerPath})
+		refs = append(refs, sessionRef{key: key})
 	}
-	if err := validateSessions(*ledgerPath, refs); err != nil {
+	if err := validateSessions(refs); err != nil {
 		log.Fatalf("packets: %v", err)
 	}
 	for _, p := range parsed {

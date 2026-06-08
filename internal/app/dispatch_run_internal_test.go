@@ -41,11 +41,6 @@ func TestLiveCard_spendDispatchesAnOrderThatRunsAndMintsBackADistinctCatch(t *te
 	}
 
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	seed, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"})) // balance 1 to spend
-	require.NoError(t, seed.Close())
-
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
@@ -53,6 +48,7 @@ func TestLiveCard_spendDispatchesAnOrderThatRunsAndMintsBackADistinctCatch(t *te
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"})) // balance 1 to spend
 
 	tc := vt.NewClient(t, server, "/")
 	frames, cancel := tc.SSE()
@@ -99,12 +95,6 @@ func TestLiveCard_dispatchingOwnAlreadyCaughtWorkIsAnHonestLossNotAFarm(t *testi
 	}
 
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	seed, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"})) // a credit to spend
-	require.NoError(t, seed.Append(seededIdentity))                                                          // the identity the run will re-produce
-	require.NoError(t, seed.Close())
-
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
@@ -112,6 +102,8 @@ func TestLiveCard_dispatchingOwnAlreadyCaughtWorkIsAnHonestLossNotAFarm(t *testi
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"})) // a credit to spend
+	require.NoError(t, log.Append(seededIdentity))                                                        // the identity the run will re-produce
 
 	tc := vt.NewClient(t, server, "/")
 	frames, cancel := tc.SSE()
@@ -151,11 +143,6 @@ func TestLiveCard_connectAndDispatchMintsCarryDistinctProducerProvenance(t *test
 	}
 
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	seed, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"})) // a balance to spend
-	require.NoError(t, seed.Close())
-
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
@@ -163,6 +150,7 @@ func TestLiveCard_connectAndDispatchMintsCarryDistinctProducerProvenance(t *test
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"})) // a balance to spend
 
 	tc := vt.NewClient(t, server, "/")
 	frames, cancel := tc.SSE()
@@ -208,17 +196,7 @@ func TestLiveCard_dispatchedRunDoesNotLeakItsBeatsDiscardGoroutine(t *testing.T)
 	}
 
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	seed, err := ledger.Open(logPath)
-	require.NoError(t, err)
 	const orders = 8
-	for i := 0; i < orders; i++ {
-		require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: i + 1, ReasonTag: "catch"})) // balance to fund the orders
-	}
-	for i := 0; i < orders; i++ {
-		require.NoError(t, seed.AppendDispatch("dispatch", tgt, ledger.Target{})) // queue the work the runner will drain
-	}
-	require.NoError(t, seed.Close())
-
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
@@ -226,6 +204,12 @@ func TestLiveCard_dispatchedRunDoesNotLeakItsBeatsDiscardGoroutine(t *testing.T)
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
+	for i := 0; i < orders; i++ {
+		require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: i + 1, ReasonTag: "catch"})) // balance to fund the orders
+	}
+	for i := 0; i < orders; i++ {
+		require.NoError(t, log.AppendDispatch("dispatch", tgt, ledger.Target{})) // queue the work the runner will drain
+	}
 
 	runtime.GC()
 	baseline := runtime.NumGoroutine()
@@ -261,11 +245,6 @@ func TestLiveCard_dispatchedOrderProgressIsWatchableQueuedRunningDoneOverSSE(t *
 	}
 
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	seed, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"}))
-	require.NoError(t, seed.Close())
-
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
@@ -273,6 +252,7 @@ func TestLiveCard_dispatchedOrderProgressIsWatchableQueuedRunningDoneOverSSE(t *
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"}))
 
 	tc := vt.NewClient(t, server, "/")
 	frames, cancel := tc.SSE()

@@ -1,8 +1,7 @@
 package ledger_test
 
 import (
-	"os"
-	"path/filepath"
+	"context"
 	"sync"
 	"testing"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/ledger"
 )
 
@@ -45,10 +45,7 @@ func distinctRecord(i int) ledger.CatchRecord {
 
 func TestLog_appendThenRecordsPreservesEveryMintTimeField(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
+	l := boundLog(t)
 
 	rec := sampleRecord()
 	require.NoError(t, l.Append(rec))
@@ -61,10 +58,7 @@ func TestLog_appendThenRecordsPreservesEveryMintTimeField(t *testing.T) {
 
 func TestLog_appendsAccumulateInOrderWithoutClobbering(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
+	l := boundLog(t)
 
 	first := sampleRecord()
 	first.Path = "first.go"
@@ -82,10 +76,7 @@ func TestLog_appendsAccumulateInOrderWithoutClobbering(t *testing.T) {
 
 func TestLog_refusesToPersistANonCatchRecord(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
+	l := boundLog(t)
 
 	bad := sampleRecord()
 	bad.Outcome = catch.NoCatch
@@ -96,62 +87,41 @@ func TestLog_refusesToPersistANonCatchRecord(t *testing.T) {
 	assert.Empty(t, got, "a refused record must leave no trace")
 }
 
-func TestLog_skipsBlankLinesWhenReadingAHandEditedLog(t *testing.T) {
+func TestLog_surfacesAnErrorOnACorruptedStreamPayload(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	content := `{"outcome":"catch","path":"a.go"}` + "\n\n" + `{"outcome":"catch","path":"b.go"}` + "\n"
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
-	l, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
+	l, f := openLog(t)
+	require.NoError(t, l.Append(sampleRecord()))
 
-	got, err := l.Records()
+	// A forged, undecodable payload on a catch subject must surface on read, never
+	// silently drop a catch — the stream analogue of a corrupted ledger line.
+	_, err := f.Publish(context.Background(), fabric.EventSubject(t.Name(), "i", fabric.StatusMinted, "catch"), []byte(`{not json`))
 	require.NoError(t, err)
-	require.Len(t, got, 2, "a blank line must be skipped, not break the read")
-	assert.Equal(t, "a.go", got[0].Path)
-	assert.Equal(t, "b.go", got[1].Path)
-}
-
-func TestLog_surfacesAnErrorOnACorruptedRecordLine(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	require.NoError(t, os.WriteFile(path, []byte(`{"outcome":"catch"}`+"\n"+`{not json`+"\n"), 0o644))
-	l, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
 
 	_, err = l.Records()
-	require.Error(t, err, "a corrupted ledger line must surface, not silently drop a catch")
+	require.Error(t, err, "a corrupted catch payload must surface, not silently drop a catch")
 }
 
 func TestLog_emptyLogReadsAsNoRecords(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
+	l := boundLog(t)
 
 	got, err := l.Records()
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
 
-func TestLog_concurrentAppendAndSpendNeverTearALineOrOverspend(t *testing.T) {
+func TestLog_concurrentAppendAndSpendNeverOverspend(t *testing.T) {
 	t.Parallel()
-	// The live server now drives two writers at once: the catch cycle's Append
-	// (a mint) races the Lead's AppendSpend (a debit, action goroutine). Both
-	// write the same file handle, so without serialization a torn/interleaved
-	// line corrupts the JSONL and a TOCTOU read-then-write lets a spend exceed
-	// the balance. Seed credits, then hammer both writers and assert every
-	// persisted line stays well-formed and the balance equals exact arithmetic.
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
+	// The live server drives two writers at once: the catch cycle's Append (a mint)
+	// races the Lead's AppendSpend (a debit, action goroutine). Without
+	// serialization a TOCTOU read-then-write lets a spend exceed the balance. Seed
+	// credits, hammer both writers, and assert the balance equals exact arithmetic
+	// and never overshoots below zero.
+	l := boundLog(t)
 
 	// A small, exhaustible balance: more spenders than credits. AppendSpend
-	// reads the balance, then writes — a TOCTOU window where concurrent spenders
-	// each see "enough" before any writes its debit, overshooting below zero.
+	// replays the balance, then publishes — a TOCTOU window where concurrent
+	// spenders each see "enough" before any commits its debit, overshooting zero.
 	const seed = 25
 	for i := 0; i < seed; i++ {
 		require.NoError(t, l.Append(distinctRecord(i)))
@@ -178,7 +148,7 @@ func TestLog_concurrentAppendAndSpendNeverTearALineOrOverspend(t *testing.T) {
 	wg.Wait()
 
 	recs, err := l.Records()
-	require.NoError(t, err, "every persisted line must be well-formed JSON (no torn writes)")
+	require.NoError(t, err, "every committed event must be well-formed")
 	bal, err := l.Balance()
 	require.NoError(t, err)
 	assert.LessOrEqual(t, int(ok), seed,
@@ -188,17 +158,15 @@ func TestLog_concurrentAppendAndSpendNeverTearALineOrOverspend(t *testing.T) {
 	assert.GreaterOrEqual(t, bal, 0, "the balance must never overshoot below zero")
 }
 
-func TestLog_recordsSurviveReopenForDurability(t *testing.T) {
+func TestLog_recordsSurviveAReBindForDurability(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(path)
-	require.NoError(t, err)
+	l := boundLog(t)
 	require.NoError(t, l.Append(sampleRecord()))
 	require.NoError(t, l.Close())
 
-	reopened, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = reopened.Close() })
+	// A fresh Log on the same session replays the committed catch — the projection
+	// holds no in-memory state, so a restart cannot lose (or re-mint) it.
+	reopened := boundLog(t)
 	got, err := reopened.Records()
 	require.NoError(t, err)
 	require.Len(t, got, 1)

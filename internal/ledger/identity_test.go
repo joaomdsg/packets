@@ -57,7 +57,7 @@ func TestAppend_acceptsADistinctCatchIdentitySoGenuineWorkStillCompounds(t *test
 
 func TestAppend_dedupSurvivesAReopenSoARestartCannotReopenTheFarm(t *testing.T) {
 	t.Parallel()
-	l, path := openLog(t)
+	l, _ := openLog(t)
 	rec := ledger.CatchRecord{
 		Outcome: catch.Catch, Path: "adult.go", Line: 4,
 		BeforeRev: "aaaa", AfterRev: "bbbb", ReasonTag: "catch",
@@ -65,12 +65,10 @@ func TestAppend_dedupSurvivesAReopenSoARestartCannotReopenTheFarm(t *testing.T) 
 	require.NoError(t, l.Append(rec))
 	require.NoError(t, l.Close())
 
-	// The dedup MUST project from the persisted log, not an in-memory set — else a
-	// server restart (close+reopen) lets the same catch be minted again.
-	reopened, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = reopened.Close() })
-	require.Error(t, reopened.Append(rec), "the same identity is refused after a reopen — the gate replays from disk")
+	// The dedup MUST project from the committed stream, not an in-memory set — else
+	// a server restart (re-bind) lets the same catch be minted again.
+	reopened := boundLog(t)
+	require.Error(t, reopened.Append(rec), "the same identity is refused after a re-bind — the gate replays from the stream")
 
 	bal, err := reopened.Balance()
 	require.NoError(t, err)

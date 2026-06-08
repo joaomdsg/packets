@@ -1,7 +1,6 @@
 package ledger_test
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -80,9 +79,7 @@ func TestConfirmedCatches_emptyLedgerIsAZeroStock(t *testing.T) {
 
 func TestConfirmedCatches_isAPureFunctionOfThePersistedRecords(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(path)
-	require.NoError(t, err)
+	l := boundLog(t)
 	for i := 0; i < 4; i++ {
 		r := catchRec("catch", i%2 == 0, false)
 		r.Line = 4 + i // distinct identities so 4 appends are 4 catches (the dedup keys on the identity tuple)
@@ -90,13 +87,11 @@ func TestConfirmedCatches_isAPureFunctionOfThePersistedRecords(t *testing.T) {
 	}
 	require.NoError(t, l.Close())
 
-	reopened, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = reopened.Close() })
+	reopened := boundLog(t)
 	recs, err := reopened.Records()
 	require.NoError(t, err)
 
 	s := ledger.ConfirmedCatches(recs)
-	assert.Equal(t, 4, s.Count, "re-deriving from the re-opened log yields the same count — a total function of persisted facts")
+	assert.Equal(t, 4, s.Count, "re-deriving from the re-bound log yields the same count — a total function of committed facts")
 	assert.Equal(t, 2, s.SelfFlagged)
 }

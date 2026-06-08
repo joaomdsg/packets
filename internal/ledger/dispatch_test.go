@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/joaomdsg/packets/internal/ledger"
 )
 
 func TestAppendDispatch_fundsExactlyOneWorkOrderPerDebitConserved(t *testing.T) {
@@ -41,16 +39,14 @@ func TestAppendDispatch_fundsExactlyOneWorkOrderPerDebitConserved(t *testing.T) 
 
 func TestAppendDispatch_workOrdersReplayFromThePersistedLogAlone(t *testing.T) {
 	t.Parallel()
-	l, path := openLog(t)
+	l, _ := openLog(t)
 	require.NoError(t, l.Append(distinctRecord(0)))
 	require.NoError(t, l.Append(distinctRecord(1)))
 	require.NoError(t, l.AppendDispatch("dispatch-a", distinctTarget(), ownTarget()))
 	require.NoError(t, l.AppendDispatch("dispatch-b", distinctTarget(), ownTarget()))
 	require.NoError(t, l.Close())
 
-	reopened, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = reopened.Close() })
+	reopened := boundLog(t)
 
 	bal, err := reopened.Balance()
 	require.NoError(t, err)

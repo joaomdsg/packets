@@ -56,11 +56,6 @@ func TestLiveCard_spendFundsAWorkOrderAndTheDispatchRowRisesAsTheBalanceDrains(t
 	}
 
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	seed, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, ReasonTag: "catch"}))
-	require.NoError(t, seed.Close())
-
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
@@ -69,6 +64,7 @@ func TestLiveCard_spendFundsAWorkOrderAndTheDispatchRowRisesAsTheBalanceDrains(t
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, ReasonTag: "catch"}))
 
 	tc := vt.NewClient(t, server, "/")
 	frames, cancel := tc.SSE()
@@ -107,15 +103,6 @@ func TestLiveCard_spendDispatchesOnlyIntoItsOwnSessionNotAnother(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	aPath := filepath.Join(dir, "a.jsonl")
-	bPath := filepath.Join(dir, "b.jsonl")
-	logA, err := ledger.Open(aPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = logA.Close() })
-	logB, err := ledger.Open(bPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = logB.Close() })
-
 	var server *httptest.Server
 	_, defLog, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
@@ -124,8 +111,10 @@ func TestLiveCard_spendDispatchesOnlyIntoItsOwnSessionNotAnother(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = defLog.Close() })
 
-	registerSession("dspA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: aPath, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logA)
-	registerSession("dspB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: bPath, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logB)
+	logA := ledger.Bind(liveFabric, "dspA", ledgerInstance)
+	logB := ledger.Bind(liveFabric, "dspB", ledgerInstance)
+	registerSession("dspA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logA)
+	registerSession("dspB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logB)
 
 	ca := vt.NewClient(t, server, "/?key=dspA")
 	fa, cancelA := ca.SSE()

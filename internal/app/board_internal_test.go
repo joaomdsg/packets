@@ -1,7 +1,6 @@
 package app
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,10 +11,7 @@ import (
 
 func boardSession(t *testing.T, key string, seedCatches int, backlog []ledger.Target) *ledger.Log {
 	t.Helper()
-	logPath := filepath.Join(t.TempDir(), key+".jsonl")
-	log, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = log.Close() })
+	log := scratchLog(t)
 	for i := 0; i < seedCatches; i++ {
 		require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 100 + i, ReasonTag: "catch"}))
 	}

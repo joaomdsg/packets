@@ -6,13 +6,12 @@
 package ledger
 
 import (
-	"bufio"
-	"encoding/json"
+	"context"
 	"fmt"
-	"os"
 	"sync"
 
 	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/fabric"
 )
 
 // CatchRecord is one confirmed-catch event, carrying the mint-time facts that
@@ -87,7 +86,7 @@ const inProcessProducer = "in-process"
 
 // WorkOrderRecord is the consequence a Spend funds: one unit of dispatched work,
 // queued (this round it does NOT run — executing it is a later slice). It shares
-// the append-only JSONL and is distinguished by Kind=="workorder". It is paired
+// the append-only stream and is distinguished by Kind=="workorder". It is paired
 // with a debit (a spend line) in one atomic write, so a balance can never fund
 // more orders than it held (conservation: debits == orders, per account).
 type WorkOrderRecord struct {
@@ -110,7 +109,7 @@ type StatusRecord struct {
 }
 
 // SpendRecord is a debit against the confirmed-catch balance — the economy's
-// SINK, the first non-minting record kind. It shares the append-only JSONL with
+// SINK, the first non-minting record kind. It shares the append-only stream with
 // CatchRecord and is distinguished by Kind=="spend". A spend can never mint
 // credit: AppendSpend refuses any amount the current balance cannot cover.
 type SpendRecord struct {
@@ -119,29 +118,59 @@ type SpendRecord struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// Log is an append-only JSONL log of CatchRecords backed by a file.
+// Log is one session's append-only economy log, now backed by the JetStream
+// fabric (the single authoritative substrate — the JSONL is retired) and scoped
+// to a session+instance subject namespace. Two Logs on the same fabric with
+// distinct session tokens are ISOLATED economies: a Log only ever publishes and
+// replays its own session.<session>.events.<instance> subtree, so a mint or
+// spend on one session can never touch another (the farm-denial isolation, now
+// enforced by the subject token rather than a separate file).
 //
-// A Log serializes all mutation paths under mu: Append, AppendSpend, and Close
-// take the write lock, so concurrent writers never tear a line, and
-// AppendSpend's read-then-write balance check is atomic (no TOCTOU letting two
-// spenders both see "enough" and overshoot below zero). This matters because
-// the live server now drives two writers at once — the catch cycle's Append
-// (a mint) and the Lead's AppendSpend (a debit, on an action goroutine). The
-// projecting reads (Records, Balance) open their own read handle via scan and
-// see whatever full lines were committed at scan time.
+// A Log serializes its writers under mu: Append, AppendSpend, and AppendDispatch
+// take the lock across the replay-then-publish step, so the read-then-write
+// balance/dedup check is atomic — no TOCTOU letting two spenders both see
+// "enough" and overshoot below zero, and no two writers both seeing a catch
+// "absent" and both minting it. The live server drives two writers at once (the
+// catch cycle's Append and the Lead's AppendSpend on an action goroutine); the
+// fabric publish waits for the stream ack before the lock is released, so the
+// next writer replays the just-committed event. The projecting reads (Records,
+// Balance, …) replay the committed stream and see whatever events were acked
+// at replay time.
 type Log struct {
-	path string
-	mu   sync.Mutex
-	f    *os.File
+	f          *fabric.Fabric
+	session    string
+	instance   string
+	mu         sync.Mutex
+	ownsFabric bool
 }
 
-// Open opens (creating if needed) the append-only log at path.
-func Open(path string) (*Log, error) {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return nil, fmt.Errorf("ledger: open %s: %w", path, err)
-	}
-	return &Log{path: path, f: f}, nil
+// Bind binds a Log to an already-running fabric under the session+instance
+// subject namespace. The Log does NOT own the fabric: its Close is a no-op, and
+// the fabric's lifecycle belongs to whoever started it. Use this for sessions
+// sharing one server's fabric.
+//
+// session and instance are subject tokens: they must be non-empty and contain no
+// '.', space, or NATS wildcard ('*'/'>'), since they are interpolated into the
+// dotted subject. A token with those characters would corrupt the subject's
+// token structure. This is the caller's contract, not validated here.
+func Bind(f *fabric.Fabric, session, instance string) *Log {
+	return &Log{f: f, session: session, instance: instance}
+}
+
+// BindOwning is Bind for the Log that OWNS the fabric's lifecycle: its Close
+// shuts the embedded server down. A server stands up one fabric and gives its
+// primary Log ownership, so the existing "close the returned log" teardown
+// contract tears the whole substrate down once, after the non-owning session
+// Logs' no-op closes.
+func BindOwning(f *fabric.Fabric, session, instance string) *Log {
+	return &Log{f: f, session: session, instance: instance, ownsFabric: true}
+}
+
+// project folds this session's committed economy state from the stream — the one
+// read path behind every projecting reader, so they all observe the same
+// substrate-independent fold the equivalence lock pins to the JSONL scan.
+func (l *Log) project() (Projection, error) {
+	return ReplayProjection(context.Background(), l.f, l.session, l.instance)
 }
 
 // Append writes r as exactly one JSON line. It refuses any record that is not a
@@ -151,29 +180,26 @@ func (l *Log) Append(r CatchRecord) error {
 	if !ShouldRecord(r.Outcome) {
 		return fmt.Errorf("ledger: refusing to record a non-catch outcome %q", r.Outcome)
 	}
-	line, err := json.Marshal(r)
-	if err != nil {
-		return fmt.Errorf("ledger: marshal record: %w", err)
-	}
-	// Hold the lock across the dedup scan AND the write so the check-then-write is
-	// one atomic step (no two writers both seeing "absent" and both minting).
+	// Hold the lock across the dedup replay AND the publish so the check-then-write
+	// is one atomic step (no two writers both seeing "absent" and both minting).
+	// The publish waits for the stream ack, so the next writer's replay sees it.
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	existing, err := l.Records()
+	p, err := l.project()
 	if err != nil {
 		return err
 	}
 	key := identityKey(r)
-	for _, e := range existing {
+	for _, e := range p.Records() {
 		if identityKey(e) == key {
 			// A catch is identified by (BeforeRev, AfterRev, Path, Line, ReasonTag).
 			// Re-running the same work reproduces the same identity; minting it twice
-			// is the farm. Refuse the duplicate — projected purely from the persisted
-			// log, so the gate survives a reopen (a restart cannot reopen the farm).
+			// is the farm. Refuse the duplicate — projected purely from the committed
+			// stream, so the gate survives a restart (a restart cannot reopen the farm).
 			return fmt.Errorf("ledger: refusing a duplicate catch identity %q — a re-run mints nothing", key)
 		}
 	}
-	if _, err := l.f.Write(append(line, '\n')); err != nil {
+	if _, err := PublishCatch(context.Background(), l.f, l.session, l.instance, r); err != nil {
 		return fmt.Errorf("ledger: append: %w", err)
 	}
 	return nil
@@ -190,56 +216,22 @@ func identityKey(r CatchRecord) string {
 // Records reads back every appended CATCH record in order. Spend (debit) lines
 // are skipped, so the confirmed-catch count is never polluted by the sink.
 func (l *Log) Records() ([]CatchRecord, error) {
-	var out []CatchRecord
-	err := l.scan(func(kind string, line []byte) error {
-		if kind == kindSpend || kind == kindWorkOrder || kind == kindWOStatus {
-			return nil // a debit, a work-order, or a status transition is not a catch
-		}
-		var r CatchRecord
-		if err := json.Unmarshal(line, &r); err != nil {
-			return fmt.Errorf("ledger: decode record: %w", err)
-		}
-		out = append(out, r)
-		return nil
-	})
-	return out, err
+	p, err := l.project()
+	if err != nil {
+		return nil, err
+	}
+	return p.Records(), nil
 }
 
 // Balance is the economy's held quantity: confirmed catches (credits) minus the
 // sum of spends (debits), projected purely from the log — no in-memory counter,
-// so it replays identically from the persisted JSONL alone.
+// so it replays identically from the persisted stream alone.
 func (l *Log) Balance() (int, error) {
-	balance := 0
-	err := l.scan(func(kind string, line []byte) error {
-		if kind == kindWorkOrder || kind == kindWOStatus {
-			return nil // a work-order / its status transition is not a credit; the paired debit drains the balance
-		}
-		if kind == kindSpend {
-			var s SpendRecord
-			if err := json.Unmarshal(line, &s); err != nil {
-				return fmt.Errorf("ledger: decode spend: %w", err)
-			}
-			// A spend can never mint credit: AppendSpend rejects amount<=0, but the
-			// JSONL is the authoritative replay substrate, so a hand-edited
-			// non-positive amount must contribute nothing rather than ADD to balance.
-			if s.Amount > 0 {
-				balance -= s.Amount
-			}
-			return nil
-		}
-		var r CatchRecord
-		if err := json.Unmarshal(line, &r); err != nil {
-			return fmt.Errorf("ledger: decode record: %w", err)
-		}
-		if ShouldRecord(r.Outcome) {
-			balance++
-		}
-		return nil
-	})
+	p, err := l.project()
 	if err != nil {
 		return 0, err
 	}
-	return balance, nil
+	return p.Balance(), nil
 }
 
 // AppendSpend records a debit of amount against the balance — the sink that lets
@@ -256,18 +248,14 @@ func (l *Log) AppendSpend(amount int, reason string) error {
 	// "enough" before either writes and the balance overshoots below zero.
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	balance, err := l.Balance()
+	p, err := l.project()
 	if err != nil {
 		return err
 	}
-	if amount > balance {
-		return fmt.Errorf("ledger: spend of %d exceeds balance %d", amount, balance)
+	if amount > p.Balance() {
+		return fmt.Errorf("ledger: spend of %d exceeds balance %d", amount, p.Balance())
 	}
-	line, err := json.Marshal(SpendRecord{Kind: kindSpend, Amount: amount, Reason: reason})
-	if err != nil {
-		return fmt.Errorf("ledger: marshal spend: %w", err)
-	}
-	if _, err := l.f.Write(append(line, '\n')); err != nil {
+	if _, err := PublishSpend(context.Background(), l.f, l.session, l.instance, SpendRecord{Kind: kindSpend, Amount: amount, Reason: reason}); err != nil {
 		return fmt.Errorf("ledger: append spend: %w", err)
 	}
 	return nil
@@ -294,60 +282,46 @@ func (l *Log) AppendDispatch(reason string, target, own Target) error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	balance, err := l.Balance()
+	p, err := l.project()
 	if err != nil {
 		return err
 	}
-	if balance < 1 {
-		return fmt.Errorf("ledger: cannot dispatch with balance %d — nothing to fund", balance)
+	if p.Balance() < 1 {
+		return fmt.Errorf("ledger: cannot dispatch with balance %d — nothing to fund", p.Balance())
 	}
-	orders, err := l.WorkOrders()
-	if err != nil {
-		return err
+	ctx := context.Background()
+	// The debit and its work-order are two publishes under the one lock: no other
+	// writer interleaves, so a balance can never fund more orders than it held (one
+	// debit ⇒ one order, conserved at rest). They are NOT crash-atomic the way the
+	// single file write was — a crash between the two would drop the order, never
+	// double-mint — which is acceptable until the durability/hibernation gate is
+	// built. The id is monotonic, derived from the committed order count + 1, so it
+	// survives a restart with no in-memory counter.
+	if _, err := PublishSpend(ctx, l.f, l.session, l.instance, SpendRecord{Kind: kindSpend, Amount: 1, Reason: reason}); err != nil {
+		return fmt.Errorf("ledger: append dispatch debit: %w", err)
 	}
-	spend, err := json.Marshal(SpendRecord{Kind: kindSpend, Amount: 1, Reason: reason})
-	if err != nil {
-		return fmt.Errorf("ledger: marshal dispatch debit: %w", err)
-	}
-	order, err := json.Marshal(WorkOrderRecord{
+	if _, err := PublishWorkOrder(ctx, l.f, l.session, l.instance, WorkOrderRecord{
 		Kind:     kindWorkOrder,
-		ID:       len(orders) + 1,
+		ID:       len(p.WorkOrders()) + 1,
 		Producer: inProcessProducer,
 		Status:   "queued",
 		Reason:   reason,
 		Target:   target,
-	})
-	if err != nil {
-		return fmt.Errorf("ledger: marshal work-order: %w", err)
-	}
-	// One Write call for both lines: the debit and its work-order commit together
-	// or not at all — they can never half-land.
-	buf := append(spend, '\n')
-	buf = append(buf, order...)
-	buf = append(buf, '\n')
-	if _, err := l.f.Write(buf); err != nil {
-		return fmt.Errorf("ledger: append dispatch: %w", err)
+	}); err != nil {
+		return fmt.Errorf("ledger: append work-order: %w", err)
 	}
 	return nil
 }
 
 // WorkOrders reads back every funded work-order in order, a pure projection of
 // the persisted log (catch and spend lines are skipped). The monotonic id and
-// producer/status fields are read straight from disk, so they replay identically.
+// producer/status fields are read straight from the stream, so they replay identically.
 func (l *Log) WorkOrders() ([]WorkOrderRecord, error) {
-	var out []WorkOrderRecord
-	err := l.scan(func(kind string, line []byte) error {
-		if kind != kindWorkOrder {
-			return nil
-		}
-		var w WorkOrderRecord
-		if err := json.Unmarshal(line, &w); err != nil {
-			return fmt.Errorf("ledger: decode work-order: %w", err)
-		}
-		out = append(out, w)
-		return nil
-	})
-	return out, err
+	p, err := l.project()
+	if err != nil {
+		return nil, err
+	}
+	return p.WorkOrders(), nil
 }
 
 // PendingDispatches counts the funded work-orders projected purely from the log
@@ -364,13 +338,9 @@ func (l *Log) PendingDispatches() (int, error) {
 // keyed by id — never mutating the order, so the log stays a pure append-only
 // substrate and an order's current status replays as its last status line.
 func (l *Log) AppendStatus(id int, status string) error {
-	line, err := json.Marshal(StatusRecord{Kind: kindWOStatus, ID: id, Status: status})
-	if err != nil {
-		return fmt.Errorf("ledger: marshal status: %w", err)
-	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if _, err := l.f.Write(append(line, '\n')); err != nil {
+	if _, err := PublishStatus(context.Background(), l.f, l.session, l.instance, StatusRecord{Kind: kindWOStatus, ID: id, Status: status}); err != nil {
 		return fmt.Errorf("ledger: append status: %w", err)
 	}
 	return nil
@@ -382,106 +352,32 @@ func (l *Log) AppendStatus(id int, status string) error {
 // its id (last-writer-wins per id), so every order is counted in exactly one
 // bucket. A pure projection of the persisted log.
 func (l *Log) DispatchStatusCounts() (DispatchCounts, error) {
-	orders, status, err := l.ordersWithStatus()
+	p, err := l.project()
 	if err != nil {
 		return DispatchCounts{}, err
 	}
-	var c DispatchCounts
-	for _, o := range orders {
-		switch status[o.ID] {
-		case "running":
-			c.Running++
-		case "done":
-			c.Done++
-		default:
-			c.Queued++
-		}
-	}
-	return c, nil
+	return p.DispatchStatusCounts(), nil
 }
 
 // QueuedWorkOrders returns the funded orders whose CURRENT status is queued, in
 // funding (id) order — the runner's input: the work waiting to be executed.
 func (l *Log) QueuedWorkOrders() ([]WorkOrderRecord, error) {
-	orders, status, err := l.ordersWithStatus()
+	p, err := l.project()
 	if err != nil {
 		return nil, err
 	}
-	var queued []WorkOrderRecord
-	for _, o := range orders {
-		if status[o.ID] == "queued" {
-			queued = append(queued, o)
-		}
-	}
-	return queued, nil
+	return p.QueuedWorkOrders(), nil
 }
 
-// ordersWithStatus projects the funded orders (in id order) plus each order's
-// CURRENT status (its funded Status, advanced by the last status line for its id).
-// The shared read behind DispatchStatusCounts and QueuedWorkOrders.
-func (l *Log) ordersWithStatus() ([]WorkOrderRecord, map[int]string, error) {
-	var orders []WorkOrderRecord
-	status := map[int]string{}
-	err := l.scan(func(kind string, line []byte) error {
-		switch kind {
-		case kindWorkOrder:
-			var w WorkOrderRecord
-			if err := json.Unmarshal(line, &w); err != nil {
-				return fmt.Errorf("ledger: decode work-order: %w", err)
-			}
-			orders = append(orders, w)
-			status[w.ID] = w.Status
-		case kindWOStatus:
-			var s StatusRecord
-			if err := json.Unmarshal(line, &s); err != nil {
-				return fmt.Errorf("ledger: decode status: %w", err)
-			}
-			status[s.ID] = s.Status // last status line for an id wins
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return orders, status, nil
-}
-
-// scan reads each non-empty JSONL line in order, probing its "kind" discriminator
-// (absent → a catch) and handing the raw line to fn. One place owns the file read.
-func (l *Log) scan(fn func(kind string, line []byte) error) error {
-	f, err := os.Open(l.path)
-	if err != nil {
-		return fmt.Errorf("ledger: read %s: %w", l.path, err)
-	}
-	defer f.Close()
-
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		if len(sc.Bytes()) == 0 {
-			continue
-		}
-		var probe struct {
-			Kind string `json:"kind"`
-		}
-		if err := json.Unmarshal(sc.Bytes(), &probe); err != nil {
-			return fmt.Errorf("ledger: decode record: %w", err)
-		}
-		// Copy the line: the scanner reuses its buffer across iterations.
-		line := append([]byte(nil), sc.Bytes()...)
-		if err := fn(probe.Kind, line); err != nil {
-			return err
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return fmt.Errorf("ledger: scan %s: %w", l.path, err)
-	}
-	return nil
-}
-
-// Close releases the underlying file handle. It takes the write lock so it
-// cannot close the handle out from under an in-flight Append/AppendSpend.
+// Close releases the Log. A Log bound with Bind does not own the fabric, so its
+// Close is a no-op; a Log bound with BindOwning owns the embedded server and
+// shuts it down. It takes the write lock so it cannot tear the fabric down out
+// from under an in-flight writer.
 func (l *Log) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.f.Close()
+	if l.ownsFabric {
+		return l.f.Close()
+	}
+	return nil
 }

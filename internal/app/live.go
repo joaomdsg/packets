@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,6 +13,7 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
 
+	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
@@ -96,17 +99,49 @@ func setLiveState(cfg LiveConfig, log *ledger.Log) {
 	registerSession(defaultSessionKey, cfg, log)
 }
 
-// AddSession opens a session's ledger and registers it under key, so the one
-// "/" mount also serves /?key=<key> with its OWN isolated economy (its own
-// ledger + admission sem). The caller closes the returned ledger. This is the
-// wiring entry the command uses to stand up a SECOND review target beyond the
-// default card; the core keyed registration + cross-session isolation is
-// registerSession, exercised by the live tests.
-func AddSession(key string, cfg LiveConfig) (*ledger.Log, error) {
-	log, err := ledger.Open(cfg.LedgerPath)
-	if err != nil {
-		return nil, err
+// ledgerInstance is the subject instance token every session's economy binds to.
+// There is one economy per session, so the session key alone demuxes them; the
+// instance is a fixed token completing the canonical subject.
+const ledgerInstance = "ledger"
+
+// liveFabric is the one embedded JetStream the server's sessions share — the
+// single authoritative economy substrate (DESIGN-COUNCIL Round 28). NewServer
+// starts it and gives the primary Log ownership of its lifecycle; AddSession
+// binds further sessions to it under their own session token, so each session is
+// an ISOLATED economy on the one stream. Set once per server; the live tests
+// drive NewServer serially (they share this and liveReg), so it is not guarded.
+var liveFabric *fabric.Fabric
+
+// startLiveFabric stands up the shared economy fabric, rooting its durable store
+// beside the configured ledger path (a dedicated dir per server, so two servers
+// in one process never share a store). An empty path falls back to a temp store.
+func startLiveFabric(ledgerPath string) (*fabric.Fabric, error) {
+	dir := ledgerPath + "-fabric"
+	if ledgerPath == "" {
+		d, err := os.MkdirTemp("", "packets-fabric-*")
+		if err != nil {
+			return nil, fmt.Errorf("app: fabric store dir: %v", err)
+		}
+		dir = d
+	} else if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("app: fabric store dir: %v", err)
 	}
+	return fabric.Start(context.Background(), dir)
+}
+
+// AddSession binds a session's economy to the shared fabric and registers it
+// under key, so the one "/" mount also serves /?key=<key> with its OWN isolated
+// economy (its own session subtree on the stream + admission sem). The returned
+// Log does not own the fabric, so its Close is a no-op; the fabric's lifecycle
+// belongs to the primary Log from NewServer. This is the wiring entry the command
+// uses to stand up a SECOND review target beyond the default card; the core keyed
+// registration + cross-session isolation is registerSession, exercised by the
+// live tests.
+func AddSession(key string, cfg LiveConfig) (*ledger.Log, error) {
+	if liveFabric == nil {
+		return nil, fmt.Errorf("app: AddSession before NewServer started the fabric")
+	}
+	log := ledger.Bind(liveFabric, key, ledgerInstance)
 	registerSession(key, cfg, log)
 	return log, nil
 }
@@ -383,15 +418,18 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 	return nil
 }
 
-// NewServer wires the live review server: it opens the catch ledger, stashes
+// NewServer wires the live review server: it starts the shared economy fabric,
+// binds the default session's ledger (which OWNS the fabric's lifecycle), stashes
 // the cycle config, mounts the LiveCard, and returns the Via app (an
-// http.Handler) plus the ledger handle for the caller to close. Extra Via
-// options (e.g. via.WithTestServer) are passed through.
+// http.Handler) plus the ledger handle for the caller to close (closing it tears
+// the fabric down). Extra Via options (e.g. via.WithTestServer) are passed through.
 func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error) {
-	log, err := ledger.Open(cfg.LedgerPath)
+	f, err := startLiveFabric(cfg.LedgerPath)
 	if err != nil {
 		return nil, nil, err
 	}
+	liveFabric = f
+	log := ledger.BindOwning(f, defaultSessionKey, ledgerInstance)
 	setLiveState(cfg, log)
 	app := via.New(opts...)
 	via.Mount[LiveCard](app, "/")

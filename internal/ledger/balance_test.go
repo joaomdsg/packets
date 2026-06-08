@@ -1,29 +1,20 @@
 package ledger_test
 
 import (
-	"os"
-	"path/filepath"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/ledger"
 )
 
-func openLog(t *testing.T) (*ledger.Log, string) {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
-	return l, path
-}
-
 func TestBalance_isConfirmedCatchesMinusSpends(t *testing.T) {
 	t.Parallel()
-	l, _ := openLog(t)
+	l := boundLog(t)
 	for i := 0; i < 3; i++ {
 		require.NoError(t, l.Append(distinctRecord(i)))
 	}
@@ -34,34 +25,32 @@ func TestBalance_isConfirmedCatchesMinusSpends(t *testing.T) {
 	assert.Equal(t, 1, bal, "balance is credits (3 confirmed catches) minus debits (one spend of 2)")
 }
 
-func TestBalance_replaysIdenticallyFromTheLogAlone(t *testing.T) {
+func TestBalance_replaysIdenticallyFromTheStreamAlone(t *testing.T) {
 	t.Parallel()
-	l, path := openLog(t)
+	l := boundLog(t)
 	for i := 0; i < 3; i++ {
 		require.NoError(t, l.Append(distinctRecord(i)))
 	}
 	require.NoError(t, l.AppendSpend(2, "dispatch"))
 
-	reopened, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = reopened.Close() })
+	// A FRESH Log bound to the same session sees the same balance — the projection
+	// holds no in-memory counter, it replays the committed stream.
+	reopened := boundLog(t)
 	bal, err := reopened.Balance()
 	require.NoError(t, err)
-	assert.Equal(t, 1, bal, "balance is a pure projection of the persisted log — no in-memory counter")
+	assert.Equal(t, 1, bal, "balance is a pure projection of the committed stream — no in-memory counter")
 }
 
 func TestAppendSpend_rejectsAnOverBudgetSpendWithoutLoggingIt(t *testing.T) {
 	t.Parallel()
-	l, path := openLog(t)
+	l, f := openLog(t)
 	require.NoError(t, l.Append(sampleRecord())) // balance 1
 
-	before, err := os.ReadFile(path)
-	require.NoError(t, err)
+	before := eventCount(t, f, t.Name())
 	require.Error(t, l.AppendSpend(5, "too much"), "a spend exceeding the balance must be refused — you cannot spend what you did not catch")
+	after := eventCount(t, f, t.Name())
 
-	after, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, before, after, "a rejected over-budget spend must write nothing to the log — byte-identical")
+	assert.Equal(t, before, after, "a rejected over-budget spend must publish nothing — no new stream event")
 	bal, err := l.Balance()
 	require.NoError(t, err)
 	assert.Equal(t, 1, bal, "the balance is unchanged by a rejected spend")
@@ -69,7 +58,7 @@ func TestAppendSpend_rejectsAnOverBudgetSpendWithoutLoggingIt(t *testing.T) {
 
 func TestAppendSpend_rejectsANonPositiveAmount(t *testing.T) {
 	t.Parallel()
-	l, _ := openLog(t)
+	l := boundLog(t)
 	require.NoError(t, l.Append(sampleRecord()))
 	assert.Error(t, l.AppendSpend(0, "nothing"), "a spend must move a positive amount")
 	assert.Error(t, l.AppendSpend(-1, "negative"), "a negative spend would mint credit — forbidden")
@@ -77,7 +66,7 @@ func TestAppendSpend_rejectsANonPositiveAmount(t *testing.T) {
 
 func TestAppendSpend_allowsSpendingExactlyTheWholeBalanceToZero(t *testing.T) {
 	t.Parallel()
-	l, _ := openLog(t)
+	l := boundLog(t)
 	for i := 0; i < 3; i++ {
 		require.NoError(t, l.Append(distinctRecord(i)))
 	}
@@ -91,7 +80,7 @@ func TestAppendSpend_allowsSpendingExactlyTheWholeBalanceToZero(t *testing.T) {
 
 func TestAppendSpend_accumulatesSoEachSpendTradesAgainstWhatRemains(t *testing.T) {
 	t.Parallel()
-	l, _ := openLog(t)
+	l := boundLog(t)
 	for i := 0; i < 3; i++ {
 		require.NoError(t, l.Append(distinctRecord(i)))
 	}
@@ -110,7 +99,7 @@ func TestAppendSpend_accumulatesSoEachSpendTradesAgainstWhatRemains(t *testing.T
 
 func TestRecords_skipsSpendLinesSoTheConfirmedCatchCountStaysClean(t *testing.T) {
 	t.Parallel()
-	l, _ := openLog(t)
+	l := boundLog(t)
 	for i := 0; i < 3; i++ {
 		require.NoError(t, l.Append(distinctRecord(i)))
 	}
@@ -118,13 +107,13 @@ func TestRecords_skipsSpendLinesSoTheConfirmedCatchCountStaysClean(t *testing.T)
 
 	recs, err := l.Records()
 	require.NoError(t, err)
-	assert.Len(t, recs, 3, "Records returns confirmed catches only — a spend line never inflates the catch count")
+	assert.Len(t, recs, 3, "Records returns confirmed catches only — a spend event never inflates the catch count")
 	assert.Equal(t, 3, ledger.ConfirmedCatches(recs).Count)
 }
 
 func TestAppend_stillRefusesNonCatchEvenAfterSpendsExist(t *testing.T) {
 	t.Parallel()
-	l, _ := openLog(t)
+	l := boundLog(t)
 	require.NoError(t, l.Append(sampleRecord()))
 	require.NoError(t, l.AppendSpend(1, "dispatch"))
 
@@ -135,46 +124,34 @@ func TestAppend_stillRefusesNonCatchEvenAfterSpendsExist(t *testing.T) {
 
 func TestAppendSpend_persistsTheReasonAsALoggedAuditFact(t *testing.T) {
 	t.Parallel()
-	l, path := openLog(t)
+	l, f := openLog(t)
 	require.NoError(t, l.Append(sampleRecord()))
 	require.NoError(t, l.AppendSpend(1, "dispatch-to-lane-7"))
 
-	// Reason is write-only on the public API (Records skips spend lines, Balance
-	// reads only Amount), so pin it on disk: the audit reason must round-trip.
-	content, err := os.ReadFile(path)
+	// Reason is write-only on the projecting API (Records skips spends, Balance
+	// reads only Amount), so replay the spend subject: the audit reason must
+	// round-trip on the stream verbatim.
+	events, err := f.ReplaySubject(context.Background(), fabric.EventSubject(t.Name(), "i", fabric.StatusMinted, "spend"))
 	require.NoError(t, err)
-	assert.Contains(t, string(content), `"reason":"dispatch-to-lane-7"`, "a spend's reason is a logged audit fact and must be persisted verbatim")
+	require.Len(t, events, 1)
+	spend, err := ledger.DecodeSpend(events[0].Data)
+	require.NoError(t, err)
+	assert.Equal(t, "dispatch-to-lane-7", spend.Reason, "a spend's reason is a logged audit fact and must round-trip")
 }
 
-func TestBalance_aHandEditedNegativeSpendCannotMintCredit(t *testing.T) {
+func TestBalance_aForgedNegativeSpendCannotMintCredit(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	// AppendSpend rejects amount<=0, but the JSONL is the authoritative replay
-	// substrate; a hand-edited negative spend must not drive the balance UP.
-	content := `{"outcome":"catch","path":"a.go"}` + "\n" +
-		`{"outcome":"catch","path":"b.go"}` + "\n" +
-		`{"kind":"spend","amount":-5,"reason":"forged credit"}` + "\n"
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
-	l, err := ledger.Open(path)
+	l, f := openLog(t)
+	require.NoError(t, l.Append(distinctRecord(0)))
+	require.NoError(t, l.Append(distinctRecord(1))) // balance 2
+
+	// AppendSpend rejects amount<=0, but the stream is the authoritative substrate;
+	// a FORGED negative spend published straight to the subject must not drive the
+	// balance UP — the projection's amount>0 guard holds against hand-forged data.
+	_, err := ledger.PublishSpend(context.Background(), f, t.Name(), "i", ledger.SpendRecord{Kind: "spend", Amount: -5, Reason: "forged credit"})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
 
 	bal, err := l.Balance()
 	require.NoError(t, err)
-	assert.Equal(t, 2, bal, "a spend can never mint credit — a non-positive spend amount in the log contributes nothing")
-}
-
-func TestBalance_onAPreSpendCatchOnlyLogIsJustTheCatchCount(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "catches.jsonl")
-	// A log written before spends existed: catch lines with no "kind" field.
-	content := `{"outcome":"catch","path":"a.go"}` + "\n" + `{"outcome":"catch","path":"b.go"}` + "\n"
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
-	l, err := ledger.Open(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
-
-	bal, err := l.Balance()
-	require.NoError(t, err)
-	assert.Equal(t, 2, bal, "a pre-spend catch-only log reads as a balance of its catch count — no migration, no kind field needed")
+	assert.Equal(t, 2, bal, "a spend can never mint credit — a non-positive amount on the stream contributes nothing")
 }

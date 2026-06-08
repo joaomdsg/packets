@@ -20,10 +20,7 @@ import (
 
 func TestCandidatesFromCatches_derivesADistinctNeighborTargetPerCatch(t *testing.T) {
 	t.Parallel()
-	logPath := filepath.Join(t.TempDir(), "c.jsonl")
-	log, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = log.Close() })
+	log := scratchLog(t)
 	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "x.go", Line: 50, BeforeRev: "b0", AfterRev: "f0", ReasonTag: "catch"}))
 
 	cands := candidatesFromCatches(log)
@@ -39,10 +36,7 @@ func TestCandidatesFromCatches_derivesADistinctNeighborTargetPerCatch(t *testing
 
 func TestFundableBacklog_regeneratesFromCatchesAfterTheConfigListIsDrained(t *testing.T) {
 	t.Parallel()
-	logPath := filepath.Join(t.TempDir(), "c.jsonl")
-	log, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = log.Close() })
+	log := scratchLog(t)
 	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "x.go", Line: 50, BeforeRev: "b0", AfterRev: "f0", ReasonTag: "catch"}))
 
 	// A card with NO config backlog (or a fully-drawn one) still has fundable work:
@@ -55,10 +49,7 @@ func TestFundableBacklog_regeneratesFromCatchesAfterTheConfigListIsDrained(t *te
 
 func TestFundableBacklog_dedupsAConfigTargetThatAlsoDerivesFromACatch(t *testing.T) {
 	t.Parallel()
-	logPath := filepath.Join(t.TempDir(), "c.jsonl")
-	log, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = log.Close() })
+	log := scratchLog(t)
 	// A catch at line 49 derives a candidate at line 50; the config list ALSO holds
 	// that exact target. It must appear ONCE in the fundable set — else the board's
 	// BacklogRemaining double-counts the same distinct work.
@@ -92,11 +83,6 @@ func TestLiveCard_supplyRefillsFromItsOwnCatchesSoSpendNeverSilentlyDeadEnds(t *
 	}
 
 	logPath := filepath.Join(t.TempDir(), "c.jsonl")
-	seed, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "x.go", Line: 50, BeforeRev: "b0", AfterRev: "f0", ReasonTag: "catch"}))
-	require.NoError(t, seed.Close())
-
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
@@ -104,6 +90,7 @@ func TestLiveCard_supplyRefillsFromItsOwnCatchesSoSpendNeverSilentlyDeadEnds(t *
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "x.go", Line: 50, BeforeRev: "b0", AfterRev: "f0", ReasonTag: "catch"}))
 
 	before, err := log.Records()
 	require.NoError(t, err)
@@ -136,12 +123,6 @@ func TestLiveCard_aDerivedCandidateReproducingASeenCatchIsAnHonestLoss(t *testin
 	}
 
 	logPath := filepath.Join(t.TempDir(), "c.jsonl")
-	s, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	require.NoError(t, s.Append(seen))                                                                                                                  // the identity the candidate will reproduce
-	require.NoError(t, s.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "x.go", Line: 70, BeforeRev: "b0", AfterRev: "f0", ReasonTag: "catch"})) // a balance to spend
-	require.NoError(t, s.Close())
-
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
@@ -149,6 +130,8 @@ func TestLiveCard_aDerivedCandidateReproducingASeenCatchIsAnHonestLoss(t *testin
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
+	require.NoError(t, log.Append(seen))                                                                                                                  // the identity the candidate will reproduce
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "x.go", Line: 70, BeforeRev: "b0", AfterRev: "f0", ReasonTag: "catch"})) // a balance to spend
 
 	tc := vt.NewClient(t, server, "/")
 	frames, cancel := tc.SSE()

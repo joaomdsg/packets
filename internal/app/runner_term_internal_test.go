@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,17 +9,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
 )
 
 func TestDrainQueuedOrders_terminatesWhenAStatusWriteFailsPermanently(t *testing.T) {
-	// A funded order whose status can NEVER advance (here: the ledger write handle
-	// is closed, so every AppendStatus fails while reads via scan still work) must
-	// not spin the runner forever re-running the suite under a held runMu. The
-	// per-order attempts cap bounds it: the drain RETURNS and the cycle fires at
-	// most maxOrderAttempts times. NOT parallel (shared globals).
+	// A funded order whose status can NEVER advance (here: the fabric is torn down,
+	// so every projection/write fails) must not spin the runner forever re-running
+	// the suite under a held runMu. The drain RETURNS rather than looping; the cycle
+	// fires at most maxOrderAttempts times. NOT parallel (shared globals).
 	restore := resolveCycle
 	t.Cleanup(func() { resolveCycle = restore })
 	var calls int64
@@ -29,13 +28,13 @@ func TestDrainQueuedOrders_terminatesWhenAStatusWriteFailsPermanently(t *testing
 		return Resolution{}, nil
 	}
 
-	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	log, err := ledger.Open(logPath)
+	f, err := fabric.Start(context.Background(), t.TempDir())
 	require.NoError(t, err)
+	log := ledger.BindOwning(f, "term-key", ledgerInstance)
 	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"}))
-	require.NoError(t, log.AppendDispatch("dispatch", woTargetN(1), ledger.Target{})) // fund order 1 while the handle is open
-	registerSession("term-key", LiveConfig{RepoDir: ".", TestCmd: []string{"true"}, LedgerPath: logPath}, log)
-	require.NoError(t, log.Close()) // now every AppendStatus write fails; QueuedWorkOrders (its own read handle) still sees the queued order
+	require.NoError(t, log.AppendDispatch("dispatch", woTargetN(1), ledger.Target{})) // fund order 1 while the fabric is up
+	registerSession("term-key", LiveConfig{RepoDir: ".", TestCmd: []string{"true"}, LedgerPath: ""}, log)
+	require.NoError(t, log.Close()) // tearing the fabric down makes every projection/write fail; the drain must still TERMINATE, never spin
 
 	done := make(chan struct{})
 	go func() {

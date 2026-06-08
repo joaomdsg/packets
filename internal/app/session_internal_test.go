@@ -34,15 +34,6 @@ func TestLiveCard_distinctSessionKeysHaveIsolatedBalances(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	aPath := filepath.Join(dir, "a.jsonl")
-	bPath := filepath.Join(dir, "b.jsonl")
-	logA, err := ledger.Open(aPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = logA.Close() })
-	logB, err := ledger.Open(bPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = logB.Close() })
-
 	defPath := filepath.Join(dir, "default.jsonl")
 	var server *httptest.Server
 	_, defLog, err := NewServer(LiveConfig{
@@ -52,8 +43,10 @@ func TestLiveCard_distinctSessionKeysHaveIsolatedBalances(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = defLog.Close() })
 
-	registerSession("ssnA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: aPath, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logA)
-	registerSession("ssnB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, LedgerPath: bPath, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logB)
+	logA := ledger.Bind(liveFabric, "ssnA", ledgerInstance)
+	logB := ledger.Bind(liveFabric, "ssnB", ledgerInstance)
+	registerSession("ssnA", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logA)
+	registerSession("ssnB", LiveConfig{RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(), TestCmd: []string{"true"}, DispatchBacklog: []ledger.Target{woDispatchTarget()}}, logB)
 
 	ca := vt.NewClient(t, server, "/?key=ssnA")
 	fa, cancelA := ca.SSE()

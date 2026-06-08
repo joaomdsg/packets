@@ -14,6 +14,7 @@ import (
 	"github.com/go-via/via/vt"
 
 	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
@@ -48,12 +49,6 @@ func TestLiveCard_spendsDrawDistinctConfigWorkThenSupplyRefillsFromCatches(t *te
 	}
 
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	seed, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"}))
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 2, ReasonTag: "catch"}))
-	require.NoError(t, seed.Close())
-
 	cfg := LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
 		TestCmd: []string{"true"}, LedgerPath: logPath, DispatchBacklog: []ledger.Target{t1, t2},
@@ -62,6 +57,8 @@ func TestLiveCard_spendsDrawDistinctConfigWorkThenSupplyRefillsFromCatches(t *te
 	_, log, err := NewServer(cfg, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"}))
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 2, ReasonTag: "catch"}))
 
 	tc := vt.NewClient(t, server, "/")
 	frames, cancel := tc.SSE()
@@ -108,9 +105,10 @@ func TestNextUnconsumedTarget_isLogDerivedAndSurvivesReopen(t *testing.T) {
 	// that refill supply are ALSO log-derived, so the whole supply replays
 	// identically after a reopen — no in-memory head pointer or counter.
 	t1, t2 := woTargetN(1), woTargetN(2)
-	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(logPath)
+	f, err := fabric.Start(context.Background(), t.TempDir())
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+	l := ledger.Bind(f, "reopen", "i")
 	require.NoError(t, l.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "x.go", Line: 1, ReasonTag: "catch"}))
 	require.NoError(t, l.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "x.go", Line: 2, ReasonTag: "catch"}))
 	cfg := LiveConfig{DispatchBacklog: []ledger.Target{t1, t2}}
@@ -131,8 +129,7 @@ func TestNextUnconsumedTarget_isLogDerivedAndSurvivesReopen(t *testing.T) {
 	require.NotEqual(t, t2, got, "the next fundable target is a from-catch CANDIDATE, not a re-served config target")
 	require.NoError(t, l.Close())
 
-	reopened, err := ledger.Open(logPath)
-	require.NoError(t, err)
+	reopened := ledger.Bind(f, "reopen", "i")
 	t.Cleanup(func() { _ = reopened.Close() })
 	got2, ok := nextUnconsumedTarget(cfg, reopened)
 	require.True(t, ok, "supply (config-consumed + from-catch) replays from the log alone")
@@ -140,10 +137,7 @@ func TestNextUnconsumedTarget_isLogDerivedAndSurvivesReopen(t *testing.T) {
 }
 
 func TestNextUnconsumedTarget_emptyBacklogIsExhausted(t *testing.T) {
-	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
+	l := scratchLog(t)
 	_, ok := nextUnconsumedTarget(LiveConfig{}, l)
 	require.False(t, ok, "no backlog → no distinct work to fund")
 }
@@ -158,10 +152,7 @@ func TestNextUnconsumedTarget_skipsTheCardsOwnWorkSoItCannotStallTheHead(t *test
 	own := ownTargetOf(cfg)
 	cfg.DispatchBacklog = []ledger.Target{own, t2}
 
-	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	l, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
+	l := scratchLog(t)
 
 	got, ok := nextUnconsumedTarget(cfg, l)
 	require.True(t, ok)

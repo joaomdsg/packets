@@ -1,23 +1,17 @@
 package app
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/joaomdsg/packets/internal/ledger"
 )
 
 func TestLiveRegistry_resolvesAKeyElseFallsBackToTheDefault(t *testing.T) {
 	// Internal test (package app): exercises the unexported keyed lookup. NOT
 	// parallel — it shares the package-global liveReg with the other live tests.
-	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	log, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = log.Close() })
-	setLiveState(LiveConfig{MaxConcurrent: 3, LedgerPath: logPath}, log)
+	log := scratchLog(t)
+	setLiveState(LiveConfig{MaxConcurrent: 3}, log)
 
 	cfg, gotLog := readLiveState(defaultSessionKey)
 	assert.Equal(t, 3, cfg.MaxConcurrent, "a registered key resolves to its own entry (the hit path)")

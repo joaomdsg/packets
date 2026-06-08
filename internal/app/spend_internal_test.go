@@ -29,12 +29,6 @@ func TestLiveCard_spendVerbDrainsTheBalanceRowOverSSE(t *testing.T) {
 	}
 
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	seed, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"}))
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 2, ReasonTag: "catch"})) // distinct identity: 2 catches, not a re-mint
-	require.NoError(t, seed.Close())
-
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
@@ -43,6 +37,8 @@ func TestLiveCard_spendVerbDrainsTheBalanceRowOverSSE(t *testing.T) {
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 1, ReasonTag: "catch"}))
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Line: 2, ReasonTag: "catch"})) // distinct identity: 2 catches, not a re-mint
 
 	tc := vt.NewClient(t, server, "/")
 	frames, cancel := tc.SSE()
@@ -68,11 +64,6 @@ func TestLiveCard_overBudgetSpendIsASilentNoOpNotASpuriousFrame(t *testing.T) {
 	}
 
 	logPath := filepath.Join(t.TempDir(), "catches.jsonl")
-	seed, err := ledger.Open(logPath)
-	require.NoError(t, err)
-	require.NoError(t, seed.Append(ledger.CatchRecord{Outcome: catch.Catch, ReasonTag: "catch"}))
-	require.NoError(t, seed.Close())
-
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
 		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
@@ -81,6 +72,7 @@ func TestLiveCard_overBudgetSpendIsASilentNoOpNotASpuriousFrame(t *testing.T) {
 	}, via.WithTestServer(&server))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = log.Close() })
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, ReasonTag: "catch"}))
 
 	tc := vt.NewClient(t, server, "/")
 	frames, cancel := tc.SSE()
