@@ -99,11 +99,11 @@ type WorkOrderRecord struct {
 	Target   Target `json:"target"`
 }
 
-// woStatusRecord is one appended status transition for a work-order id. Status is
+// StatusRecord is one appended status transition for a work-order id. Status is
 // NEVER mutated in place — each transition is a new line, so the log stays
 // append-only and an order's current status replays as the last status line for
 // its id (defaulting to the order's funded Status when none has been appended).
-type woStatusRecord struct {
+type StatusRecord struct {
 	Kind   string `json:"kind"`
 	ID     int    `json:"id"`
 	Status string `json:"status"`
@@ -364,7 +364,7 @@ func (l *Log) PendingDispatches() (int, error) {
 // keyed by id — never mutating the order, so the log stays a pure append-only
 // substrate and an order's current status replays as its last status line.
 func (l *Log) AppendStatus(id int, status string) error {
-	line, err := json.Marshal(woStatusRecord{Kind: kindWOStatus, ID: id, Status: status})
+	line, err := json.Marshal(StatusRecord{Kind: kindWOStatus, ID: id, Status: status})
 	if err != nil {
 		return fmt.Errorf("ledger: marshal status: %w", err)
 	}
@@ -432,7 +432,7 @@ func (l *Log) ordersWithStatus() ([]WorkOrderRecord, map[int]string, error) {
 			orders = append(orders, w)
 			status[w.ID] = w.Status
 		case kindWOStatus:
-			var s woStatusRecord
+			var s StatusRecord
 			if err := json.Unmarshal(line, &s); err != nil {
 				return fmt.Errorf("ledger: decode status: %w", err)
 			}
