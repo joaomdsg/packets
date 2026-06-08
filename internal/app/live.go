@@ -69,10 +69,10 @@ type liveEntry struct {
 // registration so the board's tie-break is deterministic across renders.
 var regSeq int64
 
-// defaultSessionKey is the one entry seeded today. The registry can hold an entry
-// per session key so ≥2 distinct cards can coexist; until a second session is
-// registered (a later slice), every connect falls back to this one entry, so the
-// server behaves as the single-card demo it has been (one Lead, one card).
+// defaultSessionKey is the one seeded entry. The registry can hold an entry
+// per session key so ≥2 distinct cards can coexist; absent a second registered
+// session, every connect falls back to this one entry, so the server behaves as
+// a single-card demo (one Lead, one card).
 const defaultSessionKey = "default"
 
 // liveReg maps a session key → *liveEntry. Via mounts LiveCard by type (zero-value
@@ -105,7 +105,7 @@ func setLiveState(cfg LiveConfig, log *ledger.Log) {
 const ledgerInstance = "ledger"
 
 // liveFabric is the one embedded JetStream the server's sessions share — the
-// single authoritative economy substrate (DESIGN-COUNCIL Round 28). NewServer
+// single authoritative economy substrate. NewServer
 // starts it and gives the primary Log ownership of its lifecycle; AddSession
 // binds further sessions to it under their own session token, so each session is
 // an ISOLATED economy on the one stream. Set once per server; the live tests
@@ -324,7 +324,7 @@ func runOneOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 		defer func() { <-e.sem }()
 	}
 	beats := make(chan pipe.TraceEvent, 64)
-	go func() { // discard beats: the dispatched run's tempo is off-ledger this round
+	go func() { // discard beats: the dispatched run's tempo is off-ledger
 		for range beats {
 		}
 	}()

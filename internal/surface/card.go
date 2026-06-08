@@ -1,5 +1,5 @@
-// Package surface renders the review UI as Via compositions (DESIGN §13.2,
-// Council Round 9 #4). Its first piece is the ReviewCard: one anchored oracle
+// Package surface renders the review UI as Via compositions. Its first piece is
+// the ReviewCard: one anchored oracle
 // verdict shown as a distinct, designed state — including the most common
 // screen (a fully-tested line) as an affirmative beat, never empty chrome — and
 // streamed in over SSE when the verdict resolves. No economy meters live here;

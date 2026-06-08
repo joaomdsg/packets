@@ -1,4 +1,4 @@
-// Package orchestrator is the host-side coordinator (DESIGN §6). This brick is
+// Package orchestrator is the host-side coordinator. This brick is
 // its core revision-minting step: composing settle (the turn-boundary commit
 // guard, with its no-edit and secret-block protections) and diff (the
 // structured base..head changeset) into the data behind a revision.created /

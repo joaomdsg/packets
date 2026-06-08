@@ -1,5 +1,5 @@
 // Package ledger is the append-only event log of confirmed catches (the data
-// substrate under DESIGN-COUNCIL's Trust Ledger). It is DATA-ONLY: it captures
+// substrate under the trust ledger). It is DATA-ONLY: it captures
 // at mint time the facts a catch can never be reconstructed from later (the
 // survivor-set inventories, the self-flag and would-have-shipped bits, the
 // reason), and stores NO weight or price — pricing is a separate, later concern.
@@ -36,7 +36,7 @@ type CatchRecord struct {
 	// catch identity (a re-mint of the same identity is deduped regardless of
 	// producer); it is provenance, so a catch from a dispatched run reads as
 	// reinvestment, byte-distinguishable from a connect mint, and the field demuxes
-	// the two real producers on replay (the DESIGN §13.3 P0, now load-bearing).
+	// the two producers on replay.
 	Producer string `json:"producer,omitempty"`
 }
 
@@ -77,16 +77,14 @@ type DispatchCounts struct {
 	Done    int
 }
 
-// inProcessProducer is the producer tag every work-order carries this round —
-// the single in-process writer. It is pre-paid onto the line now (DESIGN §13.3
-// P0): once a real cross-process producer exists, the field is already there to
-// demux producers on replay, and the monotonic seq reconciliation can be added
-// without a schema migration.
+// inProcessProducer is the producer tag every work-order carries: the single
+// in-process writer. Carrying it explicitly lets a future cross-process producer
+// demux producers on replay without a schema migration.
 const inProcessProducer = "in-process"
 
 // WorkOrderRecord is the consequence a Spend funds: one unit of dispatched work,
-// queued (this round it does NOT run — executing it is a later slice). It shares
-// the append-only stream and is distinguished by Kind=="workorder". It is paired
+// queued (it is not executed here). It shares the append-only stream and is
+// distinguished by Kind=="workorder". It is paired
 // with a debit (a spend line) in one atomic write, so a balance can never fund
 // more orders than it held (conservation: debits == orders, per account).
 type WorkOrderRecord struct {
@@ -118,13 +116,12 @@ type SpendRecord struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// Log is one session's append-only economy log, now backed by the JetStream
-// fabric (the single authoritative substrate — the JSONL is retired) and scoped
-// to a session+instance subject namespace. Two Logs on the same fabric with
-// distinct session tokens are ISOLATED economies: a Log only ever publishes and
-// replays its own session.<session>.events.<instance> subtree, so a mint or
-// spend on one session can never touch another (the farm-denial isolation, now
-// enforced by the subject token rather than a separate file).
+// Log is one session's append-only economy log, backed by the JetStream fabric
+// (the single authoritative substrate) and scoped to a session+instance subject
+// namespace. Two Logs on the same fabric with distinct session tokens are
+// ISOLATED economies: a Log only ever publishes and replays its own
+// session.<session>.events.<instance> subtree, so a mint or spend on one session
+// can never touch another — isolation enforced by the subject token.
 //
 // A Log serializes its writers under mu: Append, AppendSpend, and AppendDispatch
 // take the lock across the replay-then-publish step, so the read-then-write
@@ -167,8 +164,7 @@ func BindOwning(f *fabric.Fabric, session, instance string) *Log {
 }
 
 // project folds this session's committed economy state from the stream — the one
-// read path behind every projecting reader, so they all observe the same
-// substrate-independent fold the equivalence lock pins to the JSONL scan.
+// read path behind every projecting reader, so they all observe the same fold.
 func (l *Log) project() (Projection, error) {
 	return ReplayProjection(context.Background(), l.f, l.session, l.instance)
 }
@@ -269,7 +265,7 @@ func (l *Log) AppendSpend(amount int, reason string) error {
 // balance can never fund more orders than it held: one debit ⇒ one order,
 // conserved. The work-order id is monotonic, derived from the persisted log
 // (count of existing work-orders + 1) so it survives a reopen with no in-memory
-// counter. The order is queued — this round it does not run.
+// counter. The order is queued — it is not executed here.
 //
 // target is the distinct work the order will run; own is the card's OWN caught
 // cycle. A dispatch whose target equals own is refused (writing nothing): it

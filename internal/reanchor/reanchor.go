@@ -1,5 +1,5 @@
 // Package reanchor maps a thread's line anchor from the revision it was filed
-// against onto a later revision (DESIGN §28). It distinguishes "the code moved"
+// against onto a later revision. It distinguishes "the code moved"
 // (re-anchor) from "the code changed" (outdate) via a stored content hash, and
 // surfaces a rename as a DISTINCT LostViaRename state rather than a silent drop
 // — at the confirmed-catch layer that becomes a no-oracle-signal, never a
@@ -61,7 +61,7 @@ func HashLines(lines string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Reanchor applies the DESIGN §28 algorithm: it classifies how a.Path changed
+// Reanchor classifies how a.Path changed
 // between fromRev and toRev and maps the anchor accordingly.
 func Reanchor(ctx context.Context, repoDir string, a Anchor, fromRev, toRev string) (Result, error) {
 	status, err := fileStatus(ctx, repoDir, a.Path, fromRev, toRev)

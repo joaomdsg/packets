@@ -1,5 +1,5 @@
 // Package translate maps the Claude Code harness's stream-json events into the
-// review UI's events (DESIGN §12 event-translation layer, §13.2). This is the
+// review UI's events (the event-translation layer). This is the
 // smallest slice: a PURE, stateless per-event translation producing live
 // "activity.agent" events plus a "turn.ended" signal — no git, no I/O. The
 // stateful reducer (cross-turn dirty tracking, threads, checks, permissions)
@@ -22,7 +22,7 @@ type UIEvent struct {
 	Detail string
 }
 
-// harnessEvent is the subset of the stream-json shape we consume (§12.1).
+// harnessEvent is the subset of the stream-json shape we consume.
 type harnessEvent struct {
 	Type    string `json:"type"`
 	Subtype string `json:"subtype"`

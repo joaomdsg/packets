@@ -1,5 +1,5 @@
 // Package settle turns a harness turn's work into a git revision. Its first
-// responsibility is the guard DESIGN §12.2 omits: a revision is minted only
+// responsibility is the change guard: a revision is minted only
 // when the working tree actually changed, so a no-edit turn (a question:
 // answered with no code, or an edit reverted) does not error or create an
 // empty revision.
@@ -41,8 +41,8 @@ type Result struct {
 
 // Settle commits the working tree of the git repo at repoDir as a new revision
 // — but ONLY when the tree actually changed. A turn that changed nothing mints
-// no revision and returns no error, instead of DESIGN §12.2's unconditional
-// `git add -A && git commit` failing with "nothing to commit".
+// no revision and returns no error, rather than letting an unconditional
+// `git add -A && git commit` fail with "nothing to commit".
 func Settle(ctx context.Context, repoDir, message string) (Result, error) {
 	status, err := git(ctx, repoDir, "status", "--porcelain")
 	if err != nil {
@@ -77,9 +77,8 @@ func Settle(ctx context.Context, repoDir, message string) (Result, error) {
 	}
 
 	// Scan the lines this revision ADDS for secrets BEFORE committing, so a
-	// secret never enters git history (DESIGN §26.2 scans at land; per-settle
-	// scanning here is the "secret-scrub-scans-wrong-scope" fix). A hit is a
-	// surfaced block for the reviewer, not an infra error: no commit, no error.
+	// secret never enters git history. A hit is a surfaced block for the
+	// reviewer, not an infra error: no commit, no error.
 	// Force canonical diff output regardless of the repo/user git config: a
 	// hostile or merely customized config (color.diff=always injects ANSI
 	// escapes so an added line no longer starts with "+"; diff.noprefix /

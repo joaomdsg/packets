@@ -3,8 +3,7 @@
 // fix turned a weakly-tested line into a constrained one, keyed by the line's
 // OPERATOR INVENTORY per revision — never by individual mutant identity — so
 // that the incoherent "the same mutant was killed" claim cannot be expressed
-// across a fix that edits the line. It is the first economy primitive
-// (DESIGN-COUNCIL Round 8 #1).
+// across a fix that edits the line. It is the first economy primitive.
 package catch
 
 import (

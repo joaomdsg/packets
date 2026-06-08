@@ -1,4 +1,4 @@
-// Package app is the host-side wire of the review loop (DESIGN §6, §17): it
+// Package app is the host-side wire of the review loop: it
 // composes the settle/oracle/catch pipe, the surface presenter, and the catch
 // ledger into the single seam the live server drives. Resolve is that seam — it
 // turns two revisions into a card verdict plus the record to persist.

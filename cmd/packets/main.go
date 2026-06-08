@@ -1,4 +1,4 @@
-// Command packets serves the single-user review wire (DESIGN §17): it runs one
+// Command packets serves the single-user review wire: it runs one
 // confirmed-catch cycle over two revisions and streams the verdict to a live
 // review card over SSE, so a human opens a browser and watches one verdict go
 // in-flight → resolved, with any catch appended to the ledger.
@@ -37,9 +37,8 @@ type sessionRef struct {
 // duplicating another session's or the reserved primary card's. Two sessions
 // sharing a key would have the second registerSession Store clobber the first
 // liveReg entry (orphaning a review target) AND fuse two economies onto one
-// session subtree of the shared fabric — the isolation is now keyed by the
-// session token, so a unique key IS the isolation guarantee (the per-file
-// validation the JSONL substrate needed is retired with it).
+// session subtree of the shared fabric — the isolation is keyed by the session
+// token, so a unique key IS the isolation guarantee.
 func validateSessions(refs []sessionRef) error {
 	seenKey := map[string]bool{primarySessionKey: true}
 	for _, r := range refs {

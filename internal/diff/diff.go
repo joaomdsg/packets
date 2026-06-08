@@ -1,7 +1,7 @@
 // Package diff computes a structured difference between two git revisions: the
 // changed files, their added/deleted line counts, and each hunk's old/new line
-// ranges. It is the substrate the review diff surface (DESIGN §13.2 diff.data)
-// and the re-anchor algorithm (§28) read.
+// ranges. It is the substrate the review diff surface and the re-anchor
+// algorithm read.
 package diff
 
 import (

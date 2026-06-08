@@ -11,8 +11,8 @@ type Status string
 // Open is a thread awaiting the reviewer's attention.
 const Open Status = "open"
 
-// Thread is an anchored review comment (DESIGN §5): a Conventional
-// Comment pinned to a line range in a file.
+// Thread is an anchored review comment: a Conventional Comment pinned to a
+// line range in a file.
 type Thread struct {
 	File      string
 	StartLine int

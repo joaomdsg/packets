@@ -1,5 +1,5 @@
 // Package pipe wires the standalone bricks (settle, diff, mutation, reanchor,
-// catch, review) into the end-to-end review loop (DESIGN §17). Its first piece
+// catch, review) into the end-to-end review loop. Its first piece
 // is the reanchor→catch JOIN: the single sanctioned path from a raw anchor and
 // two revisions to a catch outcome.
 package pipe
