@@ -462,5 +462,9 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 		}
 		bridge.Handler(f, key, ledgerInstance)(w, r)
 	})
+	// The cross-session fleet board, streamed off the same authoritative stream:
+	// one ordered SSE frame of per-session rows per committed event, across every
+	// session. Additive to the in-process Via BoardCard at "/board".
+	app.Handle("GET /fleet", bridge.FleetHandler(f))
 	return app, log, nil
 }

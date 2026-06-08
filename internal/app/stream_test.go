@@ -123,6 +123,19 @@ func TestNewServer_refusesAStreamKeyThatIsNotARegisteredSession(t *testing.T) {
 	}
 }
 
+func TestNewServer_servesTheFleetBoardOverSSEAtFleetRoute(t *testing.T) {
+	server, log := bootServer(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resp := getStream(t, ctx, server.URL+"/fleet")
+	assert.Contains(t, resp.Header.Get("Content-Type"), "text/event-stream")
+
+	require.NoError(t, log.Append(catchAt(4)))
+	// The default session appears as a fleet row off the stream, end-to-end.
+	awaitFrame(t, resp, `"key":"default"`)
+}
+
 func TestNewServer_refusesAStreamKeyWithSubjectMetacharactersEvenWhenRegistered(t *testing.T) {
 	server, _ := bootServer(t)
 	ctx, cancel := context.WithCancel(context.Background())

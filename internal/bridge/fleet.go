@@ -2,10 +2,79 @@ package bridge
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"sort"
 
 	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/ledger"
 )
+
+// fleetRow is one session's line in a fleet SSE frame — the per-session snapshot
+// counts tagged with the session key.
+type fleetRow struct {
+	Key     string `json:"key"`
+	Balance int    `json:"balance"`
+	Catches int    `json:"catches"`
+	Orders  int    `json:"orders"`
+	Queued  int    `json:"queued"`
+}
+
+func encodeFleetFrame(fleet map[string]ledger.Projection) []byte {
+	rows := make([]fleetRow, 0, len(fleet))
+	for key, p := range fleet {
+		rows = append(rows, fleetRow{
+			Key:     key,
+			Balance: p.Balance(),
+			Catches: len(p.Records()),
+			Orders:  len(p.WorkOrders()),
+			Queued:  len(p.QueuedWorkOrders()),
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Queued != rows[j].Queued {
+			return rows[i].Queued > rows[j].Queued // most work awaiting drain first
+		}
+		// key-asc is the honest deterministic stream-side tie-break: the in-process
+		// registration ordinal BoardRows uses is not on the stream.
+		return rows[i].Key < rows[j].Key
+	})
+	// Marshaling a slice of int/string structs cannot fail, so the error is discarded.
+	b, _ := json.Marshal(rows)
+	return append(append([]byte("data: "), b...), '\n', '\n')
+}
+
+// FleetHandler serves the cross-session board as an SSE stream: it sets the
+// text/event-stream content type, then writes one ordered JSON frame (an array
+// of per-session rows) for every committed event across any session — history
+// first, then live — until the client disconnects. The request context is the
+// teardown signal, cancelling the underlying WatchFleet subscription so no
+// goroutine tails a dead connection.
+func FleetHandler(f *fabric.Fabric) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		fleets, err := WatchFleet(r.Context(), f)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		flusher, _ := w.(http.Flusher)
+		if flusher != nil {
+			flusher.Flush()
+		}
+
+		for fleet := range fleets {
+			if _, err := w.Write(encodeFleetFrame(fleet)); err != nil {
+				return
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}
+}
 
 // WatchFleet subscribes to the whole fabric's minted economy and emits a fresh
 // per-session projection map (ledger.FleetProjection) on every committed event,
