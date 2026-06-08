@@ -57,7 +57,7 @@ inspection) — *and being right.* Other tools level up the AI; Packets levels u
 the human's judgment about the AI.
 
 See [VISION.md](VISION.md) for the full design philosophy and
-[DESIGN.md](DESIGN.md) / [DESIGN-COUNCIL.md](DESIGN-COUNCIL.md) for the
+[DESIGN.md](DESIGN.md) / [council/](council/README.md) for the
 architecture and its adversarial hardening.
 
 ---
@@ -215,7 +215,7 @@ pathology). Run them on your own hardware for the actual numbers.
 
 - **[VISION.md](VISION.md)** — the *what* and *why*: the management-sim reframe, the economy, the trust ledger.
 - **[DESIGN.md](DESIGN.md)** — the *how*: the pipe, event spine, re-anchoring, sandboxing.
-- **[DESIGN-COUNCIL.md](DESIGN-COUNCIL.md)** — the adversarial design council's hardening rounds.
+- **[council/](council/README.md)** — the adversarial design council's hardening rounds (one file per round).
 - **[CONVENTIONS.md](CONVENTIONS.md)** — coding conventions fed to the agents.
 - **[RISKS.md](RISKS.md)** — the honest risk register.
 

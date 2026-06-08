@@ -3,7 +3,7 @@
 > Status: **Reconciled draft.** A real slice is built (see §0.2); the
 > broader design ahead of it is spec. This doc has been edited to fold in
 > the validated findings and fixes from `RISKS.md` and the adversarial
-> rounds in `DESIGN-COUNCIL.md` — superseded passages are struck or
+> rounds in `council/` — superseded passages are struck or
 > rewritten in place, not merely appended to.
 
 > **Lexicon (Packets lens).** Work routes as **packets** (header + payload)
@@ -18,7 +18,7 @@
 
 This is the *how* doc. The *what/why* lives in `VISION.md`; the honest
 risk register and its fix-status live in `RISKS.md`; the round-by-round
-adversarial hardening lives in `DESIGN-COUNCIL.md`. Where those three
+adversarial hardening lives in `council/`. Where those three
 forced a change to the technical design, the change has been applied
 here — this section is the index of what moved and where.
 
