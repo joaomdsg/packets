@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -437,9 +438,29 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 	via.Mount[BoardCard](app, "/board") // the cross-card fleet view (read-only projection of liveReg)
 	// The raw SSE bridge over the authoritative stream: a plain text/event-stream
 	// endpoint a browser (or any cross-process consumer) tails, distinct from the
-	// in-process Via reactivity above.
-	// The method-qualified pattern keeps it a more-specific path under the same
-	// method as Via's "GET /" mount, avoiding a ServeMux precedence conflict.
-	app.Handle("GET /stream", bridge.Handler(f, defaultSessionKey, ledgerInstance))
+	// in-process Via reactivity above. ?key=<session> selects which session's
+	// economy to stream (the default when absent). The key MUST be a registered
+	// session: an unregistered or wildcard ('*'/'>') key is refused, so it can
+	// neither inject a fleet-wide subject filter nor stream a phantom economy. The
+	// method-qualified pattern keeps it a more-specific path under the same method
+	// as Via's "GET /" mount, avoiding a ServeMux precedence conflict.
+	app.HandleFunc("GET /stream", func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("key")
+		if key == "" {
+			key = defaultSessionKey
+		}
+		// The key flows into a NATS subject token; reject separators/wildcards so
+		// it can neither widen the filter nor split into extra tokens, even if a
+		// dangerous key somehow reached the registry.
+		if strings.ContainsAny(key, ".*> ") {
+			http.NotFound(w, r)
+			return
+		}
+		if _, ok := liveReg.Load(key); !ok {
+			http.NotFound(w, r)
+			return
+		}
+		bridge.Handler(f, key, ledgerInstance)(w, r)
+	})
 	return app, log, nil
 }
