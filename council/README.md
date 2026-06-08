@@ -72,6 +72,8 @@ Layout of this directory:
   NATS-first pivot
 - [Round 28](round-28.md) — the fork resolves: one authoritative log
   (JetStream)
+- [Round 29](round-29.md) — #4 NATS→SSE browser bridge shipped: the economy
+  streams to the browser off the stream
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,

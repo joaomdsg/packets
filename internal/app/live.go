@@ -13,6 +13,7 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
 
+	"github.com/joaomdsg/packets/internal/bridge"
 	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/pipe"
@@ -434,5 +435,11 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 	app := via.New(opts...)
 	via.Mount[LiveCard](app, "/")
 	via.Mount[BoardCard](app, "/board") // the cross-card fleet view (read-only projection of liveReg)
+	// The raw SSE bridge over the authoritative stream: a plain text/event-stream
+	// endpoint a browser (or any cross-process consumer) tails, distinct from the
+	// in-process Via reactivity above.
+	// The method-qualified pattern keeps it a more-specific path under the same
+	// method as Via's "GET /" mount, avoiding a ServeMux precedence conflict.
+	app.Handle("GET /stream", bridge.Handler(f, defaultSessionKey, ledgerInstance))
 	return app, log, nil
 }
