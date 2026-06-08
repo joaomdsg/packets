@@ -17,6 +17,11 @@ type Status = string
 const (
 	StatusScratch Status = "scratch"
 	StatusMinted  Status = "minted"
+	// StatusClaim is an untrusted cross-process producer's submission: neither
+	// authoritative (minted) nor discarded fan-out (scratch), but a claim the host
+	// must verify before it mints. Producers may publish ONLY their own claim
+	// subtree; minted subjects are reserved to the host.
+	StatusClaim Status = "claim"
 )
 
 // EventSubject builds the canonical event subject

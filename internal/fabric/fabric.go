@@ -36,11 +36,15 @@ type Fabric struct {
 // ensures the authoritative stream exists. The server listens on no TCP port;
 // connections are in-process only.
 func Start(ctx context.Context, dir string) (*Fabric, error) {
-	ns, err := server.NewServer(&server.Options{
-		JetStream:  true,
-		StoreDir:   dir,
-		DontListen: true,
-	})
+	return boot(&server.Options{StoreDir: dir, DontListen: true})
+}
+
+// boot starts the embedded server from opts (JetStream forced on), connects the
+// in-process host client, and ensures the authoritative stream — the shared core
+// of the in-process Start and the listening StartListening.
+func boot(opts *server.Options) (*Fabric, error) {
+	opts.JetStream = true
+	ns, err := server.NewServer(opts)
 	if err != nil {
 		return nil, fmt.Errorf("fabric: new server: %v", err)
 	}
