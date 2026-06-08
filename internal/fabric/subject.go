@@ -3,6 +3,7 @@ package fabric
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -24,6 +25,24 @@ const (
 // stays the single source of demux truth.
 func EventSubject(session, instance, status, kind string) string {
 	return fmt.Sprintf("packets.session.%s.events.%s.%s.%s", session, instance, status, kind)
+}
+
+// SessionOf extracts the session token from a subject built by EventSubject, or
+// "" if subject is not a well-formed event subject. It is the inverse demux of
+// EventSubject, so a cross-session consumer can group events by their session.
+func SessionOf(subject string) string {
+	t := strings.Split(subject, ".")
+	if len(t) < 7 || t[0] != "packets" || t[1] != "session" || t[3] != "events" {
+		return ""
+	}
+	return t[2]
+}
+
+// FleetMintedSubject matches every session's minted source-of-truth events
+// across the whole fabric (both the session and instance tokens wildcarded) —
+// the cross-session aggregator's replay/subscribe filter.
+func FleetMintedSubject() string {
+	return EventSubject("*", "*", StatusMinted, ">")
 }
 
 // ReplaySubject replays, in global sequence order, only the stored events whose

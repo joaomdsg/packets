@@ -36,6 +36,34 @@ func TestEventSubject_buildsCanonicalTaxonomyPath(t *testing.T) {
 	}
 }
 
+func TestSessionOf_extractsTheSessionFromACanonicalSubject(t *testing.T) {
+	t.Parallel()
+	subj := fabric.EventSubject("alpha", "i1", fabric.StatusMinted, "catch")
+	assert.Equal(t, "alpha", fabric.SessionOf(subj))
+}
+
+func TestSessionOf_returnsEmptyForAMalformedSubject(t *testing.T) {
+	t.Parallel()
+	for _, s := range []string{
+		"",
+		"packets.session",                            // too few tokens
+		"not.a.subject",                              // wrong arity + literals
+		"x.session.a.events.i.minted.catch",          // wrong root literal
+		"packets.notsession.a.events.i.minted.catch", // wrong "session" literal
+		"packets.session.a.NOTevents.i.minted.catch", // wrong "events" literal
+	} {
+		assert.Equal(t, "", fabric.SessionOf(s), "subject %q must not yield a session", s)
+	}
+}
+
+// The fleet filter is exactly the minted path with both the session and instance
+// tokens wildcarded — so it matches every session's source-of-truth events and
+// nothing scratch.
+func TestFleetMintedSubject_isTheWildcardedMintedPath(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, fabric.EventSubject("*", "*", fabric.StatusMinted, ">"), fabric.FleetMintedSubject())
+}
+
 // The whole point of the scratch/minted split: a consumer rebuilding the
 // source-of-truth projection must replay ONLY minted events and never see
 // discarded fan-out (scratch) activity — and the surviving events must keep

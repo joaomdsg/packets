@@ -75,6 +75,39 @@ func ReplayProjection(ctx context.Context, f *fabric.Fabric, session, instance s
 	if err != nil {
 		return Projection{}, err
 	}
+	return foldEvents(events)
+}
+
+// FleetProjection folds every session's economy from the fabric in one replay:
+// it replays the cross-session minted subtree, groups events by their session
+// token, and folds each group with the same canonical fold ReplayProjection
+// uses — returning one Projection per session. This is the cross-process
+// aggregator: the fleet board derives from the authoritative stream, not from
+// any in-process registry, so it reflects sessions written by any producer.
+func FleetProjection(ctx context.Context, f *fabric.Fabric) (map[string]Projection, error) {
+	events, err := f.ReplaySubject(ctx, fabric.FleetMintedSubject())
+	if err != nil {
+		return nil, err
+	}
+	// The fleet filter only matches canonical subjects, so SessionOf always
+	// yields a real session token here.
+	bySession := map[string][]fabric.Event{}
+	for _, e := range events {
+		s := fabric.SessionOf(e.Subject)
+		bySession[s] = append(bySession[s], e)
+	}
+	fleet := make(map[string]Projection, len(bySession))
+	for s, evs := range bySession {
+		p, err := foldEvents(evs)
+		if err != nil {
+			return nil, err
+		}
+		fleet[s] = p
+	}
+	return fleet, nil
+}
+
+func foldEvents(events []fabric.Event) (Projection, error) {
 	p := Projection{status: map[int]string{}}
 	for _, e := range events {
 		switch kind := e.Subject[strings.LastIndex(e.Subject, ".")+1:]; kind {
