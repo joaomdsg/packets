@@ -76,6 +76,8 @@ Layout of this directory:
   streams to the browser off the stream
 - [Round 30](round-30.md) — #5 cross-session board aggregator shipped: the
   fleet streams off the one stream (GET /fleet)
+- [Round 31](round-31.md) — #6 opens: cross-process producer boundary —
+  converged on sequencing, one clash open (cross-boundary trust model)
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
