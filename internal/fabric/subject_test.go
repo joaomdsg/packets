@@ -56,6 +56,32 @@ func TestSessionOf_returnsEmptyForAMalformedSubject(t *testing.T) {
 	}
 }
 
+func TestValidToken_acceptsPlainTokensAndRejectsSeparatorsAndWildcards(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		token string
+		want  bool
+	}{
+		{"plain", "default", true},
+		{"alphanumeric", "alpha1", true},
+		{"hyphen is legal in a token", "my-key", true},
+		{"underscore is legal in a token", "my_key", true},
+		{"empty", "", false},
+		{"dot splits into tokens", "a.b", false},
+		{"space", "a b", false},
+		{"tab", "a\tb", false},
+		{"star wildcard", "*", false},
+		{"gt wildcard", ">", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, fabric.ValidToken(tt.token))
+		})
+	}
+}
+
 // The fleet filter is exactly the minted path with both the session and instance
 // tokens wildcarded — so it matches every session's source-of-truth events and
 // nothing scratch.

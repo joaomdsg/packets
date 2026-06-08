@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/joaomdsg/packets/internal/app"
+	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/reanchor"
 )
 
@@ -42,6 +43,9 @@ type sessionRef struct {
 func validateSessions(refs []sessionRef) error {
 	seenKey := map[string]bool{primarySessionKey: true}
 	for _, r := range refs {
+		if !fabric.ValidToken(r.key) {
+			return fmt.Errorf("session key %q is not a valid subject token", r.key)
+		}
 		if seenKey[r.key] {
 			return fmt.Errorf("session key %q is already in use (duplicate or reserved)", r.key)
 		}

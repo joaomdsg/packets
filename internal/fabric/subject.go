@@ -27,6 +27,14 @@ func EventSubject(session, instance, status, kind string) string {
 	return fmt.Sprintf("packets.session.%s.events.%s.%s.%s", session, instance, status, kind)
 }
 
+// ValidToken reports whether s is usable as a single subject token: non-empty
+// and free of the NATS separators/wildcards ('.', whitespace, '*', '>') that
+// would split it into extra tokens or widen a filter. Session/instance tokens
+// must satisfy this before they are interpolated into a subject.
+func ValidToken(s string) bool {
+	return s != "" && !strings.ContainsAny(s, ". \t*>")
+}
+
 // SessionOf extracts the session token from a subject built by EventSubject, or
 // "" if subject is not a well-formed event subject. It is the inverse demux of
 // EventSubject, so a cross-session consumer can group events by their session.

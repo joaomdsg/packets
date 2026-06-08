@@ -7,6 +7,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestValidateSessions_rejectsAKeyThatWouldCorruptItsSubjectToken(t *testing.T) {
+	t.Parallel()
+	// A key with a '.' splits into extra subject tokens, fusing/redirecting the
+	// session's economy subtree — refuse it at startup, not silently at write time.
+	err := validateSessions([]sessionRef{{key: "a.b"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a.b")
+}
+
 func TestDistinctSessionKeysAreAcceptedAsIsolatedEconomies(t *testing.T) {
 	t.Parallel()
 	// The whole point of keyed sessions: distinct keys coexist as isolated

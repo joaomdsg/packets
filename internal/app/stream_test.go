@@ -123,6 +123,18 @@ func TestNewServer_refusesAStreamKeyThatIsNotARegisteredSession(t *testing.T) {
 	}
 }
 
+func TestAddSession_rejectsAKeyThatWouldCorruptItsSubjectToken(t *testing.T) {
+	bootServer(t) // sets liveFabric
+
+	// AddSession is the programmatic registration boundary: a key carrying a
+	// subject separator/wildcard must be refused before it binds an economy,
+	// not left to the documented caller-contract.
+	_, err := app.AddSession("bad.key", app.LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", TestCmd: []string{"true"},
+	})
+	require.Error(t, err)
+}
+
 func TestNewServer_servesTheFleetBoardOverSSEAtFleetRoute(t *testing.T) {
 	server, log := bootServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -134,21 +146,4 @@ func TestNewServer_servesTheFleetBoardOverSSEAtFleetRoute(t *testing.T) {
 	require.NoError(t, log.Append(catchAt(4)))
 	// The default session appears as a fleet row off the stream, end-to-end.
 	awaitFrame(t, resp, `"key":"default"`)
-}
-
-func TestNewServer_refusesAStreamKeyWithSubjectMetacharactersEvenWhenRegistered(t *testing.T) {
-	server, _ := bootServer(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// A key with a '.' splits into extra subject tokens; the route must refuse
-	// it defensively even if it slipped through registration, rather than build
-	// a malformed or widened NATS filter.
-	_, err := app.AddSession("e.vil", app.LiveConfig{
-		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", TestCmd: []string{"true"},
-	})
-	require.NoError(t, err)
-
-	resp := getStream(t, ctx, server.URL+"/stream?key=e.vil")
-	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }

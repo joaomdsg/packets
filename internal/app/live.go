@@ -143,6 +143,9 @@ func AddSession(key string, cfg LiveConfig) (*ledger.Log, error) {
 	if liveFabric == nil {
 		return nil, fmt.Errorf("app: AddSession before NewServer started the fabric")
 	}
+	if !fabric.ValidToken(key) {
+		return nil, fmt.Errorf("app: session key %q is not a valid subject token", key)
+	}
 	log := ledger.Bind(liveFabric, key, ledgerInstance)
 	registerSession(key, cfg, log)
 	return log, nil
@@ -449,13 +452,9 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 		if key == "" {
 			key = defaultSessionKey
 		}
-		// The key flows into a NATS subject token; reject separators/wildcards so
-		// it can neither widen the filter nor split into extra tokens, even if a
-		// dangerous key somehow reached the registry.
-		if strings.ContainsAny(key, ".*> ") {
-			http.NotFound(w, r)
-			return
-		}
+		// Only a registered session is served. Registration validates the key as a
+		// subject token (AddSession / validateSessions), so a metacharacter or
+		// wildcard key can never be in the registry — a registry miss refuses it.
 		if _, ok := liveReg.Load(key); !ok {
 			http.NotFound(w, r)
 			return
