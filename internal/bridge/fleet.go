@@ -10,25 +10,40 @@ import (
 	"github.com/joaomdsg/packets/internal/ledger"
 )
 
-// fleetRow is one session's line in a fleet SSE frame — the per-session snapshot
-// counts tagged with the session key.
+// fleetRow is one session's line in a fleet SSE frame — the board's
+// stream-derivable economy fields tagged with the session key. It omits the
+// in-process-only BacklogRemaining, and carries no hit-rate string: a renderer
+// derives that from reinvested/done. misses is done orders that minted nothing
+// (done − reinvested, clamped at 0), mirroring BoardRows.
 type fleetRow struct {
-	Key     string `json:"key"`
-	Balance int    `json:"balance"`
-	Catches int    `json:"catches"`
-	Orders  int    `json:"orders"`
-	Queued  int    `json:"queued"`
+	Key        string `json:"key"`
+	Balance    int    `json:"balance"`
+	Confirmed  int    `json:"confirmed"`
+	Reinvested int    `json:"reinvested"`
+	Queued     int    `json:"queued"`
+	Running    int    `json:"running"`
+	Done       int    `json:"done"`
+	Misses     int    `json:"misses"`
 }
 
 func encodeFleetFrame(fleet map[string]ledger.Projection) []byte {
 	rows := make([]fleetRow, 0, len(fleet))
 	for key, p := range fleet {
+		stock := ledger.ConfirmedCatches(p.Records())
+		counts := p.DispatchStatusCounts()
+		misses := counts.Done - stock.Reinvested
+		if misses < 0 {
+			misses = 0
+		}
 		rows = append(rows, fleetRow{
-			Key:     key,
-			Balance: p.Balance(),
-			Catches: len(p.Records()),
-			Orders:  len(p.WorkOrders()),
-			Queued:  len(p.QueuedWorkOrders()),
+			Key:        key,
+			Balance:    p.Balance(),
+			Confirmed:  stock.Count,
+			Reinvested: stock.Reinvested,
+			Queued:     counts.Queued,
+			Running:    counts.Running,
+			Done:       counts.Done,
+			Misses:     misses,
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool {

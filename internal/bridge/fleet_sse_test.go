@@ -34,7 +34,7 @@ func TestFleetHandler_ordersRowsByQueuedDescThenKeyAsc(t *testing.T) {
 
 	// beta (queued 1) sorts before alpha (queued 0); the exact frame pins the
 	// `data: ` framing, the row shape, the per-session values, and the ordering.
-	awaitLine(t, lines, `data: [{"key":"beta","balance":0,"catches":1,"orders":1,"queued":1},{"key":"alpha","balance":1,"catches":1,"orders":0,"queued":0}]`)
+	awaitLine(t, lines, `data: [{"key":"beta","balance":0,"confirmed":1,"reinvested":0,"queued":1,"running":0,"done":0,"misses":0},{"key":"alpha","balance":1,"confirmed":1,"reinvested":0,"queued":0,"running":0,"done":0,"misses":0}]`)
 }
 
 func TestFleetHandler_breaksQueuedTiesBySessionKeyAscending(t *testing.T) {
@@ -55,7 +55,60 @@ func TestFleetHandler_breaksQueuedTiesBySessionKeyAscending(t *testing.T) {
 	require.NoError(t, zeta.Append(sampleCatch()))
 	require.NoError(t, alpha.Append(sampleCatch()))
 
-	awaitLine(t, lines, `data: [{"key":"alpha","balance":1,"catches":1,"orders":0,"queued":0},{"key":"zeta","balance":1,"catches":1,"orders":0,"queued":0}]`)
+	awaitLine(t, lines, `data: [{"key":"alpha","balance":1,"confirmed":1,"reinvested":0,"queued":0,"running":0,"done":0,"misses":0},{"key":"zeta","balance":1,"confirmed":1,"reinvested":0,"queued":0,"running":0,"done":0,"misses":0}]`)
+}
+
+func TestFleetHandler_rowsCarryReinvestedDoneAndMisses(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := startFabric(t)
+	solo := ledger.Bind(f, "solo", "i")
+	srv := httptest.NewServer(bridge.FleetHandler(f))
+	defer srv.Close()
+
+	resp := connect(t, ctx, srv.URL)
+	lines := scanLines(resp.Body)
+
+	own := ledger.Target{BaseRev: "b", FixRev: "f", TipRev: "f", Path: "adult.go", Line: 4}
+	require.NoError(t, solo.Append(sampleCatch())) // connect catch: confirmed 1, balance 1
+	require.NoError(t, solo.AppendDispatch("d1",
+		ledger.Target{BaseRev: "b2", FixRev: "f2", TipRev: "f2", Path: "other.go", Line: 9}, own)) // spend → balance 0, order 1 queued
+	require.NoError(t, solo.AppendStatus(1, "running"))
+	require.NoError(t, solo.AppendStatus(1, "done")) // done 1
+
+	wo := sampleCatch()
+	wo.Line = 5
+	wo.Producer = "wo:1"
+	require.NoError(t, solo.Append(wo)) // dispatch-minted catch: confirmed 2, reinvested 1, balance 1
+
+	require.NoError(t, solo.AppendDispatch("d2",
+		ledger.Target{BaseRev: "b3", FixRev: "f3", TipRev: "f3", Path: "other.go", Line: 10}, own)) // spend → balance 0, order 2 queued
+	require.NoError(t, solo.AppendStatus(2, "running"))
+	require.NoError(t, solo.AppendStatus(2, "done")) // done 2; misses = done(2) − reinvested(1) = 1
+
+	awaitLine(t, lines, `data: [{"key":"solo","balance":0,"confirmed":2,"reinvested":1,"queued":0,"running":0,"done":2,"misses":1}]`)
+}
+
+func TestFleetHandler_rowReportsAnInFlightRunningOrder(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := startFabric(t)
+	solo := ledger.Bind(f, "solo", "i")
+	srv := httptest.NewServer(bridge.FleetHandler(f))
+	defer srv.Close()
+
+	resp := connect(t, ctx, srv.URL)
+	lines := scanLines(resp.Body)
+
+	own := ledger.Target{BaseRev: "b", FixRev: "f", TipRev: "f", Path: "adult.go", Line: 4}
+	require.NoError(t, solo.Append(sampleCatch())) // balance 1
+	require.NoError(t, solo.AppendDispatch("d",
+		ledger.Target{BaseRev: "b2", FixRev: "f2", TipRev: "f2", Path: "other.go", Line: 9}, own)) // order 1 queued
+	require.NoError(t, solo.AppendStatus(1, "running")) // moves off queued → running, not done
+
+	awaitLine(t, lines, `data: [{"key":"solo","balance":0,"confirmed":1,"reinvested":0,"queued":0,"running":1,"done":0,"misses":0}]`)
 }
 
 func TestFleetHandler_sendsEventStreamContentTypeAndActuallyStreams(t *testing.T) {
