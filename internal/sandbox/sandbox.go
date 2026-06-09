@@ -13,13 +13,16 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // seccompProfile is a default-ALLOW profile that additionally DENIES a curated
@@ -97,15 +100,45 @@ func (DockerRunner) Run(ctx context.Context, s Spec) (Result, error) {
 		return Result{}, err
 	}
 	defer cleanup()
+
+	// Name the container so a cancel can kill IT, not just the docker client.
+	// The name is runtime-unique and injected here (not in hardenedArgs, whose
+	// determinism is pinned), right after "run" so it stays a run option.
+	name, err := containerName()
+	if err != nil {
+		return Result{}, err
+	}
 	args := hardenedArgs(s, profPath)
+	args = append([]string{args[0], "--name", name}, args[1:]...)
 	if err := conform(args); err != nil {
 		return Result{}, err
 	}
+
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	// exec.CommandContext's default cancel SIGKILLs only the docker client, which
+	// leaves the attached --rm container behind. Force-REMOVE the container by name
+	// on cancel; WaitDelay then force-closes a lingering client. `docker rm -f` (not
+	// `docker kill`) because a cancel can land after the daemon registered the name
+	// but before it started the container: that Created-but-not-started container is
+	// immune to `kill` (kill signals only a running container) and, never having
+	// run, never trips --rm/AutoRemove — so kill-only orphans it forever. rm -f
+	// removes it in any state (created, running, exited).
+	cmd.Cancel = func() error {
+		_ = exec.Command("docker", "rm", "-f", name).Run() // best-effort: remove the container in any state
+		return cmd.Process.Kill()
+	}
+	cmd.WaitDelay = 10 * time.Second
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	err = cmd.Run()
+
+	// A cancelled/timed-out run is an error, never a Result: the signal-killed
+	// client would otherwise surface as a clean ExitError and read as a real exit.
+	if ctx.Err() != nil {
+		reapOrphan(name)
+		return Result{}, fmt.Errorf("sandbox: run cancelled: %w", ctx.Err())
+	}
 	res := Result{Output: out.String()}
 	if err != nil {
 		var exit *exec.ExitError
@@ -116,6 +149,58 @@ func (DockerRunner) Run(ctx context.Context, s Spec) (Result, error) {
 		return Result{}, fmt.Errorf("sandbox: docker run: %v: %s", err, strings.TrimSpace(out.String()))
 	}
 	return res, nil
+}
+
+// reapOrphan removes a cancelled run's container, defeating the create-after-cancel
+// race: the SIGKILLed docker client's create request can land in the daemon AFTER
+// cmd.Cancel's rm-f already ran, registering a Created container (never started, so
+// --rm never reaps it) that an early removal misses. The create lands at most once
+// and the daemon, having accepted the request before the client died, will
+// eventually register the name — but the moment it does so is unbounded relative to
+// when the client process exits. So a single removal (or one keyed on "is it gone
+// now?") loses the race whenever the create lands later. The reliable reap is to
+// poll the daemon for the name and force-remove it the instant it appears, only
+// concluding once the name has been confirmed ABSENT across a quiet settle window
+// (no new create can land for a unique name once the dead client's single request
+// has been processed). Bounded so a wedged daemon cannot hang the caller; remaining
+// best-effort, the cancellation error is the caller's signal regardless.
+func reapOrphan(name string) {
+	deadline := time.Now().Add(15 * time.Second)
+	absentStreak := 0
+	for time.Now().Before(deadline) {
+		if containerExists(name) {
+			reapCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = exec.CommandContext(reapCtx, "docker", "rm", "-f", name).Run()
+			cancel()
+			absentStreak = 0
+		} else {
+			// The create can still be in-flight; only conclude after the name has
+			// stayed absent long enough that the dead client's lone request must
+			// already have been processed (and removed if it landed).
+			absentStreak++
+			if absentStreak >= 5 {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func containerExists(name string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "docker", "ps", "-aq", "--filter", "name=^"+name+"$").Output()
+	return err == nil && len(bytes.TrimSpace(out)) > 0
+}
+
+// containerName returns a runtime-unique hardened-container name for kill-by-name
+// on cancel.
+func containerName() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("sandbox: container name: %w", err)
+	}
+	return "packets-cage-" + hex.EncodeToString(b[:]), nil
 }
 
 // hardenedArgs is the SINGLE enforced launch path: a one-shot container with no

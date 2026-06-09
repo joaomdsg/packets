@@ -72,7 +72,15 @@ jobs:
         # temp repos, so the suite needs git (present on ubuntu-latest) and a
         # longer timeout than the default. With the cage image built above, the
         # real-container sandbox + equivalence tests run here too.
-        run: go test -race -timeout 20m ./...
+        #
+        # -p 1 serializes PACKAGE execution: the sandbox and cage packages both
+        # launch containers labelled io.packets.sandbox=1, and the "no orphan /
+        # reaped" assertions filter on that shared label — so running the two
+        # packages concurrently lets one package's live containers fail the
+        # other's global-label assertion. Serial package execution keeps the
+        # docker-state assertions isolated (within-package tests are already
+        # non-parallel). Within-test parallelism (t.Parallel) is unaffected.
+        run: go test -race -timeout 20m -p 1 ./...
       # Guard against silent skips: a regression (or a missing image) that made
       # the cage tests skip would otherwise leave the job green. Re-run the
       # load-bearing integration tests verbosely and FAIL unless they actually
@@ -82,7 +90,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          go test -count=1 -v -timeout 20m \
+          go test -count=1 -v -timeout 20m -p 1 \
             -run 'TestEquivalence_cagedCatchProjectionMatchesInProcess|TestDockerRunner_blocksNamespaceCreationViaSeccomp|TestDockerRunner_deniesEgressTheHardenedContainerHasNoNetwork' \
             ./internal/cage/ ./internal/sandbox/ | tee cage-int.log
           for tc in \

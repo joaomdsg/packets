@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -450,6 +451,66 @@ func TestHardenedArgs_noEnvRendersNoEnvArg(t *testing.T) {
 	args := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}}, testProfile)
 	assert.NotContains(t, args, "--env", "a Spec with no Env must not render any --env flag")
 	require.NoError(t, conform(args))
+}
+
+// conform must permit the per-run container name the runner injects (a docker
+// run option, before the image) — else the gate would refuse every launch the
+// moment the runner names the container for kill-on-cancel.
+func TestConform_permitsTheInjectedContainerName(t *testing.T) {
+	t.Parallel()
+	base := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}}, testProfile)
+	withName := append([]string{base[0], "--name", "packets-cage-deadbeef"}, base[1:]...) // mirror Run's injection after "run"
+
+	require.NoError(t, conform(withName), "the injected container name must not trip the gate")
+	assert.Less(t, indexOf(withName, "packets-cage-deadbeef"), indexOf(withName, "busybox:latest"),
+		"the name is a run option, so it must precede the image")
+}
+
+// A cancelled run must KILL the container, not orphan it. exec.CommandContext
+// alone SIGKILLs only the docker client — the attached --rm container keeps
+// running (verified empirically). So a cancelled Run must (a) surface as an
+// error, not a clean Result, and (b) leave no container behind. Non-vacuous: the
+// command is `sleep 600`, so a Run that merely waited would take 10 minutes; this
+// returns in seconds, proving the cancel actually killed the container.
+func TestDockerRunner_killsTheContainerWhenTheContextIsCancelled(t *testing.T) {
+	requireDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	res, err := DockerRunner{}.Run(ctx, Spec{Image: "busybox:latest", Cmd: []string{"sleep", "600"}})
+	elapsed := time.Since(start)
+
+	require.Error(t, err, "a cancelled run must surface as an error, not a clean Result")
+	assert.ErrorIs(t, err, context.DeadlineExceeded, "the error must be the cancellation itself, not an image/launch failure (rules out a vacuous pass where no container ran)")
+	require.Equal(t, Result{}, res, "a cancelled run returns the zero Result")
+	assert.Less(t, elapsed, 30*time.Second, "Run must return on cancel, not wait out the 600s sleep")
+
+	require.Eventually(t, func() bool {
+		return dockerPS(t, "label=io.packets.sandbox=1") == ""
+	}, 15*time.Second, 250*time.Millisecond, "the container must be killed and reaped on ctx-cancel, not left orphaned")
+}
+
+// A cancel that lands in the create-but-not-yet-started window must STILL leave
+// no container behind. `docker kill` only signals a RUNNING container, so a
+// container the daemon registered but had not started (status Created) is immune
+// to kill and, never having run, never hits --rm/AutoRemove — it orphans forever.
+// Stressing a spread of sub-second cancel deadlines reliably lands in that window;
+// the backstop must force-remove by name regardless of container state.
+func TestDockerRunner_leavesNoOrphanWhenCancelLandsInTheCreateWindow(t *testing.T) {
+	requireDocker(t)
+	delays := []time.Duration{0, 1, 2, 3, 5, 8, 12, 20, 35, 60, 100, 150, 250, 400, 600, 900}
+	for round := 0; round < 3; round++ {
+		for _, d := range delays {
+			ctx, cancel := context.WithTimeout(context.Background(), d*time.Millisecond)
+			_, _ = DockerRunner{}.Run(ctx, Spec{Image: "busybox:latest", Cmd: []string{"sleep", "600"}})
+			cancel()
+		}
+	}
+	require.Eventually(t, func() bool {
+		return dockerPS(t, "label=io.packets.sandbox=1") == ""
+	}, 15*time.Second, 250*time.Millisecond,
+		"a cancel in the create-but-not-started window must force-remove the container, not orphan it")
 }
 
 func TestDockerRunner_runsAndReapsAHardenedContainer(t *testing.T) {
