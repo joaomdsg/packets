@@ -103,6 +103,35 @@ func TestDockerRunner_deniesEgressTheHardenedContainerHasNoNetwork(t *testing.T)
 		"a networked control must see a route — else the probe is broken and the hardened NONET would be vacuous")
 }
 
+// The pids cap is proven by trying to outrun it in a real container: a probe
+// spawns far more processes than --pids-limit allows; busybox sh emits a fork
+// failure when the cgroup denies the next process. Differential + non-vacuous:
+// the ONLY difference from the control is --pids-limit, and the control (which
+// keeps every other lock) must reach DONE with no fork failure — so the failure
+// is attributable to the cap, not memory or a broken probe. Mutation-verified:
+// dropping --pids-limit makes the hardened run reach DONE without a fork failure.
+func TestDockerRunner_capsProcessesAtThePidsLimit(t *testing.T) {
+	requireDocker(t)
+	probe := []string{"sh", "-c", "i=0; while [ $i -lt 200 ]; do sleep 30 & i=$((i+1)); done; echo DONE"}
+
+	res, err := DockerRunner{}.Run(context.Background(), Spec{Image: "busybox:latest", Cmd: probe})
+	require.NoError(t, err)
+	assert.Contains(t, res.Output, "can't fork", "the pids cap must deny processes beyond the limit")
+
+	control := runRaw(t, without(hardenedArgs(Spec{Image: "busybox:latest", Cmd: probe}), "--pids-limit=128"))
+	assert.Contains(t, control, "DONE", "the control must run the probe to completion (else the signal is vacuous)")
+	assert.NotContains(t, control, "can't fork", "without the cap the same probe spawns freely — the cap is the cause")
+}
+
+// runRaw execs a raw `docker` argv (a control launch isolating one lock) and
+// returns its combined output; the security signal is in the output, not the
+// exit code.
+func runRaw(t *testing.T, args []string) string {
+	t.Helper()
+	out, _ := exec.Command("docker", args...).CombinedOutput()
+	return string(out)
+}
+
 // runWithNetwork runs the probe in a control container WITH default networking
 // (no --network=none) — the differential baseline that proves the probe works.
 func runWithNetwork(t *testing.T, cmd []string) string {
