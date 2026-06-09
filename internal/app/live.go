@@ -102,6 +102,27 @@ func setLiveState(cfg LiveConfig, log *ledger.Log) {
 	registerSession(defaultSessionKey, cfg, log)
 }
 
+// StartClaimConsumers drains every registered session's claim subtree through the
+// host verifier, minting confirmed catches — the server-side half of the producer
+// loop (producers POST claims via /claim; this verifies and mints them). It spawns
+// one consumer goroutine per session (one session per producer), each running the
+// verifier verifierFor builds from that session's config — the seam where the live
+// server wires the sandboxed CageVerifier (cmd) or a stub (tests). The caller owns
+// ctx: cancelling it stops every consumer. ackWait/adm are the durable-consumer
+// redelivery window and the admission limits (nil adm = no rate/concurrency cap).
+//
+// Caller contract: call this EXACTLY ONCE, AFTER all sessions are registered
+// (NewServer + every AddSession). It snapshots the registry, so a session
+// registered later gets no consumer; and a second call would bind a second
+// subscriber to each session's durable consumer (splitting its claim delivery).
+func StartClaimConsumers(ctx context.Context, verifierFor func(LiveConfig) ledger.Verifier, ackWait time.Duration, adm *ledger.Admission) {
+	liveReg.Range(func(_, v any) bool {
+		e := v.(*liveEntry)
+		go func() { _ = e.log.ConsumeClaims(ctx, verifierFor(e.cfg), ackWait, adm) }()
+		return true
+	})
+}
+
 // ledgerInstance is the subject instance token every session's economy binds to.
 // There is one economy per session, so the session key alone demuxes them; the
 // instance is a fixed token completing the canonical subject.
