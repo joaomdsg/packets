@@ -111,6 +111,24 @@ func Settle(ctx context.Context, repoDir, message string) (Result, error) {
 	return Result{Committed: true, SHA: strings.TrimSpace(sha), Artifacts: artifacts}, nil
 }
 
+// ScanHistory scans a repo's FULL reachable git history for secrets and returns
+// every hit, reusing the same rule set and added-line parser as the per-settle
+// scan. It walks `git log -p` over all refs — a concatenation of every commit's
+// added lines — so a secret detects even when a later commit removed it from the
+// working tree (it lives forever in history). This is a GATE: the cross-process
+// boundary must refuse to open while any hit remains; it does NOT rewrite history
+// (removing a secret from history is a separate, destructive operation). The
+// pinned diff flags defeat a hostile/customized git config, exactly as Settle
+// does. Merge-commit diffs are skipped (git log's default), so a secret
+// introduced only in a merge resolution is not covered — a noted limitation.
+func ScanHistory(ctx context.Context, repoDir string) ([]SecretHit, error) {
+	log, err := git(ctx, repoDir, "log", "-p", "--all", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/")
+	if err != nil {
+		return nil, err
+	}
+	return scanStagedDiff(log, secretRules), nil
+}
+
 // stagedBinaryFiles returns the paths of staged files git treats as binary and
 // that are PRESENT in the revision (added or modified) — a deleted binary is
 // not an artifact polluting the diff, so it is excluded (--diff-filter=d,

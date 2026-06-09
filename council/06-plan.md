@@ -49,9 +49,17 @@ provenance of the input work moves across the boundary.
   mint/append serializes — reuse the existing single tip-append lane. Lock
   with an EQUIVALENCE test: same oracle verdict → identical projection
   whether the work was generated in-proc or arrived as a claim.
-- **#6b — full-history secret-scrub.** Its own TDD slice (NOT lumped with
-  the kernel trio): seed a known secret across full history, scrub, assert
-  it is gone AND the projection is still equivalent.
+- **#6b — full-history secret scan (SHIPPED).** Scope clarified to
+  SCAN-AND-BLOCK, not history rewrite: rewriting an agent's git history is
+  destructive and is not what a boundary gate does — the gate detects and
+  refuses to open while a secret exists anywhere in reachable history.
+  `settle.ScanHistory` walks `git log -p --all` and reuses the existing
+  per-settle rule set + parser (no fork), finding a secret even when a later
+  commit removed it from the working tree. Noted limitations (acceptable for
+  a gate, follow-ups if needed): merge-commit diffs are skipped (git log
+  default); `--all` scans all refs, so against a repo with fetched remotes it
+  flags secrets the local tree never had (desirable for a gate, but worth an
+  operator note).
 - **#6c — HARD-GATED: expose a bound socket to an untrusted producer.**
   Behind the security trio, in order: netns + host egress proxy
   (default-deny, cheapest blast-radius cap) → seccomp/LSM (pin the
