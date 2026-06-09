@@ -203,43 +203,52 @@ func conform(args []string) error {
 // under it.
 var sensitiveSources = []string{"/", "/etc", "/var", "/proc", "/sys", "/dev", "/root", "/boot", "/usr", "/bin", "/sbin", "/lib", "/run"}
 
-// checkMount admits a --mount= arg ONLY when it is the cage's allowed shape: an
-// explicit read-only (bare `readonly`/`ro` token) bind mount of a non-empty,
-// non-sensitive, non-docker.sock source. Every other shape — writable, non-bind,
-// empty/sensitive/socket source, or a `readonly=true` value form rather than the
-// bare token — is refused fail-closed. Field keys (and the type value) are
+// cageWorkdir is the ONE in-container path a writable bind mount may target: the
+// cage's disposable scratch repo, which the oracle must write (git worktree add).
+// A writable mount anywhere else is refused.
+const cageWorkdir = "/work"
+
+// checkMount admits a --mount= arg in one of two shapes, and refuses everything
+// else fail-closed:
+//   - a read-only (bare `readonly` token) bind mount of a non-empty,
+//     non-sensitive, non-docker.sock source (read-only inputs: repo, module cache); or
+//   - a WRITABLE bind mount whose target is EXACTLY the cage workdir and whose
+//     source is non-empty, non-sensitive, non-docker.sock (the disposable scratch repo).
+//
+// Refused: a writable mount to any other target, any mount of a sensitive or
+// docker.sock source, an empty source, a non-bind type, or a `readonly=true`
+// value form rather than the bare token. Field keys (and the type value) are
 // matched case-insensitively because Docker parses them that way: a capitalized
 // `Source=/etc` mounts the host /etc just like `source=/etc`, so the gate must
-// see it too rather than read an empty source and wave it through.
+// see it too rather than read an empty source and wave it through. The target
+// PATH is compared case-sensitively (Linux mount semantics: /Work != /work) after
+// filepath.Clean, so a trailing slash matches but a subpath or prefix does not.
 func checkMount(arg string) error {
 	val := strings.TrimPrefix(arg, "--mount=")
 	fields := strings.Split(val, ",")
-	var typ, source string
+	var typ, source, target string
 	readonly := false
 	for _, f := range fields {
-		// Docker parses --mount keys (and the bare readonly/ro flags)
-		// case-insensitively, so `Type=bind`, `Source=/etc`, `Src=/etc` and
-		// `ReadOnly` all take effect at the runtime. Match the KEY the same way
-		// (lowercased) so a capitalized field cannot smuggle a sensitive source
-		// past this gate while still mounting it. The VALUE (e.g. the source
-		// path) is preserved verbatim. Split the key off the value once so we do
-		// not lowercase the path itself.
+		// Match the KEY case-insensitively (Docker does), but preserve the VALUE
+		// verbatim (paths are case-sensitive). Split the key off the value once.
 		key, value, hasValue := strings.Cut(f, "=")
 		key = strings.ToLower(strings.TrimSpace(key))
 		switch {
-		case !hasValue && (key == "readonly" || key == "ro"):
+		case !hasValue && key == "readonly":
 			readonly = true
 		case key == "type":
 			typ = strings.ToLower(value)
 		case key == "source", key == "src":
 			source = value
+		case key == "target", key == "destination", key == "dst":
+			target = value
 		}
 	}
 	if typ != "bind" {
 		return fmt.Errorf("sandbox: forbidden non-bind mount %q", arg)
 	}
-	if !readonly {
-		return fmt.Errorf("sandbox: forbidden writable mount %q (read-only inputs only)", arg)
+	if !readonly && filepath.Clean(target) != cageWorkdir {
+		return fmt.Errorf("sandbox: forbidden writable mount %q (writable only at the cage workdir %q)", arg, cageWorkdir)
 	}
 	if strings.TrimSpace(source) == "" {
 		return fmt.Errorf("sandbox: forbidden bind mount with no source %q", arg)

@@ -84,14 +84,13 @@ func TestConform_admitsReadOnlyInputMountsButRefusesDangerousOnes(t *testing.T) 
 		"a read-only bind mount of a non-sensitive source is the cage's verification input")
 
 	bad := []struct{ name, mount string }{
-		{"writable bind mount", "--mount=type=bind,source=/tmp/pkts-work,target=/work"},
 		{"readonly docker.sock", "--mount=type=bind,source=/var/run/docker.sock,target=/sock,readonly"},
 		{"readonly sensitive /etc", "--mount=type=bind,source=/etc,target=/host-etc,readonly"},
 		{"readonly sensitive subpath", "--mount=type=bind,source=/var/lib/x,target=/x,readonly"},
 		{"sensitive /etc via src= alias", "--mount=type=bind,src=/etc,target=/x,readonly"},
 		{"sensitive /etc trailing slash", "--mount=type=bind,source=/etc/,target=/x,readonly"},
 		{"non-bind mount type=volume", "--mount=type=volume,source=somevol,target=/x,readonly"},
-		{"readonly=true value form not the bare token", "--mount=type=bind,source=/tmp/pkts-work,target=/work,readonly=true"},
+		{"readonly=true value form not the bare token (so treated as writable, non-workdir)", "--mount=type=bind,source=/tmp/pkts-work,target=/elsewhere,readonly=true"},
 		{"short -v form even with ro", "-v=/tmp/pkts-work:/work:ro"},
 		// Docker parses --mount keys case-insensitively: `type=bind,Source=/etc`
 		// mounts the host /etc, but a case-sensitive gate would see no `source=`
@@ -107,6 +106,50 @@ func TestConform_admitsReadOnlyInputMountsButRefusesDangerousOnes(t *testing.T) 
 		// Mixed-case type value: Docker accepts type=BIND, so the gate must treat
 		// it as a bind mount and still enforce the sensitive-source rule.
 		{"sensitive /etc via uppercase type value", "--mount=type=BIND,Source=/etc,target=/x,readonly"},
+	}
+	for _, b := range bad {
+		t.Run(b.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Error(t, conform(append(clone(base), b.mount)), "%s must be refused", b.name)
+		})
+	}
+}
+
+// The cage runs the oracle in a DISPOSABLE scratch repo, which the oracle must
+// write (git worktree add). conform therefore admits exactly ONE writable mount:
+// a bind mount at the designated workdir (/work) of a non-sensitive source. A
+// writable mount anywhere else, or of a sensitive/docker.sock/empty source even
+// at /work, stays refused — so a drifted launch can't turn the one needed
+// writable surface into write access to host state.
+func TestConform_admitsTheWritableCageWorkdirMountButRefusesOtherWritableMounts(t *testing.T) {
+	t.Parallel()
+	base := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}}, testProfile)
+
+	good := []struct{ name, mount string }{
+		{"writable scratch at the workdir", "--mount=type=bind,source=/tmp/packets-cage-abc,target=/work"},
+		{"writable scratch via destination= alias", "--mount=type=bind,source=/tmp/packets-cage-abc,destination=/work"},
+		{"writable scratch via dst= alias", "--mount=type=bind,source=/tmp/packets-cage-abc,dst=/work"},
+		{"writable scratch via uppercase Target key", "--mount=type=bind,source=/tmp/packets-cage-abc,Target=/work"},
+		{"writable scratch at the workdir with a trailing slash", "--mount=type=bind,source=/tmp/packets-cage-abc,target=/work/"},
+		{"read-only at the workdir is also allowed", "--mount=type=bind,source=/tmp/packets-cage-abc,target=/work,readonly"},
+		{"read-only non-sensitive input still admitted", "--mount=type=bind,source=/tmp/pkts-cache,target=/go/pkg/mod,readonly"},
+	}
+	for _, g := range good {
+		t.Run(g.name, func(t *testing.T) {
+			t.Parallel()
+			assert.NoError(t, conform(append(clone(base), g.mount)), "%s must be admitted", g.name)
+		})
+	}
+
+	bad := []struct{ name, mount string }{
+		{"writable to a non-workdir target", "--mount=type=bind,source=/tmp/x,target=/elsewhere"},
+		{"writable to a workdir subpath, not the exact workdir", "--mount=type=bind,source=/tmp/x,target=/work/sub"},
+		{"writable sensitive source even at the workdir", "--mount=type=bind,source=/etc,target=/work"},
+		{"writable docker.sock at the workdir", "--mount=type=bind,source=/var/run/docker.sock,target=/work"},
+		{"writable empty source at the workdir", "--mount=type=bind,target=/work"},
+		{"writable to non-workdir via uppercase Target key", "--mount=type=bind,source=/tmp/x,Target=/elsewhere"},
+		{"writable bind mount with no target field", "--mount=type=bind,source=/tmp/x"},
+		{"writable to a workdir prefix, not the exact workdir", "--mount=type=bind,source=/tmp/x,target=/workspace"},
 	}
 	for _, b := range bad {
 		t.Run(b.name, func(t *testing.T) {
@@ -132,6 +175,24 @@ func TestDockerRunner_readOnlyInputMountIsReadableButNotWritable(t *testing.T) {
 	rw := runRaw(t, mountedHardenedArgs(dir, false, probe))
 	assert.Contains(t, rw, "WRITE_OK",
 		"the SAME mount writable must permit the write — proving the block was the readonly flag, not the user")
+}
+
+// The writable workdir mount must be a REAL host bind, not the container's
+// tmpfs: the oracle's worktrees and outputs written at /work have to land on the
+// host's disposable scratch repo so the host can read the verdict afterward. A
+// write inside the cage must therefore be visible on the host bind source.
+func TestDockerRunner_writableWorkdirMountPersistsToTheHostScratch(t *testing.T) {
+	requireDocker(t)
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o777)) // non-root cage user must be able to write
+	probe := []string{"sh", "-c", "echo cage-wrote > /work/out.txt && echo WRITE_OK || echo WRITE_FAIL"}
+
+	out := runRaw(t, mountedHardenedArgs(dir, false, probe))
+	assert.Contains(t, out, "WRITE_OK", "the cage must be able to write the writable workdir mount")
+
+	got, err := os.ReadFile(filepath.Join(dir, "out.txt"))
+	require.NoError(t, err, "the cage's write must appear on the host bind source — a tmpfs would leave nothing")
+	assert.Contains(t, string(got), "cage-wrote", "the bytes the cage wrote at /work must be the bytes on the host")
 }
 
 // mountedHardenedArgs is a hardened launch carrying a single bind mount of dir at
