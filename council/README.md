@@ -80,6 +80,8 @@ Layout of this directory:
   converged on sequencing, one clash open (cross-boundary trust model)
 - [Round 32](round-32.md) — #6 trust model resolved (claim-submission,
   host-side mint); council CONVERGED on #6's design → [`06-plan.md`](06-plan.md)
+- [Round 33](round-33.md) — #6c sandbox design on plain Linux containers,
+  CONVERGED 5/5 (Security lens added)
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,

@@ -60,16 +60,47 @@ provenance of the input work moves across the boundary.
   default); `--all` scans all refs, so against a repo with fetched remotes it
   flags secrets the local tree never had (desirable for a gate, but worth an
   operator note).
-- **#6c — HARD-GATED: expose a bound socket to an untrusted producer.**
-  Behind the security trio, in order: netns + host egress proxy
-  (default-deny, cheapest blast-radius cap) → seccomp/LSM (pin the
-  syscall/file surface) → out-of-container permission broker (highest-trust,
-  last; inherits §15/§19 scrutiny). The kernel members are NOT pure-Go
-  unit-testable — integration only (attempt the forbidden syscall → assert
-  EPERM; never assert a config flag). Broker approvals are modeled as fabric
-  EVENTS (subscribable, causal — the broker waits on the approve event), per
-  UX, so the approval UX is calm, keyboard-native, and renderable on the
-  board.
+- **#6c — HARD-GATED: the sandbox (runtime = plain Linux containers).**
+  Designed and converged 5/5 in council round 33. The remaining piece:
+  isolate each untrusted agent AND safely RUN VERIFICATION (the oracle
+  compiling + running untrusted code). Design contract:
+  - **Isolation as a SEAM.** Hardened plain container is impl #1; gVisor /
+    microVM is a drop-in swap if the threat escalates — kept an interface, not
+    a rewrite.
+  - **Non-negotiable hardening (the launch contract):** user
+    namespaces/rootless, --cap-drop=ALL, no-new-privileges, seccomp
+    default-DENY allowlist, netns with no egress, read-only rootfs + ephemeral
+    scratch, pids/mem/cpu limits, NO docker.sock / host mounts / --privileged,
+    ephemeral one-shot container per verification. A single enforced launch
+    path + a FAIL-CLOSED config-conformance test (a misconfigured hardened
+    container is a plain container).
+  - **Verdict is HOST-DERIVED.** A separate ephemeral one-shot verification
+    container per claim, host-parameterized — never the agent's own box. The
+    oracle is host-owned, mounted read-only, content-pinned; the agent supplies
+    only the unit under test, never the judge. The box emits work + trace; the
+    host re-derives the economic fact and mints. The box NEVER asserts an
+    authoritative PASS. ONE oracle artifact, two invocation sites (in-proc +
+    in-container) — never a second oracle.
+  - **Build order (blast-radius first):** (1) netns + host egress proxy
+    (default-deny) → (2) seccomp/LSM profile → (3) out-of-container permission
+    broker (approvals as fabric events, per UX — subscribable, causal).
+  - **Farm ships WITH its governor:** ephemeral one-shot workers, fan-out
+    verify / fan-in serial mint on the EXISTING single append lane; caps +
+    per-agent quotas + admission control in the SAME increment; NO shared
+    writable cache across trust domains (host-write-only content-addressed +
+    per-claim ephemeral; deps via the egress allowlist).
+  - **Determinism:** pin toolchain/seed/clock, no network; content-addressed
+    claims dedup re-verification; charge-on-submission; **flake ≡ reject**.
+  - **Equivalence lock extended:** a DIFFERENTIAL test (in-proc verdict ≡
+    sandboxed verdict → identical projection) green on the full corpus BEFORE
+    any untrusted claim is verified in the sandbox.
+  - **Testability / definition of done:** enforcement is proven ONLY by
+    real-container attack fixtures in a real-host CI gate (forbidden syscall →
+    EPERM; real outbound connect → blocked; real fork-bomb → capped;
+    exit-0-with-garbage-output → no mint). BANNED lie-green: mocking the
+    sandbox in enforcement tests, asserting a config/profile string, trusting a
+    self-reported exit code. #6c stays hard-gated until that suite is wired and
+    green.
 
 ## Carried invariants / riders
 
