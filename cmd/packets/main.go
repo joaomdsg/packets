@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
+	"github.com/joaomdsg/packets/internal/sandbox"
 )
 
 // verifyTestCmd is the FIXED suite command the host runs the oracle with. It is
@@ -170,6 +172,7 @@ func main() {
 	line := flag.Int("line", 0, "1-based anchored line")
 	ledgerPath := flag.String("ledger", "catches", "durable economy store base; the JetStream log lives in a <ledger>-fabric directory beside it")
 	addr := flag.String("addr", ":3000", "listen address")
+	cageImage := flag.String("cage-image", "packets-cage:dev", "Docker image the claim verifier runs producer-submitted work in")
 	var sessions sessionFlag
 	flag.Var(&sessions, "session", "additional keyed review target served at /?key=NAME; repeatable: key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA]")
 	flag.Parse()
@@ -233,6 +236,14 @@ func main() {
 		defer sessionLog.Close()
 		log.Printf("packets: also serving session %q at /?key=%s — watch %s:%d resolve", p.key, p.key, p.cfg.Anchor.Path, p.cfg.Anchor.Start)
 	}
+
+	// All sessions are now registered, so start exactly one cage claim consumer
+	// per session (the StartClaimConsumers single-call/register-first contract).
+	// The consumers verify producer-submitted claims in the hardened Docker cage;
+	// the shutdown-scoped ctx stops them on SIGINT.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	app.StartCageClaimConsumers(ctx, *cageImage, sandbox.DockerRunner{})
 
 	log.Printf("packets: serving the review card on %s — open it and watch %s:%d resolve", *addr, *file, *line)
 	log.Fatal(http.ListenAndServe(*addr, application))
