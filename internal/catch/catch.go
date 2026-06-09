@@ -38,8 +38,8 @@ const (
 // collapse to one entry (a deliberate v1 simplification that keys the
 // denominator on the operator alphabet rather than unstable per-site identity).
 type LineState struct {
-	Inventory []string
-	Survivors []string
+	Inventory []string `json:"inventory"`
+	Survivors []string `json:"survivors"`
 }
 
 // Detect compares an anchored line's state before and after a fix and returns

@@ -9,18 +9,65 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 
 	"github.com/joaomdsg/packets/internal/app"
 	"github.com/joaomdsg/packets/internal/fabric"
+	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
 )
+
+// verifyTestCmd is the FIXED suite command the host runs the oracle with. It is
+// host-controlled (never supplied by an agent), so a producer cannot choose what
+// executes on its behalf.
+var verifyTestCmd = []string{"go", "test", "./..."}
+
+// runVerifyCatch is the `verify-catch` subcommand: it runs the SAME catch oracle
+// (pipe.RunCatchCycle) over the given revisions and writes the deterministic
+// verdict Transcript as JSON. This is the one binary that runs both in-process
+// (today) and inside the #6c sandbox (later), so the verdict is identical
+// wherever it runs.
+func runVerifyCatch(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("verify-catch", flag.ContinueOnError)
+	repo := fs.String("repo", ".", "git repo directory")
+	base := fs.String("base", "", "base (pre-fix) revision")
+	fix := fs.String("fix", "", "fix revision")
+	tip := fs.String("tip", "", "trunk tip to integrate onto (defaults to -fix)")
+	file := fs.String("file", "", "anchored file, relative to repo")
+	line := fs.Int("line", 0, "1-based anchored line")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *base == "" || *fix == "" || *file == "" || *line == 0 {
+		return fmt.Errorf("verify-catch: -base, -fix, -file and -line are required")
+	}
+	tipRev := *tip
+	if tipRev == "" {
+		tipRev = *fix
+	}
+	hash, err := lineHashAt(*repo, *base, *file, *line)
+	if err != nil {
+		return err
+	}
+	anchor := reanchor.Anchor{Path: *file, Start: *line, End: *line, LineHash: hash}
+	cr, err := pipe.RunCatchCycle(context.Background(), *repo, *base, *fix, tipRev, anchor, verifyTestCmd)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(pipe.Transcribe(cr))
+}
 
 // primarySessionKey is the registry key the "/" card registers under (mirrors
 // app's defaultSessionKey). A -session may not reuse it: doing so would clobber
@@ -108,6 +155,13 @@ func parseSessionSpec(repo, spec string) (string, app.LiveConfig, error) {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "verify-catch" {
+		if err := runVerifyCatch(os.Args[2:], os.Stdout); err != nil {
+			log.Fatalf("packets verify-catch: %v", err)
+		}
+		return
+	}
+
 	repo := flag.String("repo", ".", "git repo directory")
 	base := flag.String("base", "", "base (pre-fix) revision")
 	fix := flag.String("fix", "", "fix revision")
