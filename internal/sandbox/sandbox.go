@@ -13,11 +13,30 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
+
+// seccompProfile is a default-ALLOW profile that additionally DENIES a curated
+// set of dangerous, workload-unneeded syscalls (namespace creation, mount,
+// kernel-module and kexec, keyring, ptrace, bpf, reboot, swap). It strictly
+// hardens beyond the daemon default for these syscalls. It is NOT yet a full
+// default-DENY allowlist — that hardening is tuned to the verification workload's
+// real syscall set at #6c (the verification flow); a hand-rolled allowlist before
+// that workload exists would risk breaking it.
+//
+// Workload note for #6c-6: the curated deny set is verified safe for go build /
+// go test / go test -race (the race detector uses ThreadSanitizer instrumentation,
+// not ptrace). ptrace is denied deliberately — it does NOT affect those workloads,
+// but a debugger-style verification step (e.g. delve, strace) would need it. Revisit
+// the ptrace entry only if #6c-6 adds such a step.
+//
+//go:embed seccomp.json
+var seccompProfile []byte
 
 // Spec is what to run in a one-shot hardened container. It carries only the
 // image and command: the isolation is applied unconditionally by the runner, not
@@ -50,7 +69,12 @@ type DockerRunner struct{}
 // execs), then runs it. A non-zero CONTAINER exit is a Result, not an error
 // (the container ran); only a failure to invoke the runtime is an error.
 func (DockerRunner) Run(ctx context.Context, s Spec) (Result, error) {
-	args := hardenedArgs(s)
+	profPath, cleanup, err := materializeSeccompProfile()
+	if err != nil {
+		return Result{}, err
+	}
+	defer cleanup()
+	args := hardenedArgs(s, profPath)
 	if err := conform(args); err != nil {
 		return Result{}, err
 	}
@@ -58,7 +82,7 @@ func (DockerRunner) Run(ctx context.Context, s Spec) (Result, error) {
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	err := cmd.Run()
+	err = cmd.Run()
 	res := Result{Output: out.String()}
 	if err != nil {
 		var exit *exec.ExitError
@@ -75,12 +99,13 @@ func (DockerRunner) Run(ctx context.Context, s Spec) (Result, error) {
 // network, no capabilities, no privilege escalation, a read-only rootfs (only a
 // noexec tmpfs scratch is writable), bounded pids/memory/cpu, a non-root user,
 // and a cleanup label. The agent gets none of the host.
-func hardenedArgs(s Spec) []string {
+func hardenedArgs(s Spec, seccompProfilePath string) []string {
 	args := []string{
 		"run", "--rm",
 		"--network=none",
 		"--cap-drop=ALL",
 		"--security-opt=no-new-privileges",
+		"--security-opt=seccomp=" + seccompProfilePath,
 		"--read-only",
 		"--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=64m",
 		"--pids-limit=128",
@@ -94,11 +119,33 @@ func hardenedArgs(s Spec) []string {
 	return args
 }
 
+// materializeSeccompProfile writes the embedded profile to a temp file (the
+// docker CLI reads the seccomp profile from a path) and returns the path plus a
+// cleanup. The caller defers cleanup.
+func materializeSeccompProfile() (string, func(), error) {
+	f, err := os.CreateTemp("", "packets-seccomp-*.json")
+	if err != nil {
+		return "", nil, fmt.Errorf("sandbox: seccomp tempfile: %v", err)
+	}
+	name := f.Name()
+	cleanup := func() { _ = os.Remove(name) }
+	if _, err := f.Write(seccompProfile); err != nil {
+		_ = f.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("sandbox: write seccomp profile: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("sandbox: close seccomp profile: %v", err)
+	}
+	return name, cleanup, nil
+}
+
 // requiredFlags must each appear verbatim; requiredPrefixes must each appear as
 // the prefix of some arg (the flags that carry a value).
 var (
 	requiredFlags    = []string{"--rm", "--network=none", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--read-only"}
-	requiredPrefixes = []string{"--pids-limit=", "--memory=", "--user="}
+	requiredPrefixes = []string{"--pids-limit=", "--memory=", "--user=", "--security-opt=seccomp="}
 )
 
 // conform is the fail-closed gate: it returns an error if the argv is missing any
@@ -132,6 +179,8 @@ func conform(args []string) error {
 		switch {
 		case a == "--privileged":
 			return fmt.Errorf("sandbox: forbidden flag %q", a)
+		case a == "--security-opt=seccomp=unconfined":
+			return fmt.Errorf("sandbox: forbidden seccomp=unconfined (no syscall filter) %q", a)
 		case a == "--network=host", a == "--net=host", a == "--pid=host":
 			return fmt.Errorf("sandbox: forbidden host-namespace flag %q", a)
 		case a == "-v", a == "--volume", strings.HasPrefix(a, "-v="), strings.HasPrefix(a, "--volume="), strings.HasPrefix(a, "--mount="):

@@ -1,0 +1,28 @@
+{
+  "defaultAction": "SCMP_ACT_ALLOW",
+  "syscalls": [
+    {
+      "names": [
+        "unshare",
+        "setns",
+        "mount",
+        "umount2",
+        "pivot_root",
+        "init_module",
+        "finit_module",
+        "delete_module",
+        "kexec_load",
+        "kexec_file_load",
+        "add_key",
+        "keyctl",
+        "request_key",
+        "ptrace",
+        "bpf",
+        "reboot",
+        "swapon",
+        "swapoff"
+      ],
+      "action": "SCMP_ACT_ERRNO"
+    }
+  ]
+}

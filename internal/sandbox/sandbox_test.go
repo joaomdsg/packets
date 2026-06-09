@@ -10,9 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testProfile is a stand-in seccomp profile path for the pure conform/hardenedArgs
+// unit tests (conform checks the flag, never reads the file).
+const testProfile = "/tmp/packets-test-seccomp.json"
+
 func TestConform_acceptsTheCanonicalHardenedLaunch(t *testing.T) {
 	t.Parallel()
-	args := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}})
+	args := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}}, testProfile)
 	require.NoError(t, conform(args), "the single enforced launch path must be conformant by construction")
 }
 
@@ -21,7 +25,7 @@ func TestConform_acceptsTheCanonicalHardenedLaunch(t *testing.T) {
 // one-shot container was reaped, not that no labeled container ever existed).
 func TestHardenedArgs_tagsTheOneShotContainerForReapVerification(t *testing.T) {
 	t.Parallel()
-	args := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}})
+	args := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}}, testProfile)
 	assert.Contains(t, args, "--rm")
 	assert.Contains(t, args, "--label=io.packets.sandbox=1")
 }
@@ -31,7 +35,7 @@ func TestHardenedArgs_tagsTheOneShotContainerForReapVerification(t *testing.T) {
 // misconfigured hardened container is a plain container.
 func TestConform_refusesATamperedLaunch(t *testing.T) {
 	t.Parallel()
-	base := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}})
+	base := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}}, testProfile)
 	tests := []struct {
 		name string
 		args []string
@@ -43,6 +47,8 @@ func TestConform_refusesATamperedLaunch(t *testing.T) {
 		{"missing pids-limit", without(base, "--pids-limit=128")},
 		{"missing memory cap", without(base, "--memory=256m")},
 		{"missing non-root user", without(base, "--user=65534:65534")},
+		{"missing seccomp profile", without(base, "--security-opt=seccomp="+testProfile)},
+		{"seccomp unconfined", append(clone(base), "--security-opt=seccomp=unconfined")},
 		{"privileged", append(clone(base), "--privileged")},
 		{"host network --network=host", append(clone(base), "--network=host")},
 		{"host network --net=host", append(clone(base), "--net=host")},
@@ -118,9 +124,29 @@ func TestDockerRunner_capsProcessesAtThePidsLimit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, res.Output, "can't fork", "the pids cap must deny processes beyond the limit")
 
-	control := runRaw(t, without(hardenedArgs(Spec{Image: "busybox:latest", Cmd: probe}), "--pids-limit=128"))
+	control := runRaw(t, without(hardenedArgs(Spec{Image: "busybox:latest", Cmd: probe}, "unconfined"), "--pids-limit=128"))
 	assert.Contains(t, control, "DONE", "the control must run the probe to completion (else the signal is vacuous)")
 	assert.NotContains(t, control, "can't fork", "without the cap the same probe spawns freely — the cap is the cause")
+}
+
+// The seccomp profile is proven by attempting a dangerous, cap-free syscall in a
+// real container: creating a user namespace (`unshare -U`). cap-drop alone does
+// NOT block it (it's an unprivileged operation), so a control with the SAME
+// hardened launch minus seccomp (seccomp=unconfined — the only difference)
+// permits it (UNSHARE_OK), while our profile denies it (UNSHARE_BLOCKED). The
+// difference is attributable to seccomp, not the dropped caps; mutation-verified
+// by flipping the profile to unconfined.
+func TestDockerRunner_blocksNamespaceCreationViaSeccomp(t *testing.T) {
+	requireDocker(t)
+	probe := []string{"sh", "-c", "unshare -U true 2>/dev/null && echo UNSHARE_OK || echo UNSHARE_BLOCKED"}
+
+	res, err := DockerRunner{}.Run(context.Background(), Spec{Image: "busybox:latest", Cmd: probe})
+	require.NoError(t, err)
+	assert.Contains(t, res.Output, "UNSHARE_BLOCKED", "the seccomp profile must deny namespace creation (unshare)")
+
+	control := runRaw(t, hardenedArgs(Spec{Image: "busybox:latest", Cmd: probe}, "unconfined"))
+	assert.Contains(t, control, "UNSHARE_OK",
+		"without seccomp the same launch permits unshare — proving seccomp, not cap-drop, is the cause")
 }
 
 // runRaw execs a raw `docker` argv (a control launch isolating one lock) and
