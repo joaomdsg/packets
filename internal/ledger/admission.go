@@ -12,6 +12,11 @@ import (
 type Admission struct {
 	Burst, RatePerSec float64
 	Now               func() time.Time
+	// Concurrency is a SHARED counting semaphore (buffered channel) bounding the
+	// total number of concurrent verifies across ALL producers — the wiring passes
+	// the SAME channel in every producer's Admission, so the cap is process-wide.
+	// nil → no concurrency cap.
+	Concurrency chan struct{}
 }
 
 // clock returns the admission's injected clock, or time.Now when unset.

@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -311,6 +312,53 @@ func TestConsumeClaims_nilAdmissionImposesNoRateLimit(t *testing.T) {
 	}
 	require.Eventually(t, balanceIs(log, 5),
 		3*time.Second, 20*time.Millisecond, "with no admission limit, all five distinct claims mint")
+}
+
+// The global concurrency cap bounds total concurrent verifies ACROSS producers:
+// each producer's consumer verifies serially, but N producers could otherwise run
+// N concurrent (expensive) cage runs. A shared semaphore holds the line — even
+// with 3 producers ready, at most `cap` verify at once; the rest queue. This
+// protects the host minter from being swamped.
+func TestConsumeClaims_globalConcurrencyCapBoundsVerifiesAcrossProducers(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+
+	const cap = 2
+	sem := make(chan struct{}, cap)
+	release := make(chan struct{})
+	var concurrent, maxConcurrent atomic.Int32
+	fixed := time.Unix(1000, 0)
+
+	blockingVerify := func(c ledger.ClaimRecord) (*ledger.CatchRecord, error) {
+		cur := concurrent.Add(1)
+		for { // record the running max
+			m := maxConcurrent.Load()
+			if cur <= m || maxConcurrent.CompareAndSwap(m, cur) {
+				break
+			}
+		}
+		<-release // block so verifies overlap and the cap is observable
+		concurrent.Add(-1)
+		return confirmFromClaim(c)
+	}
+
+	for p := 0; p < 3; p++ { // three producers, each its own session → none idempotency-skipped
+		sess := fmt.Sprintf("p%d", p)
+		log := ledger.Bind(f, sess, "i")
+		adm := &ledger.Admission{Burst: 100, RatePerSec: 1, Concurrency: sem, Now: func() time.Time { return fixed }}
+		go func() { _ = log.ConsumeClaims(ctx, blockingVerify, 30*time.Second, adm) }()
+		_, err := ledger.PublishClaim(ctx, f, sess, "i", claimAt(1))
+		require.NoError(t, err)
+	}
+
+	require.Eventually(t, func() bool { return concurrent.Load() == cap },
+		3*time.Second, 20*time.Millisecond, "the cap's worth of verifies must run concurrently (proves overlap — non-vacuous)")
+	require.Never(t, func() bool { return maxConcurrent.Load() > cap },
+		1*time.Second, 50*time.Millisecond, "the global cap bounds concurrent verifies across producers — the 3rd waits on the semaphore")
+
+	close(release) // let the blocked verifies finish so the consumers can tear down on cancel
 }
 
 func mustPublishClaim(ctx context.Context, f *fabric.Fabric, c ledger.ClaimRecord) error {

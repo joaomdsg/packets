@@ -97,6 +97,19 @@ func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.D
 		if bucket != nil && !bucket.allow(now()) {
 			return nil
 		}
+		// Global concurrency cap: bound the total concurrent verifies across all
+		// producers. QUEUE (block) for a slot rather than reject — claims are
+		// durable, so backpressure loses no work; release the slot when the handle
+		// returns (after verify+Append). On ctx cancel, return an error so the
+		// claim is not acked and redelivers later, never lost to a shutdown.
+		if adm != nil && adm.Concurrency != nil {
+			select {
+			case adm.Concurrency <- struct{}{}:
+				defer func() { <-adm.Concurrency }()
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
 		rec, err := verify(claim)
 		if err != nil || rec == nil {
 			return nil // verifier error or no-catch verdict: nothing to mint, ack and move on
