@@ -210,6 +210,198 @@ func mountedHardenedArgs(dir string, ro bool, cmd []string) []string {
 	return append(args, cmd...)
 }
 
+// The cage receives its inputs as Spec.Mounts; the runner renders them into the
+// single enforced argv as --mount= specs, so what the cage sees is exactly what
+// the conform gate validated. The writable scratch carries no readonly suffix;
+// read-only inputs carry it — and the whole rendered launch still conforms.
+func TestHardenedArgs_rendersSpecMountsAsConformantArgs(t *testing.T) {
+	t.Parallel()
+	s := Spec{
+		Image: "busybox:latest",
+		Cmd:   []string{"true"},
+		Mounts: []Mount{
+			{Source: "/tmp/packets-cage-abc", Target: "/work"},
+			{Source: "/tmp/pkts-modcache", Target: "/go/pkg/mod", Readonly: true},
+		},
+	}
+	args := hardenedArgs(s, testProfile)
+
+	assert.Contains(t, args, "--mount=type=bind,source=/tmp/packets-cage-abc,target=/work",
+		"the writable scratch mount renders without a readonly suffix")
+	assert.Contains(t, args, "--mount=type=bind,source=/tmp/pkts-modcache,target=/go/pkg/mod,readonly",
+		"a read-only input mount renders with the readonly suffix")
+	require.NoError(t, conform(args),
+		"a launch with the cage's writable scratch + a read-only input must conform by construction")
+
+	// The mounts precede the image, so they are docker run options, not args to
+	// the containerized command.
+	assert.Less(t, indexOf(args, "--mount=type=bind,source=/tmp/packets-cage-abc,target=/work"), indexOf(args, "busybox:latest"),
+		"mounts must be rendered before the image")
+}
+
+// A Spec with no mounts must render exactly the bare hardened launch — adding
+// the Mounts field must not inject a spurious or empty --mount= into the argv,
+// or every existing mount-free caller would carry a phantom mount.
+func TestHardenedArgs_noMountsRendersNoMountArg(t *testing.T) {
+	t.Parallel()
+	args := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}}, testProfile)
+	for _, a := range args {
+		assert.NotContains(t, a, "--mount=", "a Spec with no mounts must not render any --mount= arg")
+	}
+	require.NoError(t, conform(args))
+}
+
+// A Spec carrying a forbidden mount produces an argv the gate refuses — no new
+// validation lives on the Spec; the one conform gate is the single chokepoint,
+// so the cage cannot be handed a dangerous mount by routing it through Spec.
+func TestHardenedArgs_aForbiddenSpecMountFailsTheGate(t *testing.T) {
+	t.Parallel()
+	bad := []struct {
+		name  string
+		mount Mount
+	}{
+		{"writable to a non-workdir target", Mount{Source: "/tmp/x", Target: "/elsewhere"}},
+		{"read-only sensitive source", Mount{Source: "/etc", Target: "/host-etc", Readonly: true}},
+		{"writable sensitive source even at workdir", Mount{Source: "/etc", Target: "/work"}},
+	}
+	for _, b := range bad {
+		t.Run(b.name, func(t *testing.T) {
+			t.Parallel()
+			args := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}, Mounts: []Mount{b.mount}}, testProfile)
+			assert.Error(t, conform(args), "a Spec mount that is %s must make the launch fail conform", b.name)
+		})
+	}
+}
+
+func TestDockerRunner_specWritableWorkMountPersistsToTheHost(t *testing.T) {
+	requireDocker(t)
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o777)) // the non-root cage user must be able to write
+
+	res, err := DockerRunner{}.Run(context.Background(), Spec{
+		Image:  "busybox:latest",
+		Cmd:    []string{"sh", "-c", "echo cage-wrote > /work/out.txt"},
+		Mounts: []Mount{{Source: dir, Target: "/work"}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.ExitCode)
+
+	got, err := os.ReadFile(filepath.Join(dir, "out.txt"))
+	require.NoError(t, err, "the cage's write to the Spec's /work mount must land on the host bind source")
+	assert.Contains(t, string(got), "cage-wrote")
+}
+
+// A forbidden mount is refused by the gate BEFORE exec: the run returns the
+// conform error and the command never runs — proven non-vacuously by also giving
+// the cmd a writable /work sentinel write that would appear on the host if it ran.
+func TestDockerRunner_refusesToRunASpecWithAForbiddenMount(t *testing.T) {
+	requireDocker(t)
+	work := t.TempDir()
+	require.NoError(t, os.Chmod(work, 0o777))
+
+	res, err := DockerRunner{}.Run(context.Background(), Spec{
+		Image: "busybox:latest",
+		Cmd:   []string{"sh", "-c", "echo ran > /work/sentinel.txt"},
+		Mounts: []Mount{
+			{Source: work, Target: "/work"},
+			{Source: "/etc", Target: "/host-etc", Readonly: true}, // forbidden: sensitive source
+		},
+	})
+	require.Error(t, err, "a Spec with a forbidden mount must be refused")
+	assert.Equal(t, Result{}, res, "a refused launch returns the zero Result — nothing ran")
+
+	_, statErr := os.Stat(filepath.Join(work, "sentinel.txt"))
+	assert.True(t, os.IsNotExist(statErr), "the command must never have executed — no sentinel on the host")
+}
+
+// A Mount.Source or Mount.Target carrying an injected comma/key renders extra
+// comma-separated fields into the single --mount= arg. The gate must not parse
+// those fields differently from Docker: Docker resolves duplicate keys by
+// LAST-positional-wins across the source/src, target/destination/dst and type
+// alias families, and treats any whitespace, quote, empty value or trailing
+// comma as a hard parse error (so the launch fails closed). checkMount uses the
+// same last-wins loop, so a crafted Mount can neither (a) forge a safe field the
+// gate reads while Docker reads a dangerous one, nor (b) pass the gate while
+// Docker mounts something else. This pins that agreement: every injected case
+// is REFUSED by the gate (because the smuggled last-wins field is itself
+// caught), so no comma-injection slips a sensitive source or off-workdir
+// writable target past conform.
+func TestCheckMount_commaInjectionMatchesDockerLastWinsAndStaysFailClosed(t *testing.T) {
+	t.Parallel()
+	base := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}}, testProfile)
+
+	// Each mount is what hardenedArgs would render for a crafted Mount whose
+	// Source or Target smuggles extra fields via an embedded comma. All must be
+	// refused: the gate reads the same last-wins field Docker would.
+	refused := []struct{ name, mount string }{
+		// Target smuggles a later source= override to a sensitive path; both the
+		// gate and Docker take the last source= (=/etc), so the gate rejects it.
+		{"target smuggles source=/etc override", "--mount=type=bind,source=/tmp/ok,target=/work,source=/etc,readonly"},
+		// Source smuggles a later sensitive source=; last-wins => /etc.
+		{"source smuggles trailing sensitive source", "--mount=type=bind,source=/tmp/ok,target=/work,source=/var/lib,readonly"},
+		// Source smuggles a docker.sock source override.
+		{"source smuggles docker.sock override", "--mount=type=bind,source=/tmp/ok,target=/work,source=/var/run/docker.sock,readonly"},
+		// type downgraded to a non-bind by a trailing duplicate (Docker last-wins
+		// => volume; the gate must also see non-bind and refuse).
+		{"type smuggled to volume by trailing dup", "--mount=type=bind,source=/tmp/ok,target=/work,type=volume"},
+		// readonly=<value> is NOT the bare token the gate accepts, so the mount is
+		// treated as writable; its target last-wins to a non-workdir => refused.
+		{"writable off-workdir via duplicate target", "--mount=type=bind,source=/tmp/ok,target=/work,target=/elsewhere"},
+	}
+	for _, c := range refused {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Error(t, conform(append(clone(base), c.mount)),
+				"%s: the gate must read the same last-wins field Docker does and refuse", c.name)
+		})
+	}
+
+	// The benign mirror: a duplicate target= whose LAST value is the workdir is
+	// admitted (Docker mounts at /work too) — proving the refusals above are the
+	// smuggled field being caught, not a blanket reject of any duplicate key.
+	assert.NoError(t,
+		conform(append(clone(base), "--mount=type=bind,source=/tmp/ok,target=/elsewhere,target=/work")),
+		"a duplicate target= whose last value is the workdir mounts at /work in Docker too — admitted")
+}
+
+// The conform gate's verdict must match where Docker actually mounts a
+// comma-injected --mount, end to end in a real container. For a duplicate
+// target= the gate admits (last value /work), Docker must bind the source at
+// /work and nowhere else; for one it refuses (last value off-workdir), Docker
+// would have bound off-workdir — so admitting it would be the bug. This proves
+// the unit test's "same last-wins" claim against the real parser.
+func TestDockerRunner_commaInjectedMountResolvesWhereConformExpects(t *testing.T) {
+	requireDocker(t)
+	src := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(src, "mark"), []byte("SRCMARK"), 0o644))
+	require.NoError(t, os.Chmod(src, 0o777))
+
+	// Gate ADMITS this (duplicate target=, last value /work). Docker must mount
+	// the source at /work and leave /elsewhere empty.
+	admitted := "--mount=type=bind,source=" + src + ",target=/elsewhere,target=/work"
+	base := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}}, testProfile)
+	require.NoError(t, conform(append(clone(base), admitted)),
+		"sanity: this comma-injected mount is admitted by the gate")
+	probe := []string{"sh", "-c", "cat /work/mark 2>/dev/null; cat /elsewhere/mark 2>/dev/null && echo AT_ELSEWHERE || echo NOT_AT_ELSEWHERE"}
+	args := []string{
+		"run", "--rm", "--network=none", "--cap-drop=ALL",
+		"--security-opt=no-new-privileges", "--read-only", "--user=65534:65534",
+		admitted, "busybox:latest",
+	}
+	out := runRaw(t, append(args, probe...))
+	assert.Contains(t, out, "SRCMARK", "Docker must bind the source at /work, exactly where the last-wins target resolves")
+	assert.Contains(t, out, "NOT_AT_ELSEWHERE", "the shadowed first target= must NOT receive a mount — Docker is last-wins like the gate")
+}
+
+func indexOf(s []string, want string) int {
+	for i, v := range s {
+		if v == want {
+			return i
+		}
+	}
+	return -1
+}
+
 func TestDockerRunner_runsAndReapsAHardenedContainer(t *testing.T) {
 	requireDocker(t)
 	res, err := DockerRunner{}.Run(context.Background(), Spec{Image: "busybox:latest", Cmd: []string{"true"}})

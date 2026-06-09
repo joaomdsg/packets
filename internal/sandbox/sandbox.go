@@ -39,12 +39,25 @@ import (
 //go:embed seccomp.json
 var seccompProfile []byte
 
-// Spec is what to run in a one-shot hardened container. It carries only the
-// image and command: the isolation is applied unconditionally by the runner, not
-// chosen by the caller.
+// Mount is one bind mount the cage needs: a host Source exposed at the
+// in-container Target, read-only when Readonly. It is rendered into the enforced
+// argv and validated by conform like any other launch flag — so a Mount that is
+// not one of the allowed shapes (read-only non-sensitive input, or writable only
+// at the cage workdir) makes the launch fail-closed, never reaching the runtime.
+type Mount struct {
+	Source   string
+	Target   string
+	Readonly bool
+}
+
+// Spec is what to run in a one-shot hardened container: the image, the command,
+// and the bind mounts the cage's inputs need. The isolation is applied
+// unconditionally by the runner, not chosen by the caller; the Mounts are the
+// one caller-supplied surface, and they are gated by conform.
 type Spec struct {
-	Image string
-	Cmd   []string
+	Image  string
+	Cmd    []string
+	Mounts []Mount
 }
 
 // Result is the observable outcome of a finished run. ExitCode and Output are
@@ -114,6 +127,13 @@ func hardenedArgs(s Spec, seccompProfilePath string) []string {
 		"--cpus=1",
 		"--user=65534:65534",
 		"--label=io.packets.sandbox=1",
+	}
+	for _, m := range s.Mounts {
+		spec := "--mount=type=bind,source=" + m.Source + ",target=" + m.Target
+		if m.Readonly {
+			spec += ",readonly"
+		}
+		args = append(args, spec)
 	}
 	args = append(args, s.Image)
 	args = append(args, s.Cmd...)
