@@ -132,6 +132,46 @@ func targetAlreadyMinted(records []CatchRecord, t Target) bool {
 	return false
 }
 
+// ClaimsInFlight counts the DISTINCT claim targets submitted on this log's claim
+// subtree that are not yet minted — the producers' pending "bets". It is kept
+// strictly separate from the confirmed economy (Balance/Records): a pending claim
+// is never a confirmed catch (the two-scores invariant), and a target moves out
+// of "in flight" the moment it mints. Duplicate replays of one target count once.
+//
+// A rejected claim has no terminal marker yet, so a rejected target lingers as
+// in-flight until slice C3 adds explicit rejection — accepted C1 behavior.
+func (l *Log) ClaimsInFlight() (int, error) {
+	filter := fabric.EventSubject(l.session, l.instance, fabric.StatusClaim, ">")
+	events, err := l.f.ReplaySubject(context.Background(), filter)
+	if err != nil {
+		return 0, err
+	}
+	records, err := l.Records()
+	if err != nil {
+		return 0, err
+	}
+
+	// Dedupe by the catch IDENTITY (BaseRev,FixRev,Path,Line) — the same tuple
+	// targetAlreadyMinted and Append key on — so a replay (or a tip-only variation)
+	// of one unit of work counts once, not twice.
+	type identity struct {
+		base, fix, path string
+		line            int
+	}
+	seen := make(map[identity]bool)
+	for _, e := range events {
+		claim, derr := DecodeClaim(e.Data)
+		if derr != nil {
+			continue // a malformed claim event is not a claim in flight
+		}
+		if !targetAlreadyMinted(records, claim.Target) {
+			t := claim.Target
+			seen[identity{t.BaseRev, t.FixRev, t.Path, t.Line}] = true
+		}
+	}
+	return len(seen), nil
+}
+
 // claimDurable is the stable durable-consumer name for a log's claim subtree,
 // derived from its session+instance so a restart resumes the SAME consumer
 // (resuming past already-processed claims). NATS durable names forbid the subject
