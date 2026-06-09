@@ -43,3 +43,39 @@ func DecodeClaim(data []byte) (ClaimRecord, error) {
 	}
 	return c, nil
 }
+
+// Verifier turns an untrusted claim into a verdict: a *CatchRecord to mint when
+// the oracle confirms a real catch, or nil to mint nothing. It is the SEAM where
+// the host's verifier plugs in — in production a sandboxed run of the mutation
+// oracle (#6c, the only place untrusted code executes); the consumer here never
+// runs that code itself.
+type Verifier func(ClaimRecord) (*CatchRecord, error)
+
+// ConsumeClaims subscribes to this log's claim subtree and, for each submitted
+// claim, runs verify and mints any returned record through the authoritative
+// Append path — so the catch-only gate and the identity dedup apply: a verdict of
+// nil mints nothing, and a re-submitted claim (same verified identity) mints
+// nothing more. A malformed claim or a verifier error is skipped so one bad claim
+// can't stall the stream; a mint that the gate refuses (duplicate/non-catch) is
+// also skipped — best-effort, matching the in-process mint. It blocks until ctx
+// is canceled (the only teardown), then returns; the caller runs it in a
+// goroutine and MUST cancel ctx when done.
+func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier) error {
+	filter := fabric.EventSubject(l.session, l.instance, fabric.StatusClaim, ">")
+	events, err := l.f.Subscribe(ctx, filter)
+	if err != nil {
+		return err
+	}
+	for e := range events {
+		claim, err := DecodeClaim(e.Data)
+		if err != nil {
+			continue
+		}
+		rec, err := verify(claim)
+		if err != nil || rec == nil {
+			continue
+		}
+		_ = l.Append(*rec)
+	}
+	return ctx.Err()
+}
