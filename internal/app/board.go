@@ -18,6 +18,7 @@ type CardRow struct {
 	Key              string
 	Confirmed        int
 	Reinvested       int
+	InFlight         int // claims submitted but not yet minted — producers' pending BETS, never confirmed catches (two-scores)
 	Balance          int
 	Queued           int
 	Running          int
@@ -45,6 +46,12 @@ func BoardRows() []CardRow {
 			}
 			if b, err := e.log.Balance(); err == nil {
 				row.Balance = b
+			}
+			// Claims in flight are producers' pending bets, projected from the claim
+			// subtree alone — kept off Confirmed/Balance (two-scores). Degrade to 0 on
+			// a read error, like every other field.
+			if n, err := e.log.ClaimsInFlight(); err == nil {
+				row.InFlight = n
 			}
 			if c, err := e.log.DispatchStatusCounts(); err == nil {
 				row.Queued, row.Running, row.Done = c.Queued, c.Running, c.Done
@@ -107,6 +114,7 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 			h.Data("key", r.Key),
 			h.Span(h.Class("board-row__key"), h.Text(r.Key)),
 			h.Span(h.Class("board-row__stock"), h.Text(strconv.Itoa(r.Confirmed)+" confirmed, "+strconv.Itoa(r.Reinvested)+" reinvested")),
+			h.Span(h.Class("board-row__inflight"), h.Text(strconv.Itoa(r.InFlight)+" in flight")),
 			h.Span(h.Class("board-row__balance"), h.Text("balance "+strconv.Itoa(r.Balance))),
 			h.Span(h.Class("board-row__activity"), h.Text("queued "+strconv.Itoa(r.Queued)+", running "+strconv.Itoa(r.Running)+", done "+strconv.Itoa(r.Done))),
 			h.Span(h.Class("board-row__misses"), h.Text(strconv.Itoa(r.Misses)+" misses")),
