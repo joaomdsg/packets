@@ -67,8 +67,18 @@ type Verifier func(ClaimRecord) (*CatchRecord, error)
 // after verify returns, so ackWait MUST exceed the verifier's per-claim deadline,
 // or a slow verify is redelivered into a concurrent re-verify. The caller wires
 // the two together (the cage verify deadline and this ackWait above it).
-func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.Duration) error {
+func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.Duration, adm *Admission) error {
 	filter := fabric.EventSubject(l.session, l.instance, fabric.StatusClaim, ">")
+
+	// One token bucket per producer (this log is one session+instance). A nil
+	// Admission means no rate limit. The clock is the admission's (time.Now in prod).
+	var bucket *tokenBucket
+	var now func() time.Time
+	if adm != nil {
+		now = adm.clock()
+		bucket = newTokenBucket(adm.Burst, adm.RatePerSec, now())
+	}
+
 	return l.f.ConsumeDurable(ctx, claimDurable(l.session, l.instance), filter, ackWait, func(e fabric.Event) error {
 		claim, err := DecodeClaim(e.Data)
 		if err != nil {
@@ -78,7 +88,13 @@ func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.D
 		// Append would refuse the re-mint anyway, but only AFTER burning a cage run.
 		// On a read error, fall through to verify (do the work) — the gate still
 		// dedupes the mint, so a stale read costs compute, never correctness.
+		// This MUST precede the rate check, so a duplicate doesn't spend a token.
 		if records, rerr := l.Records(); rerr == nil && targetAlreadyMinted(records, claim.Target) {
+			return nil
+		}
+		// Per-producer rate limit: a flood beyond the burst is ack-dropped before
+		// the verifier (the scarce compute), so the producer can't starve the host.
+		if bucket != nil && !bucket.allow(now()) {
 			return nil
 		}
 		rec, err := verify(claim)

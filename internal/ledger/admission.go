@@ -5,6 +5,23 @@ import (
 	"time"
 )
 
+// Admission is the per-producer rate-limit config for ConsumeClaims: Burst and
+// RatePerSec parameterize a token bucket (one per producer, since a producer is
+// one session+instance), and Now is an injectable clock (nil → time.Now). A nil
+// *Admission means no rate limit. The global concurrency cap is added in B3b.
+type Admission struct {
+	Burst, RatePerSec float64
+	Now               func() time.Time
+}
+
+// clock returns the admission's injected clock, or time.Now when unset.
+func (a *Admission) clock() func() time.Time {
+	if a.Now != nil {
+		return a.Now
+	}
+	return time.Now
+}
+
 // tokenBucketEpsilon absorbs IEEE-754 drift near whole-token boundaries: a refill
 // that should land exactly on an integer (e.g. 10s × 0.1/s = 1 token) can compute
 // to 0.9999999999999 for other rate/elapsed pairs, and must still admit. The

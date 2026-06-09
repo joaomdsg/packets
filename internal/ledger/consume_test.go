@@ -47,7 +47,7 @@ func TestConsumeClaims_mintsDistinctClaimsButDedupesAReplay(t *testing.T) {
 	defer cancel()
 	f := isolatedFab(t)
 	log := ledger.Bind(f, "s", "i")
-	go func() { _ = log.ConsumeClaims(ctx, confirmFromClaim, 30*time.Second) }()
+	go func() { _ = log.ConsumeClaims(ctx, confirmFromClaim, 30*time.Second, nil) }()
 
 	require.NoError(t, mustPublishClaim(ctx, f, claimAt(4)))
 	require.Eventually(t, balanceIs(log, 1),
@@ -73,7 +73,7 @@ func TestConsumeClaims_mintsNothingWhenTheVerifierRejects(t *testing.T) {
 	f := isolatedFab(t)
 	log := ledger.Bind(f, "s", "i")
 	reject := func(ledger.ClaimRecord) (*ledger.CatchRecord, error) { return nil, nil }
-	go func() { _ = log.ConsumeClaims(ctx, reject, 30*time.Second) }()
+	go func() { _ = log.ConsumeClaims(ctx, reject, 30*time.Second, nil) }()
 
 	require.NoError(t, mustPublishClaim(ctx, f, claimAt(4)))
 	require.Never(t, func() bool { return !balanceIs(log, 0)() },
@@ -97,7 +97,7 @@ func TestConsumeClaims_mintsNothingWhenTheVerifierErrsAndKeepsConsuming(t *testi
 		}
 		return confirmFromClaim(c)
 	}
-	go func() { _ = log.ConsumeClaims(ctx, verify, 30*time.Second) }()
+	go func() { _ = log.ConsumeClaims(ctx, verify, 30*time.Second, nil) }()
 
 	require.NoError(t, mustPublishClaim(ctx, f, claimAt(4)))
 	require.Never(t, func() bool { return !balanceIs(log, 0)() },
@@ -113,7 +113,7 @@ func TestConsumeClaims_survivesAMalformedClaimAndKeepsConsuming(t *testing.T) {
 	defer cancel()
 	f := isolatedFab(t)
 	log := ledger.Bind(f, "s", "i")
-	go func() { _ = log.ConsumeClaims(ctx, confirmFromClaim, 30*time.Second) }()
+	go func() { _ = log.ConsumeClaims(ctx, confirmFromClaim, 30*time.Second, nil) }()
 
 	// Garbage on the claim subtree must not tear the consumer down — a later valid
 	// claim still mints.
@@ -139,7 +139,7 @@ func TestConsumeClaims_mintsTheSameEconomyAsADirectAppend(t *testing.T) {
 
 	fb := isolatedFab(t)
 	viaClaim := ledger.Bind(fb, "s", "i")
-	go func() { _ = viaClaim.ConsumeClaims(ctx, confirmFromClaim, 30*time.Second) }()
+	go func() { _ = viaClaim.ConsumeClaims(ctx, confirmFromClaim, 30*time.Second, nil) }()
 	require.NoError(t, mustPublishClaim(ctx, fb, claimAt(4)))
 	require.Eventually(t, balanceIs(viaClaim, 1),
 		3*time.Second, 20*time.Millisecond, "the claim must mint")
@@ -171,7 +171,7 @@ func TestConsumeClaims_restartDoesNotReverifyAlreadyProcessedClaims(t *testing.T
 	// Run 1: consume, verify (counting), mint, then stop.
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	var count1 atomic.Int32
-	go func() { _ = log.ConsumeClaims(ctx1, counting(&count1), 30*time.Second) }()
+	go func() { _ = log.ConsumeClaims(ctx1, counting(&count1), 30*time.Second, nil) }()
 	require.NoError(t, mustPublishClaim(ctx1, f, claimAt(4)))
 	require.Eventually(t, balanceIs(log, 1),
 		3*time.Second, 20*time.Millisecond, "the claim must be verified and minted on the first run")
@@ -183,7 +183,7 @@ func TestConsumeClaims_restartDoesNotReverifyAlreadyProcessedClaims(t *testing.T
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
 	var count2 atomic.Int32
-	go func() { _ = log.ConsumeClaims(ctx2, counting(&count2), 30*time.Second) }()
+	go func() { _ = log.ConsumeClaims(ctx2, counting(&count2), 30*time.Second, nil) }()
 
 	require.Never(t, func() bool { return count2.Load() > 0 },
 		1500*time.Millisecond, 50*time.Millisecond,
@@ -202,7 +202,7 @@ func TestConsumeClaims_bindsDespiteDurableUnsafeSessionTokens(t *testing.T) {
 	defer cancel()
 	f := isolatedFab(t)
 	log := ledger.Bind(f, "work/123", "inst/9")
-	go func() { _ = log.ConsumeClaims(ctx, confirmFromClaim, 30*time.Second) }()
+	go func() { _ = log.ConsumeClaims(ctx, confirmFromClaim, 30*time.Second, nil) }()
 
 	_, err := ledger.PublishClaim(ctx, f, "work/123", "inst/9", claimAt(4))
 	require.NoError(t, err)
@@ -227,7 +227,7 @@ func TestConsumeClaims_skipsVerifyForAnAlreadyMintedTarget(t *testing.T) {
 		calls.Add(1)
 		return confirmFromClaim(c)
 	}
-	go func() { _ = log.ConsumeClaims(ctx, counting, 30*time.Second) }()
+	go func() { _ = log.ConsumeClaims(ctx, counting, 30*time.Second, nil) }()
 
 	require.NoError(t, mustPublishClaim(ctx, f, claimAt(4)))
 	require.Eventually(t, balanceIs(log, 1),
@@ -241,6 +241,76 @@ func TestConsumeClaims_skipsVerifyForAnAlreadyMintedTarget(t *testing.T) {
 		1500*time.Millisecond, 50*time.Millisecond,
 		"an already-minted target must be skipped before verify — no wasted cage run")
 	require.True(t, balanceIs(log, 1)(), "the economy is unchanged")
+}
+
+// A producer that floods distinct claims must be rate-limited BEFORE the
+// (expensive, sandboxed) verifier: at a single instant only its burst's worth of
+// claims may pass admission and mint; the rest are ack-dropped (the producer
+// resubmits later). Verification compute is the scarce resource a flood targets.
+func TestConsumeClaims_rateLimitsAProducerToItsBurst(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	// Constant clock → the bucket never refills, so exactly the burst (2) is
+	// admissible at this instant. Deterministic count, no clock race.
+	fixed := time.Unix(1000, 0)
+	adm := &ledger.Admission{Burst: 2, RatePerSec: 0.1, Now: func() time.Time { return fixed }}
+	go func() { _ = log.ConsumeClaims(ctx, confirmFromClaim, 30*time.Second, adm) }()
+
+	for i := 1; i <= 5; i++ { // five DISTINCT targets, so idempotency doesn't swallow any
+		require.NoError(t, mustPublishClaim(ctx, f, claimAt(i)))
+	}
+	require.Eventually(t, balanceIs(log, 2),
+		3*time.Second, 20*time.Millisecond, "exactly the burst (2) passes admission and mints")
+	require.Never(t, func() bool { b, err := log.Balance(); return err == nil && b > 2 },
+		1*time.Second, 50*time.Millisecond, "claims beyond the burst are rate-limited — they never mint at a fixed instant")
+}
+
+// The idempotency skip must come BEFORE the rate check: an already-minted
+// duplicate must not spend a rate token, or a flood of replays would starve the
+// budget that genuine new claims need. With burst 2: claim A mints (1 token
+// left), the replay of A is skipped WITHOUT spending a token, so a distinct B
+// still has a token and mints → balance 2. If the rate check ran before the skip,
+// the replay would burn the last token and B would be rate-limited → balance 1.
+func TestConsumeClaims_anAlreadyMintedDuplicateDoesNotSpendARateToken(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	fixed := time.Unix(1000, 0)
+	adm := &ledger.Admission{Burst: 2, RatePerSec: 0.1, Now: func() time.Time { return fixed }}
+	go func() { _ = log.ConsumeClaims(ctx, confirmFromClaim, 30*time.Second, adm) }()
+
+	require.NoError(t, mustPublishClaim(ctx, f, claimAt(1)))
+	require.Eventually(t, balanceIs(log, 1),
+		3*time.Second, 20*time.Millisecond, "claim A mints (one token spent)")
+
+	require.NoError(t, mustPublishClaim(ctx, f, claimAt(1))) // replay A — already minted, must be skipped before the rate check
+	require.NoError(t, mustPublishClaim(ctx, f, claimAt(2))) // distinct B — its token must not have been stolen by the replay
+	require.Eventually(t, balanceIs(log, 2),
+		3*time.Second, 20*time.Millisecond, "B mints because the replay was skipped before spending a token (skip precedes rate check)")
+}
+
+// A nil Admission imposes no rate limit: every distinct claim is verified and
+// minted — the unbounded behavior the limited case above is measured against.
+func TestConsumeClaims_nilAdmissionImposesNoRateLimit(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+	go func() { _ = log.ConsumeClaims(ctx, confirmFromClaim, 30*time.Second, nil) }()
+
+	for i := 1; i <= 5; i++ {
+		require.NoError(t, mustPublishClaim(ctx, f, claimAt(i)))
+	}
+	require.Eventually(t, balanceIs(log, 5),
+		3*time.Second, 20*time.Millisecond, "with no admission limit, all five distinct claims mint")
 }
 
 func mustPublishClaim(ctx context.Context, f *fabric.Fabric, c ledger.ClaimRecord) error {

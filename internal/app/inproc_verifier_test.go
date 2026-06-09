@@ -76,7 +76,7 @@ func TestInProcVerifier_mintsOnceThroughTheClaimConsumerAndDedupesAReplay(t *tes
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = log.ConsumeClaims(ctx, app.InProcVerifier(dir, goTestCmd), 30*time.Second) }()
+	go func() { _ = log.ConsumeClaims(ctx, app.InProcVerifier(dir, goTestCmd), 30*time.Second, nil) }()
 
 	balance := func() int { b, _ := log.Balance(); return b }
 
