@@ -76,6 +76,27 @@ provenance of the input work moves across the boundary.
 - The in-process default is the regression oracle; no unit test may claim to
   verify the kernel trio.
 
+## Refinement (post-R32, maintainer decision)
+
+The maintainer confirmed the target is running MULTIPLE UNTRUSTED agents. That
+sharpens two things the council left implicit:
+
+- Verification executes the agent's code (the oracle compiles + runs its
+  tests/mutants). For untrusted agents this MUST run sandboxed — it cannot run
+  in the trusted host process. So the verify step is part of #6c (gated), not a
+  free in-process call.
+- Therefore #6a' is built with the verifier as a SEAM (an injected
+  interface/func): the safe scaffold — claim schema, host-side claim consumer,
+  and mint-on-verdict reusing the existing single mint path — lands now with a
+  stub verifier in tests; the real sandboxed verifier slots into that seam at
+  #6c. #6c (the sandbox that runs verification on untrusted code + the agent
+  isolation) is now the required critical path, gated on the maintainer's
+  runtime choice.
+
+Progress: #6a shipped (listen + authn/authz). #6a' scaffold underway — the
+claim schema (ledger.ClaimRecord / PublishClaim / DecodeClaim on the claim
+subtree) has landed, with the invariant that a claim mints nothing on its own.
+
 ## What the council did NOT decide
 
 Whether and when to authorize the gated boundary, and the target deployment

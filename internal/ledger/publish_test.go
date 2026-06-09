@@ -154,6 +154,7 @@ func TestDecoders_returnErrorOnMalformedPayload(t *testing.T) {
 		fn   func([]byte) error
 	}{
 		{"catch", func(b []byte) error { _, err := ledger.DecodeCatch(b); return err }},
+		{"claim", func(b []byte) error { _, err := ledger.DecodeClaim(b); return err }},
 		{"spend", func(b []byte) error { _, err := ledger.DecodeSpend(b); return err }},
 		{"workorder", func(b []byte) error { _, err := ledger.DecodeWorkOrder(b); return err }},
 		{"wostatus", func(b []byte) error { _, err := ledger.DecodeStatus(b); return err }},
