@@ -7,7 +7,6 @@ package app
 import (
 	"context"
 
-	"github.com/joaomdsg/packets/internal/catch"
 	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
@@ -54,21 +53,6 @@ func ResolveStreaming(ctx context.Context, repoDir, baseRev, fixRev, tipRev stri
 
 	verdict := surface.PresentVerdict(false, res.Outcome, res.Reason, len(res.After.Inventory), len(res.After.Survivors))
 
-	var record *ledger.CatchRecord
-	if ledger.ShouldRecord(res.Outcome) {
-		record = &ledger.CatchRecord{
-			Outcome:           res.Outcome,
-			Path:              res.Path,
-			Line:              res.Line,
-			BeforeRev:         baseRev,
-			AfterRev:          fixRev,
-			BeforeInventory:   res.Before.Inventory,
-			AfterInventory:    res.After.Inventory,
-			MutantsConsidered: len(res.After.Inventory),
-			ReasonTag:         string(catch.Catch),
-			SelfFlagged:       selfFlagged,
-			WouldHaveShipped:  wouldHaveShipped,
-		}
-	}
+	record := ledger.NewCatchRecord(res.Outcome, res.Path, res.Line, baseRev, fixRev, res.Before.Inventory, res.After.Inventory, selfFlagged, wouldHaveShipped)
 	return Resolution{Verdict: verdict, Land: res.Land, Trace: res.Trace, Record: record}, nil
 }

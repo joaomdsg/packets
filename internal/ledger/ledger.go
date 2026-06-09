@@ -47,6 +47,33 @@ func ShouldRecord(o catch.Outcome) bool {
 	return o == catch.Catch
 }
 
+// NewCatchRecord is the SINGLE construction site for a CatchRecord: every mint —
+// the in-process review cycle and the sandboxed cage verifier alike — builds its
+// record here, so there is exactly one place that decides a catch's recorded
+// shape (the single-minter invariant). It returns nil when the outcome is not
+// recordable (ShouldRecord), so callers can assign its result unconditionally.
+// MutantsConsidered is the after-revision inventory size (the catch's per-line
+// denominator) and ReasonTag is fixed to the catch tag. Producer provenance is
+// stamped later, by whichever consumer appends the record.
+func NewCatchRecord(outcome catch.Outcome, path string, line int, beforeRev, afterRev string, beforeInv, afterInv []string, selfFlagged, wouldHaveShipped bool) *CatchRecord {
+	if !ShouldRecord(outcome) {
+		return nil
+	}
+	return &CatchRecord{
+		Outcome:           outcome,
+		Path:              path,
+		Line:              line,
+		BeforeRev:         beforeRev,
+		AfterRev:          afterRev,
+		BeforeInventory:   beforeInv,
+		AfterInventory:    afterInv,
+		MutantsConsidered: len(afterInv),
+		ReasonTag:         string(catch.Catch),
+		SelfFlagged:       selfFlagged,
+		WouldHaveShipped:  wouldHaveShipped,
+	}
+}
+
 // kindSpend tags a debit line; kindWorkOrder tags a funded work-order line. A
 // catch line carries NO kind field, so logs written before spends/work-orders
 // existed re-read byte-identically.
