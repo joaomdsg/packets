@@ -81,14 +81,25 @@ provenance of the input work moves across the boundary.
     host re-derives the economic fact and mints. The box NEVER asserts an
     authoritative PASS. ONE oracle artifact, two invocation sites (in-proc +
     in-container) — never a second oracle.
-  - **Build order (blast-radius first):** (1) netns + host egress proxy
-    (default-deny) → (2) seccomp/LSM profile → (3) out-of-container permission
-    broker (approvals as fabric events, per UX — subscribable, causal).
+  - **Cage build status (SHIPPED, slices 1-4):** the launch contract +
+    fail-closed conform gate; and break-out proofs — egress (--network=none),
+    pids cap, and a seccomp syscall-deny profile — each real-container,
+    differential, mutation-verified. read-only/caps deferred (confounded by the
+    non-root user; need a root-differential). The kernel members are NOT
+    pure-Go unit-testable — integration only (attempt the forbidden op → assert
+    denial; never a config flag).
+  - **Egress proxy — DROPPED (round 34):** the verification flow keeps the cage
+    at --network=none and feeds deps from a host-provided READ-ONLY module
+    cache, so no in-cage egress (and no egress proxy) is needed. The egress
+    allowlist boundary it would have held moves to the trusted-side prefetcher.
+  - **Out-of-container permission broker:** approvals as fabric events, per UX
+    — still part of #6c, after the verification flow.
+  - **Verification flow (converged round 34):** see the dedicated section below.
   - **Farm ships WITH its governor:** ephemeral one-shot workers, fan-out
     verify / fan-in serial mint on the EXISTING single append lane; caps +
     per-agent quotas + admission control in the SAME increment; NO shared
-    writable cache across trust domains (host-write-only content-addressed +
-    per-claim ephemeral; deps via the egress allowlist).
+    writable cache across trust domains (the module cache is host-write-only,
+    read-only-mounted, content-addressed; per-claim worktree ephemeral).
   - **Determinism:** pin toolchain/seed/clock, no network; content-addressed
     claims dedup re-verification; charge-on-submission; **flake ≡ reject**.
   - **Equivalence lock extended:** a DIFFERENTIAL test (in-proc verdict ≡
@@ -101,6 +112,55 @@ provenance of the input work moves across the boundary.
     sandbox in enforcement tests, asserting a config/profile string, trusting a
     self-reported exit code. #6c stays hard-gated until that suite is wired and
     green.
+
+## #6c verification flow (converged round 34)
+
+How the host runs the oracle on an agent's work inside the cage:
+
+- **Transport — SHA-pinned shared object store.** The claim carries immutable
+  commit SHAs; the host checks those exact SHAs out of a host-controlled object
+  store and materializes a byte-identical repoDir. A git SHA is an immutable
+  content-address → no TOCTOU, verify-A/mint-B impossible, each claim pins its
+  own base+fix. Patch-apply rejected (a divergent second materialization). How
+  the agent's commits reach the store (a push endpoint gated by #6a authz) is
+  build-time plumbing.
+- **Deps offline — read-only, content-addressed module cache.** A curated
+  GOMODCACHE populated by a TRUSTED-SIDE prefetch (`go mod download` +
+  go.sum/policy verify = an admission gate, the only network in the system),
+  mounted read-only into the cage with `GOPROXY=off`. Cage stays
+  --network=none. Cache-miss is a hard fail, never a network fallback.
+- **Base image — fixed, digest-pinned, host-built, minimal, GOTOOLCHAIN=local**,
+  with the SAME `packets` binary shipped in (one oracle, two sites — never a
+  forked copy).
+- **Verdict evidence — host re-derives, box asserts nothing.** The cage emits a
+  mutation transcript (baseline-green + per-mutant killed/survived + output
+  digests + mutant→line map + determinism markers); the host recomputes the
+  survivor-set delta, the anchor binding (the mutant maps to the claimed line
+  in the rev the host authorized), the class, and the mint decision. An
+  incomplete or non-deterministic transcript → reject (never default-PASS).
+- **Determinism / idempotency.** work-id = H(base-image-digest ‖ revs ‖ work ‖
+  toolchain ‖ seed ‖ clock); same work-id ⇒ same transcript ⇒ ≤1 catch per
+  anchor (replay is a cache hit). flake ≡ reject, on the host's observation.
+
+Build sequence (suite green at each step; NO untrusted claim accepted until the
+equivalence lock + lie-green trap are green):
+
+1. `packets verify-catch` subcommand wrapping RunCatchCycle over an
+   arg-supplied repoDir — pure refactor, characterization-locked to in-proc.
+2. Host repoDir materialization (checkout the claim's base+fix SHAs) +
+   trusted-side prefetch into the read-only GOMODCACHE.
+3. Real cage-exec Verifier behind the seam (NOT default): same `packets` binary
+   in the pinned image, RO worktree + RO cache, GOPROXY=off, --network=none.
+4. Host re-derives the verdict from the transcript (never the exit code);
+   incomplete/non-deterministic → reject; the lie-green-trap test.
+5. The differential equivalence lock (in-proc ≡ sandboxed → identical
+   projection) green on a real corpus — THEN flip the default to sandboxed.
+6. The farm governor (caps/quotas/admission, verify-at-tip).
+
+New trusted-side surface flagged for its own rigor: the PREFETCHER (network +
+write to the curated cache) is the highest-value target — pin it, sum-verify
+everything it writes, treat its fetch allowlist as the security boundary the
+dropped egress proxy would have been.
 
 ## Carried invariants / riders
 

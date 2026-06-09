@@ -82,6 +82,8 @@ Layout of this directory:
   host-side mint); council CONVERGED on #6's design → [`06-plan.md`](06-plan.md)
 - [Round 33](round-33.md) — #6c sandbox design on plain Linux containers,
   CONVERGED 5/5 (Security lens added)
+- [Round 34](round-34.md) — #6c verification-flow mechanics: SHA-pinned
+  transport, read-only dep cache, host-derived verdict; egress proxy dropped
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
