@@ -1,0 +1,7 @@
+# The cage image needs only the Go module + sources to build `packets`. Keep the
+# build context lean and deterministic: no VCS history, design record, or local
+# scratch.
+.git
+council
+MEMORY.md
+*.md
