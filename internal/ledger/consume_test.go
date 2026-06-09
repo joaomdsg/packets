@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -148,6 +149,66 @@ func TestConsumeClaims_mintsTheSameEconomyAsADirectAppend(t *testing.T) {
 	pv, err := viaClaim.Records()
 	require.NoError(t, err)
 	require.Equal(t, pd, pv, "claim-minted economy must match the direct-append economy")
+}
+
+// Restarting the claim consumer must NOT re-verify claims it already processed.
+// Verification is the scarce resource (each is a full sandboxed oracle run), so a
+// consumer that replayed the whole claim backlog from seq 0 on every restart
+// would let the verifier be starved by its own history. The durable consumer
+// resumes past what it already acked, so a restart re-verifies nothing already done.
+func TestConsumeClaims_restartDoesNotReverifyAlreadyProcessedClaims(t *testing.T) {
+	t.Parallel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	counting := func(n *atomic.Int32) ledger.Verifier {
+		return func(c ledger.ClaimRecord) (*ledger.CatchRecord, error) {
+			n.Add(1)
+			return confirmFromClaim(c)
+		}
+	}
+
+	// Run 1: consume, verify (counting), mint, then stop.
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	var count1 atomic.Int32
+	go func() { _ = log.ConsumeClaims(ctx1, counting(&count1)) }()
+	require.NoError(t, mustPublishClaim(ctx1, f, claimAt(4)))
+	require.Eventually(t, balanceIs(log, 1),
+		3*time.Second, 20*time.Millisecond, "the claim must be verified and minted on the first run")
+	time.Sleep(250 * time.Millisecond) // let the post-mint ack land before tearing the consumer down
+	cancel1()
+
+	// Run 2: same Log → same durable. The already-acked claim must NOT be
+	// redelivered, so the (expensive) verifier is never invoked again for it.
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+	var count2 atomic.Int32
+	go func() { _ = log.ConsumeClaims(ctx2, counting(&count2)) }()
+
+	require.Never(t, func() bool { return count2.Load() > 0 },
+		1500*time.Millisecond, 50*time.Millisecond,
+		"a restart must resume past the already-processed claim, never re-running the verifier over it")
+	require.True(t, balanceIs(log, 1)(), "the economy is unchanged by the restart")
+}
+
+// A session token may legally contain characters that are valid in a NATS
+// SUBJECT token (e.g. '/') but INVALID in a durable-consumer NAME. The claim
+// consumer must sanitize the durable name derived from session+instance, or it
+// can't bind its consumer at all and verifies nothing. '/' passes ValidToken
+// (which only forbids ". \t*>"), so it's a real input, not a hypothetical.
+func TestConsumeClaims_bindsDespiteDurableUnsafeSessionTokens(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "work/123", "inst/9")
+	go func() { _ = log.ConsumeClaims(ctx, confirmFromClaim) }()
+
+	_, err := ledger.PublishClaim(ctx, f, "work/123", "inst/9", claimAt(4))
+	require.NoError(t, err)
+	require.Eventually(t, balanceIs(log, 1),
+		3*time.Second, 20*time.Millisecond,
+		"a claim on a session whose token has durable-unsafe chars must still verify+mint — the durable name was sanitized")
 }
 
 func mustPublishClaim(ctx context.Context, f *fabric.Fabric, c ledger.ClaimRecord) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/joaomdsg/packets/internal/fabric"
 )
@@ -62,20 +63,35 @@ type Verifier func(ClaimRecord) (*CatchRecord, error)
 // goroutine and MUST cancel ctx when done.
 func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier) error {
 	filter := fabric.EventSubject(l.session, l.instance, fabric.StatusClaim, ">")
-	events, err := l.f.Subscribe(ctx, filter)
-	if err != nil {
-		return err
-	}
-	for e := range events {
+	return l.f.ConsumeDurable(ctx, claimDurable(l.session, l.instance), filter, func(e fabric.Event) error {
 		claim, err := DecodeClaim(e.Data)
 		if err != nil {
-			continue
+			return nil // a malformed claim is skipped (acked), not redelivered forever
 		}
 		rec, err := verify(claim)
 		if err != nil || rec == nil {
-			continue
+			return nil // verifier error or no-catch verdict: nothing to mint, ack and move on
 		}
-		_ = l.Append(*rec)
-	}
-	return ctx.Err()
+		_ = l.Append(*rec) // a gate-refused (duplicate/non-catch) mint is best-effort, matching the in-process path
+		return nil
+	})
+}
+
+// claimDurable is the stable durable-consumer name for a log's claim subtree,
+// derived from its session+instance so a restart resumes the SAME consumer
+// (resuming past already-processed claims). NATS durable names forbid the subject
+// separators and wildcards, so any are mapped to '_'.
+func claimDurable(session, instance string) string {
+	return "claims_" + durableToken(session) + "_" + durableToken(instance)
+}
+
+func durableToken(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '.', '*', '>', ' ', '/', '\t', '\n':
+			return '_'
+		default:
+			return r
+		}
+	}, s)
 }
