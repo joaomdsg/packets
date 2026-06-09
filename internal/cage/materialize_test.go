@@ -40,53 +40,88 @@ func targetOf(base, fix, tip string) ledger.Target {
 // The cage runs the oracle over the claim's revisions, so the materialized repo
 // must actually CONTAIN base, fix and tip as reachable objects — otherwise the
 // in-cage checkout of any of them fails before a single test runs.
-func TestMaterialize_containsEveryTargetRevision(t *testing.T) {
+func TestMaterialize_repoContainsEveryTargetRevision(t *testing.T) {
 	t.Parallel()
 	host, base, fix, tip := hostRepoWithThreeRevs(t)
 
-	dir, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, tip))
+	wd, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, tip))
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 
 	for _, rev := range []string{base, fix, tip} {
-		err := exec.Command("git", "-C", dir, "cat-file", "-e", rev+"^{commit}").Run()
+		err := exec.Command("git", "-C", wd.Repo, "cat-file", "-e", rev+"^{commit}").Run()
 		assert.NoErrorf(t, err, "the materialized repo must contain revision %s", rev)
 	}
 }
 
+// The cage mounts a SINGLE writable /work dir, and the mutation oracle copies the
+// repo working tree per mutant — so the go caches must be EMPTY scratch dirs that
+// are siblings of the repo under Root, never inside the repo (or they'd be
+// recopied and balloon, and TMPDIR would land on the small noexec tmpfs). Root is
+// what gets bind-mounted; the in-container paths derive from it.
+func TestMaterialize_laysOutCacheSiblingsBesideTheRepo(t *testing.T) {
+	t.Parallel()
+	host, base, fix, tip := hostRepoWithThreeRevs(t)
+
+	wd, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, tip))
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	// The repo lives under Root.
+	assert.Equal(t, wd.Root, filepath.Dir(wd.Repo), "the repo must be a direct child of Root")
+
+	for name, dir := range map[string]string{"GoCache": wd.GoCache, "GoTmp": wd.GoTmp, "GoPath": wd.GoPath, "Tmp": wd.Tmp} {
+		info, statErr := os.Stat(dir)
+		require.NoErrorf(t, statErr, "%s must exist", name)
+		assert.Truef(t, info.IsDir(), "%s must be a directory", name)
+
+		entries, readErr := os.ReadDir(dir)
+		require.NoError(t, readErr)
+		assert.Emptyf(t, entries, "%s must be an empty scratch dir", name)
+
+		assert.Equalf(t, wd.Root, filepath.Dir(dir), "%s must be a direct child of Root (a sibling of the repo)", name)
+		assert.Falsef(t, strings.HasPrefix(dir, wd.Repo+string(os.PathSeparator)),
+			"%s must NOT live inside the repo — the oracle's per-mutant copy would recurse into it", name)
+
+		// The launch points go's caches/HOME/TMPDIR here, so they must be writable.
+		assert.NoErrorf(t, os.WriteFile(filepath.Join(dir, "probe"), []byte("x"), 0o644),
+			"%s must be writable — the cage's go toolchain writes into it", name)
+	}
+}
+
 // The host's real repo must never be the thing handed to the cage: materialize
-// produces a SEPARATE directory, so nothing the (eventually untrusted) cage does
-// can reach host state.
+// produces a SEPARATE Root, so nothing the (eventually untrusted) cage does can
+// reach host state.
 func TestMaterialize_isASeparateDirectoryFromTheHostRepo(t *testing.T) {
 	t.Parallel()
 	host, base, fix, tip := hostRepoWithThreeRevs(t)
 
-	dir, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, tip))
+	wd, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, tip))
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 
-	assert.NotEqual(t, host, dir, "the materialized repo must not be the host repo itself")
-	abs, err := filepath.Abs(dir)
+	assert.NotEqual(t, host, wd.Root, "the materialized root must not be the host repo itself")
+	rootAbs, err := filepath.Abs(wd.Root)
 	require.NoError(t, err)
 	hostAbs, err := filepath.Abs(host)
 	require.NoError(t, err)
-	assert.False(t, strings.HasPrefix(abs, hostAbs+string(os.PathSeparator)),
-		"the materialized repo must not live inside the host repo tree")
+	assert.False(t, strings.HasPrefix(rootAbs, hostAbs+string(os.PathSeparator)),
+		"the materialized root must not live inside the host repo tree")
 }
 
 // The whole point of option 1: the cage repo is WRITABLE and disposable, so the
 // oracle's `git worktree add` (which writes .git/worktrees/<id>) succeeds —
 // unlike a read-only host-repo mount, which would fail before any verification.
-func TestMaterialize_isWritableSoTheOracleCanAddWorktrees(t *testing.T) {
+func TestMaterialize_repoIsWritableSoTheOracleCanAddWorktrees(t *testing.T) {
 	t.Parallel()
 	host, base, fix, tip := hostRepoWithThreeRevs(t)
 
-	dir, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, tip))
+	wd, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, tip))
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 
 	wt := filepath.Join(t.TempDir(), "wt")
-	out, err := exec.Command("git", "-C", dir, "worktree", "add", "--detach", wt, fix).CombinedOutput()
+	out, err := exec.Command("git", "-C", wd.Repo, "worktree", "add", "--detach", wt, fix).CombinedOutput()
 	require.NoErrorf(t, err, "a disposable cage repo must permit `git worktree add`: %s", out)
 }
 
@@ -97,7 +132,7 @@ func TestMaterialize_doesNotHardlinkObjectsBackIntoTheHostRepo(t *testing.T) {
 	t.Parallel()
 	host, base, fix, tip := hostRepoWithThreeRevs(t)
 
-	dir, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, tip))
+	wd, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, tip))
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 
@@ -113,22 +148,22 @@ func TestMaterialize_doesNotHardlinkObjectsBackIntoTheHostRepo(t *testing.T) {
 		t.Skip("hardlinks not possible on this filesystem; --no-hardlinks check is inconclusive")
 	}
 
-	assert.False(t, sharesAnInode(t, filepath.Join(host, ".git", "objects"), filepath.Join(dir, ".git", "objects")),
+	assert.False(t, sharesAnInode(t, filepath.Join(host, ".git", "objects"), filepath.Join(wd.Repo, ".git", "objects")),
 		"the cage copy must not hardlink objects back into the host repo (--no-hardlinks)")
 }
 
-// Cleanup reaps the scratch repo — an unbounded farm of verification runs must
-// not leak a repo copy per claim.
-func TestMaterialize_cleanupRemovesTheScratchRepo(t *testing.T) {
+// Cleanup reaps the whole Root — an unbounded farm of verification runs must not
+// leak a workdir (repo + caches) per claim.
+func TestMaterialize_cleanupRemovesTheWholeRoot(t *testing.T) {
 	t.Parallel()
 	host, base, fix, tip := hostRepoWithThreeRevs(t)
 
-	dir, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, tip))
+	wd, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, tip))
 	require.NoError(t, err)
 
 	cleanup()
-	_, statErr := os.Stat(dir)
-	assert.True(t, os.IsNotExist(statErr), "cleanup must remove the scratch repo dir")
+	_, statErr := os.Stat(wd.Root)
+	assert.True(t, os.IsNotExist(statErr), "cleanup must remove the whole workdir root")
 }
 
 // Fail-closed: a Target whose revisions the host repo cannot resolve — a SHA it
@@ -151,12 +186,12 @@ func TestMaterialize_rejectsAnUnresolvableTargetRevision(t *testing.T) {
 	for _, b := range bad {
 		t.Run(b.name, func(t *testing.T) {
 			t.Parallel()
-			dir, cleanup, err := cage.Materialize(context.Background(), host, b.target)
+			wd, cleanup, err := cage.Materialize(context.Background(), host, b.target)
 			if cleanup != nil {
 				t.Cleanup(cleanup)
 			}
 			require.Error(t, err, "an unresolvable Target (%s) must be refused", b.name)
-			require.Empty(t, dir, "no scratch repo path is returned on rejection")
+			require.Nil(t, wd, "no workdir is returned on rejection")
 		})
 	}
 }
@@ -173,12 +208,12 @@ func TestMaterialize_rejectsAFlagLikeTargetRevision(t *testing.T) {
 	for _, rev := range flagRevs {
 		t.Run(rev, func(t *testing.T) {
 			t.Parallel()
-			dir, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, rev))
+			wd, cleanup, err := cage.Materialize(context.Background(), host, targetOf(base, fix, rev))
 			if cleanup != nil {
 				t.Cleanup(cleanup)
 			}
 			require.Error(t, err, "a flag-like rev %q must be refused, not parsed as a git option", rev)
-			require.Empty(t, dir, "no scratch repo path is returned on rejection")
+			require.Nil(t, wd, "no workdir is returned on rejection")
 		})
 	}
 }
@@ -193,12 +228,12 @@ func TestMaterialize_doesNotTreatAFlagLikeHostRepoAsAnOption(t *testing.T) {
 	// The validation step (rev-parse with cmd.Dir=hostRepo) fails first for a
 	// bogus dir, which is enough to prove the flag-like value never reaches clone
 	// as a parsed option; either way Materialize must error and leave nothing.
-	dir, cleanup, err := cage.Materialize(context.Background(), "--upload-pack=touch /tmp/packets-pwned", targetOf(base, fix, tip))
+	wd, cleanup, err := cage.Materialize(context.Background(), "--upload-pack=touch /tmp/packets-pwned", targetOf(base, fix, tip))
 	if cleanup != nil {
 		t.Cleanup(cleanup)
 	}
 	require.Error(t, err, "a flag-like hostRepo must be refused")
-	require.Empty(t, dir)
+	require.Nil(t, wd)
 	_, statErr := os.Stat("/tmp/packets-pwned")
 	require.True(t, os.IsNotExist(statErr), "no injected command may have run")
 }
