@@ -2,7 +2,9 @@ package sandbox
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -67,6 +69,84 @@ func TestConform_refusesATamperedLaunch(t *testing.T) {
 			assert.Error(t, conform(tt.args), "a %s launch must be refused", tt.name)
 		})
 	}
+}
+
+// The cage must mount its verification inputs (the checked-out repo, the module
+// cache) READ-ONLY. conform admits exactly that — a read-only bind mount of a
+// non-sensitive source — and nothing more: a writable mount, a docker.sock
+// mount, a sensitive host source, or the -v short form are all refused.
+func TestConform_admitsReadOnlyInputMountsButRefusesDangerousOnes(t *testing.T) {
+	t.Parallel()
+	base := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}}, testProfile)
+
+	require.NoError(t,
+		conform(append(clone(base), "--mount=type=bind,source=/tmp/pkts-work,target=/work,readonly")),
+		"a read-only bind mount of a non-sensitive source is the cage's verification input")
+
+	bad := []struct{ name, mount string }{
+		{"writable bind mount", "--mount=type=bind,source=/tmp/pkts-work,target=/work"},
+		{"readonly docker.sock", "--mount=type=bind,source=/var/run/docker.sock,target=/sock,readonly"},
+		{"readonly sensitive /etc", "--mount=type=bind,source=/etc,target=/host-etc,readonly"},
+		{"readonly sensitive subpath", "--mount=type=bind,source=/var/lib/x,target=/x,readonly"},
+		{"sensitive /etc via src= alias", "--mount=type=bind,src=/etc,target=/x,readonly"},
+		{"sensitive /etc trailing slash", "--mount=type=bind,source=/etc/,target=/x,readonly"},
+		{"non-bind mount type=volume", "--mount=type=volume,source=somevol,target=/x,readonly"},
+		{"readonly=true value form not the bare token", "--mount=type=bind,source=/tmp/pkts-work,target=/work,readonly=true"},
+		{"short -v form even with ro", "-v=/tmp/pkts-work:/work:ro"},
+		// Docker parses --mount keys case-insensitively: `type=bind,Source=/etc`
+		// mounts the host /etc, but a case-sensitive gate would see no `source=`
+		// field (empty source) and wave it through. The gate must match keys the
+		// same way Docker does.
+		{"sensitive /etc via uppercase Source key", "--mount=type=bind,Source=/etc,target=/x,readonly"},
+		{"sensitive /etc via uppercase Src key", "--mount=type=bind,Src=/etc,target=/x,readonly"},
+		{"sensitive /etc via uppercase Type+Source keys", "--mount=Type=bind,Source=/etc,target=/x,readonly"},
+		{"docker.sock via uppercase Source key", "--mount=type=bind,Source=/var/run/docker.sock,target=/s,readonly"},
+		// An empty source (no source field at all) must never be admitted: it
+		// would clean to "." and slip past the sensitive-path check.
+		{"bind mount with no source field", "--mount=type=bind,target=/x,readonly"},
+		// Mixed-case type value: Docker accepts type=BIND, so the gate must treat
+		// it as a bind mount and still enforce the sensitive-source rule.
+		{"sensitive /etc via uppercase type value", "--mount=type=BIND,Source=/etc,target=/x,readonly"},
+	}
+	for _, b := range bad {
+		t.Run(b.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Error(t, conform(append(clone(base), b.mount)), "%s must be refused", b.name)
+		})
+	}
+}
+
+func TestDockerRunner_readOnlyInputMountIsReadableButNotWritable(t *testing.T) {
+	requireDocker(t)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "in.txt"), []byte("input-bytes"), 0o644))
+	// World-writable, so a denied write is the readonly mount flag, not the
+	// non-root user (which could write a 777 dir).
+	require.NoError(t, os.Chmod(dir, 0o777))
+	probe := []string{"sh", "-c", "cat /work/in.txt; touch /work/x 2>/dev/null && echo WRITE_OK || echo WRITE_BLOCKED"}
+
+	ro := runRaw(t, mountedHardenedArgs(dir, true, probe))
+	assert.Contains(t, ro, "input-bytes", "the read-only input mount must be readable")
+	assert.Contains(t, ro, "WRITE_BLOCKED", "the read-only input mount must not be writable")
+
+	rw := runRaw(t, mountedHardenedArgs(dir, false, probe))
+	assert.Contains(t, rw, "WRITE_OK",
+		"the SAME mount writable must permit the write — proving the block was the readonly flag, not the user")
+}
+
+// mountedHardenedArgs is a hardened launch carrying a single bind mount of dir at
+// /work (readonly when ro), for the RO-enforcement differential.
+func mountedHardenedArgs(dir string, ro bool, cmd []string) []string {
+	m := "--mount=type=bind,source=" + dir + ",target=/work"
+	if ro {
+		m += ",readonly"
+	}
+	args := []string{
+		"run", "--rm", "--network=none", "--cap-drop=ALL",
+		"--security-opt=no-new-privileges", "--read-only", "--user=65534:65534",
+		m, "busybox:latest",
+	}
+	return append(args, cmd...)
 }
 
 func TestDockerRunner_runsAndReapsAHardenedContainer(t *testing.T) {

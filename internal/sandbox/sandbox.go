@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -183,10 +184,73 @@ func conform(args []string) error {
 			return fmt.Errorf("sandbox: forbidden seccomp=unconfined (no syscall filter) %q", a)
 		case a == "--network=host", a == "--net=host", a == "--pid=host":
 			return fmt.Errorf("sandbox: forbidden host-namespace flag %q", a)
-		case a == "-v", a == "--volume", strings.HasPrefix(a, "-v="), strings.HasPrefix(a, "--volume="), strings.HasPrefix(a, "--mount="):
-			return fmt.Errorf("sandbox: forbidden host mount %q", a)
+		case a == "-v", a == "--volume", strings.HasPrefix(a, "-v="), strings.HasPrefix(a, "--volume="):
+			return fmt.Errorf("sandbox: forbidden host mount %q (use --mount=...,readonly)", a)
+		case strings.HasPrefix(a, "--mount="):
+			if err := checkMount(a); err != nil {
+				return err
+			}
 		case strings.Contains(a, "docker.sock"):
 			return fmt.Errorf("sandbox: forbidden docker-socket reference %q", a)
+		}
+	}
+	return nil
+}
+
+// sensitiveSources are host paths a bind mount must never expose to the cage,
+// even read-only: the root, system config/state/binaries, and the kernel
+// pseudo-filesystems. A source is sensitive if it equals one of these or lies
+// under it.
+var sensitiveSources = []string{"/", "/etc", "/var", "/proc", "/sys", "/dev", "/root", "/boot", "/usr", "/bin", "/sbin", "/lib", "/run"}
+
+// checkMount admits a --mount= arg ONLY when it is the cage's allowed shape: an
+// explicit read-only (bare `readonly`/`ro` token) bind mount of a non-empty,
+// non-sensitive, non-docker.sock source. Every other shape — writable, non-bind,
+// empty/sensitive/socket source, or a `readonly=true` value form rather than the
+// bare token — is refused fail-closed. Field keys (and the type value) are
+// matched case-insensitively because Docker parses them that way: a capitalized
+// `Source=/etc` mounts the host /etc just like `source=/etc`, so the gate must
+// see it too rather than read an empty source and wave it through.
+func checkMount(arg string) error {
+	val := strings.TrimPrefix(arg, "--mount=")
+	fields := strings.Split(val, ",")
+	var typ, source string
+	readonly := false
+	for _, f := range fields {
+		// Docker parses --mount keys (and the bare readonly/ro flags)
+		// case-insensitively, so `Type=bind`, `Source=/etc`, `Src=/etc` and
+		// `ReadOnly` all take effect at the runtime. Match the KEY the same way
+		// (lowercased) so a capitalized field cannot smuggle a sensitive source
+		// past this gate while still mounting it. The VALUE (e.g. the source
+		// path) is preserved verbatim. Split the key off the value once so we do
+		// not lowercase the path itself.
+		key, value, hasValue := strings.Cut(f, "=")
+		key = strings.ToLower(strings.TrimSpace(key))
+		switch {
+		case !hasValue && (key == "readonly" || key == "ro"):
+			readonly = true
+		case key == "type":
+			typ = strings.ToLower(value)
+		case key == "source", key == "src":
+			source = value
+		}
+	}
+	if typ != "bind" {
+		return fmt.Errorf("sandbox: forbidden non-bind mount %q", arg)
+	}
+	if !readonly {
+		return fmt.Errorf("sandbox: forbidden writable mount %q (read-only inputs only)", arg)
+	}
+	if strings.TrimSpace(source) == "" {
+		return fmt.Errorf("sandbox: forbidden bind mount with no source %q", arg)
+	}
+	clean := filepath.Clean(source)
+	if strings.Contains(clean, "docker.sock") {
+		return fmt.Errorf("sandbox: forbidden docker-socket reference %q", arg)
+	}
+	for _, s := range sensitiveSources {
+		if clean == s || (s != "/" && strings.HasPrefix(clean, s+"/")) {
+			return fmt.Errorf("sandbox: forbidden sensitive mount source %q", arg)
 		}
 	}
 	return nil
