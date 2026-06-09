@@ -211,6 +211,38 @@ func TestConsumeClaims_bindsDespiteDurableUnsafeSessionTokens(t *testing.T) {
 		"a claim on a session whose token has durable-unsafe chars must still verify+mint — the durable name was sanitized")
 }
 
+// A claim whose target is ALREADY MINTED must skip verify entirely — no second
+// (expensive, sandboxed) cage run. Append's identity gate already prevents a
+// double-mint, but re-running the verifier for a target the economy already
+// confirms is wasted compute, the scarce resource a flood could exhaust.
+func TestConsumeClaims_skipsVerifyForAnAlreadyMintedTarget(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	var calls atomic.Int32
+	counting := func(c ledger.ClaimRecord) (*ledger.CatchRecord, error) {
+		calls.Add(1)
+		return confirmFromClaim(c)
+	}
+	go func() { _ = log.ConsumeClaims(ctx, counting, 30*time.Second) }()
+
+	require.NoError(t, mustPublishClaim(ctx, f, claimAt(4)))
+	require.Eventually(t, balanceIs(log, 1),
+		3*time.Second, 20*time.Millisecond, "the claim must verify and mint once")
+	require.Equal(t, int32(1), calls.Load(), "verify ran exactly once for the first submission")
+
+	// Re-submitting the SAME target must NOT spend a second verify — the consumer
+	// sees it already minted in the committed economy and skips before verify.
+	require.NoError(t, mustPublishClaim(ctx, f, claimAt(4)))
+	require.Never(t, func() bool { return calls.Load() > 1 },
+		1500*time.Millisecond, 50*time.Millisecond,
+		"an already-minted target must be skipped before verify — no wasted cage run")
+	require.True(t, balanceIs(log, 1)(), "the economy is unchanged")
+}
+
 func mustPublishClaim(ctx context.Context, f *fabric.Fabric, c ledger.ClaimRecord) error {
 	_, err := ledger.PublishClaim(ctx, f, "s", "i", c)
 	return err

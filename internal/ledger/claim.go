@@ -74,6 +74,13 @@ func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.D
 		if err != nil {
 			return nil // a malformed claim is skipped (acked), not redelivered forever
 		}
+		// Skip the (expensive, sandboxed) verify if the target is already minted:
+		// Append would refuse the re-mint anyway, but only AFTER burning a cage run.
+		// On a read error, fall through to verify (do the work) — the gate still
+		// dedupes the mint, so a stale read costs compute, never correctness.
+		if records, rerr := l.Records(); rerr == nil && targetAlreadyMinted(records, claim.Target) {
+			return nil
+		}
 		rec, err := verify(claim)
 		if err != nil || rec == nil {
 			return nil // verifier error or no-catch verdict: nothing to mint, ack and move on
@@ -81,6 +88,19 @@ func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.D
 		_ = l.Append(*rec) // a gate-refused (duplicate/non-catch) mint is best-effort, matching the in-process path
 		return nil
 	})
+}
+
+// targetAlreadyMinted reports whether the committed economy already holds a catch
+// for this claim's target, matched on the catch IDENTITY (BeforeRev, AfterRev,
+// Path, Line) — the same fields Append dedupes on. TipRev is not part of the
+// identity, so it is not compared.
+func targetAlreadyMinted(records []CatchRecord, t Target) bool {
+	for _, r := range records {
+		if r.BeforeRev == t.BaseRev && r.AfterRev == t.FixRev && r.Path == t.Path && r.Line == t.Line {
+			return true
+		}
+	}
+	return false
 }
 
 // claimDurable is the stable durable-consumer name for a log's claim subtree,
