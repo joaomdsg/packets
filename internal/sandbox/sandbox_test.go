@@ -83,6 +83,36 @@ func TestDockerRunner_reportsANonZeroExitAsAResultNotAnError(t *testing.T) {
 	assert.NotEqual(t, 0, res.ExitCode, "a non-zero container exit must surface as a non-zero ExitCode")
 }
 
+// The egress lock is proven by attempting to observe the network from inside a
+// real container, never by reading the launch flags. Differential + non-vacuous:
+// the hardened (--network=none) container must have NO default route, while a
+// networked control container MUST — so a broken probe (which would report the
+// same for both) cannot pass, and a regression that drops --network=none flips
+// the hardened result to HASNET and fails the test.
+func TestDockerRunner_deniesEgressTheHardenedContainerHasNoNetwork(t *testing.T) {
+	requireDocker(t)
+	probe := []string{"sh", "-c", "ip route 2>/dev/null | grep -q default && echo HASNET || echo NONET"}
+
+	res, err := DockerRunner{}.Run(context.Background(), Spec{Image: "busybox:latest", Cmd: probe})
+	require.NoError(t, err)
+	assert.Contains(t, res.Output, "NONET", "the hardened container must have no route to the network")
+	assert.NotContains(t, res.Output, "HASNET")
+
+	control := runWithNetwork(t, probe)
+	assert.Contains(t, control, "HASNET",
+		"a networked control must see a route — else the probe is broken and the hardened NONET would be vacuous")
+}
+
+// runWithNetwork runs the probe in a control container WITH default networking
+// (no --network=none) — the differential baseline that proves the probe works.
+func runWithNetwork(t *testing.T, cmd []string) string {
+	t.Helper()
+	args := append([]string{"run", "--rm", "busybox:latest"}, cmd...)
+	out, err := exec.Command("docker", args...).CombinedOutput()
+	require.NoError(t, err, "control run failed: %s", out)
+	return string(out)
+}
+
 func clone(s []string) []string { return append([]string(nil), s...) }
 
 func without(s []string, drop string) []string {
