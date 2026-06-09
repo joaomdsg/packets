@@ -58,9 +58,36 @@ jobs:
       - name: Vet
         working-directory: packets
         run: go vet ./...
+      # Build the cage image so the #6c sandbox tests run for REAL instead of
+      # skipping: requireCageImage / requireDocker gate the break-out proofs and
+      # the in-proc≡cage equivalence lock on this image being present. Without
+      # this step those tests skip green and the security boundary is unverified
+      # by the pipeline. ubuntu-latest ships a running Docker daemon.
+      - name: Build cage image
+        working-directory: packets
+        run: docker build -f internal/cage/Dockerfile -t packets-cage:dev .
       - name: Test
         working-directory: packets
         # The catch oracle and mutation tests shell out to `go test` and git in
         # temp repos, so the suite needs git (present on ubuntu-latest) and a
-        # longer timeout than the default.
-        run: go test -race -timeout 15m ./...
+        # longer timeout than the default. With the cage image built above, the
+        # real-container sandbox + equivalence tests run here too.
+        run: go test -race -timeout 20m ./...
+      # Guard against silent skips: a regression (or a missing image) that made
+      # the cage tests skip would otherwise leave the job green. Re-run the
+      # load-bearing integration tests verbosely and FAIL unless they actually
+      # ran to PASS — a SKIP leaves no PASS line and trips the grep.
+      - name: Assert the cage security tests actually ran
+        working-directory: packets
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -count=1 -v -timeout 20m \
+            -run 'TestEquivalence_cagedCatchProjectionMatchesInProcess|TestDockerRunner_blocksNamespaceCreationViaSeccomp|TestDockerRunner_deniesEgressTheHardenedContainerHasNoNetwork' \
+            ./internal/cage/ ./internal/sandbox/ | tee cage-int.log
+          for tc in \
+            'TestEquivalence_cagedCatchProjectionMatchesInProcess' \
+            'TestDockerRunner_blocksNamespaceCreationViaSeccomp' \
+            'TestDockerRunner_deniesEgressTheHardenedContainerHasNoNetwork'; do
+            grep -q "^--- PASS: ${tc}" cage-int.log || { echo "FAIL: ${tc} did not run (skipped?) — the cage security boundary is unverified"; exit 1; }
+          done
