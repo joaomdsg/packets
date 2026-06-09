@@ -402,6 +402,56 @@ func indexOf(s []string, want string) int {
 	return -1
 }
 
+// The cage-exec launch must route HOME/GOCACHE/TMPDIR/etc into the writable
+// workdir; Spec.Env carries those and the runner renders them as --env pairs.
+// Order is preserved and deterministic (the equivalence lock pins byte-identical
+// argv for the same Spec), and every env pair precedes the image so it is a
+// docker run option, not an argument to the containerized command.
+func TestHardenedArgs_rendersSpecEnvAsOrderedDeterministicArgs(t *testing.T) {
+	t.Parallel()
+	s := Spec{
+		Image: "busybox:latest",
+		Cmd:   []string{"true"},
+		Env: []EnvVar{
+			{Name: "HOME", Value: "/work"},
+			{Name: "GOCACHE", Value: "/work/gocache"},
+			{Name: "GOFLAGS", Value: "-mod=mod"}, // a value containing '=' must survive verbatim
+		},
+	}
+	args := hardenedArgs(s, testProfile)
+
+	homeAt := indexOf(args, "HOME=/work")
+	cacheAt := indexOf(args, "GOCACHE=/work/gocache")
+	flagsAt := indexOf(args, "GOFLAGS=-mod=mod")
+	imageAt := indexOf(args, "busybox:latest")
+	require.NotEqual(t, -1, homeAt, "HOME env value must be rendered")
+	require.NotEqual(t, -1, cacheAt, "GOCACHE env value must be rendered")
+	require.NotEqual(t, -1, flagsAt, "a value containing '=' must render verbatim (NAME=VALUE splits on the first '=')")
+
+	// Each value is immediately preceded by a --env flag (the two-token form).
+	assert.Equal(t, "--env", args[homeAt-1], "the HOME value must be introduced by --env")
+	assert.Equal(t, "--env", args[cacheAt-1], "the GOCACHE value must be introduced by --env")
+
+	assert.Less(t, homeAt, cacheAt, "env pairs render in Spec order")
+	assert.Less(t, cacheAt, flagsAt, "env pairs render in Spec order")
+	assert.Less(t, flagsAt, imageAt, "every env pair precedes the image")
+
+	require.NoError(t, conform(args), "env pairs do not disturb conformance")
+
+	// Deterministic: the same Spec renders byte-identical argv (the equivalence
+	// lock compares the in-proc and cage launches), so no map iteration leaks in.
+	assert.Equal(t, args, hardenedArgs(s, testProfile), "the same Spec must render an identical argv")
+}
+
+// A Spec with no Env renders no --env — adding the field must not perturb the
+// bare hardened launch every existing env-free caller relies on.
+func TestHardenedArgs_noEnvRendersNoEnvArg(t *testing.T) {
+	t.Parallel()
+	args := hardenedArgs(Spec{Image: "busybox:latest", Cmd: []string{"true"}}, testProfile)
+	assert.NotContains(t, args, "--env", "a Spec with no Env must not render any --env flag")
+	require.NoError(t, conform(args))
+}
+
 func TestDockerRunner_runsAndReapsAHardenedContainer(t *testing.T) {
 	requireDocker(t)
 	res, err := DockerRunner{}.Run(context.Background(), Spec{Image: "busybox:latest", Cmd: []string{"true"}})

@@ -50,14 +50,23 @@ type Mount struct {
 	Readonly bool
 }
 
+// EnvVar is one environment variable set in the cage. Values are host-set (never
+// agent-supplied) — they route the cage's tools at writable paths (HOME, GOCACHE,
+// TMPDIR, …) — so they need no conform rule.
+type EnvVar struct {
+	Name  string
+	Value string
+}
+
 // Spec is what to run in a one-shot hardened container: the image, the command,
-// and the bind mounts the cage's inputs need. The isolation is applied
-// unconditionally by the runner, not chosen by the caller; the Mounts are the
-// one caller-supplied surface, and they are gated by conform.
+// the bind mounts the cage's inputs need, and the environment the cage's tools
+// require. The isolation is applied unconditionally by the runner, not chosen by
+// the caller; the Mounts are the one caller-supplied surface gated by conform.
 type Spec struct {
 	Image  string
 	Cmd    []string
 	Mounts []Mount
+	Env    []EnvVar
 }
 
 // Result is the observable outcome of a finished run. ExitCode and Output are
@@ -134,6 +143,9 @@ func hardenedArgs(s Spec, seccompProfilePath string) []string {
 			spec += ",readonly"
 		}
 		args = append(args, spec)
+	}
+	for _, e := range s.Env {
+		args = append(args, "--env", e.Name+"="+e.Value)
 	}
 	args = append(args, s.Image)
 	args = append(args, s.Cmd...)
