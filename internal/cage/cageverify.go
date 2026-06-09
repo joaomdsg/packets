@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/pipe"
@@ -27,9 +28,12 @@ const cageMount = "/work"
 // double in tests); hostRepo is the trusted repo the host holds; image is the
 // pinned cage image. It mirrors InProcVerifier's seam but executes untrusted-safe
 // in the cage rather than in-process.
-func CageVerifier(runner sandbox.Runner, hostRepo, image string) ledger.Verifier {
+func CageVerifier(runner sandbox.Runner, hostRepo, image string, verifyTimeout time.Duration) ledger.Verifier {
 	return func(c ledger.ClaimRecord) (*ledger.CatchRecord, error) {
-		ctx := context.Background()
+		// Bound every verify: a claim whose oracle loops forever must be cancelled,
+		// not hang the cage. DockerRunner kills the container on ctx-cancel.
+		ctx, cancel := context.WithTimeout(context.Background(), verifyTimeout)
+		defer cancel()
 		wd, cleanup, err := Materialize(ctx, hostRepo, c.Target)
 		if err != nil {
 			return nil, err

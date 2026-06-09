@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/nats-io/nats.go"
 )
@@ -20,12 +21,13 @@ import (
 // message can't wedge the stream. The durable is created once (idempotent across
 // rebinds) and is NOT deleted on teardown, so the next bind resumes. Canceling
 // ctx is the only teardown; the caller MUST cancel ctx when done.
-func (f *Fabric) ConsumeDurable(ctx context.Context, durable, filter string, handle func(Event) error) error {
+func (f *Fabric) ConsumeDurable(ctx context.Context, durable, filter string, ackWait time.Duration, handle func(Event) error) error {
 	if _, err := f.js.AddConsumer(streamName, &nats.ConsumerConfig{
 		Durable:       durable,
 		AckPolicy:     nats.AckExplicitPolicy,
 		DeliverPolicy: nats.DeliverAllPolicy,
 		FilterSubject: filter,
+		AckWait:       ackWait,
 	}); err != nil && !errors.Is(err, nats.ErrConsumerNameAlreadyInUse) {
 		return fmt.Errorf("fabric: durable consumer %s: %v", durable, err)
 	}

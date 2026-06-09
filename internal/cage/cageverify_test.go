@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,16 +29,40 @@ type fakeRunner struct {
 	result           sandbox.Result
 	err              error
 	repoExistedAtRun bool // whether the mounted workdir held repo/ when Run was called
+	block            bool // when true, block until ctx is cancelled (a hung verify)
 }
 
-func (f *fakeRunner) Run(_ context.Context, s sandbox.Spec) (sandbox.Result, error) {
+func (f *fakeRunner) Run(ctx context.Context, s sandbox.Spec) (sandbox.Result, error) {
 	f.got = s
 	if len(s.Mounts) > 0 {
 		if fi, err := os.Stat(filepath.Join(s.Mounts[0].Source, "repo")); err == nil && fi.IsDir() {
 			f.repoExistedAtRun = true
 		}
 	}
+	if f.block {
+		<-ctx.Done() // a verify that never finishes — the deadline must cancel it
+		return sandbox.Result{}, ctx.Err()
+	}
 	return f.result, f.err
+}
+
+// The cage must not hang on a verify that never finishes: the per-claim deadline
+// cancels it (the runner gets a cancelled ctx, kills the container) and the
+// verifier returns an error, minting nothing — rather than blocking forever.
+func TestCageVerifier_cancelsAVerifyThatExceedsTheDeadline(t *testing.T) {
+	t.Parallel()
+	host, base, fix, tip := hostRepoWithThreeRevs(t)
+	fake := &fakeRunner{block: true}
+
+	// 2s (not a few ms) so the real git Materialize completes and it's the blocking
+	// RUNNER the deadline cancels — the realistic hung-verify point — not the clone.
+	start := time.Now()
+	rec, err := cage.CageVerifier(fake, host, "img", 2*time.Second)(claimOver(base, fix, tip))
+	elapsed := time.Since(start)
+
+	require.Error(t, err, "a verify that exceeds the deadline must be cancelled and surfaced as an error")
+	assert.Nil(t, rec, "a cancelled verify mints nothing")
+	assert.Less(t, elapsed, 5*time.Second, "the deadline must cancel the verify, not let it hang")
 }
 
 func claimOver(base, fix, tip string) ledger.ClaimRecord {
@@ -74,7 +99,7 @@ func TestCageVerifier_launchesAWritableWorkMountWithToolchainEnv(t *testing.T) {
 	host, base, fix, tip := hostRepoWithThreeRevs(t)
 	fake := &fakeRunner{result: sandbox.Result{Output: catchTranscriptJSON(t, "adult.go", 2)}}
 
-	_, err := cage.CageVerifier(fake, host, "packets-cage:dev")(claimOver(base, fix, tip))
+	_, err := cage.CageVerifier(fake, host, "packets-cage:dev", 30*time.Second)(claimOver(base, fix, tip))
 	require.NoError(t, err)
 
 	require.Len(t, fake.got.Mounts, 1, "exactly one mount: the writable workdir")
@@ -111,7 +136,7 @@ func TestCageVerifier_mintsACatchFromAnEvidenceBackedTranscript(t *testing.T) {
 	host, base, fix, tip := hostRepoWithThreeRevs(t)
 	fake := &fakeRunner{result: sandbox.Result{Output: catchTranscriptJSON(t, "adult.go", 2)}}
 
-	rec, err := cage.CageVerifier(fake, host, "img")(claimOver(base, fix, tip))
+	rec, err := cage.CageVerifier(fake, host, "img", 30*time.Second)(claimOver(base, fix, tip))
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Equal(t, catch.Catch, rec.Outcome)
@@ -127,7 +152,7 @@ func TestCageVerifier_recoversTheTranscriptFromNoisyOutput(t *testing.T) {
 	noisy := "go: downloading ...\n" + catchTranscriptJSON(t, "adult.go", 2) + "\nexit status 0\n"
 	fake := &fakeRunner{result: sandbox.Result{Output: noisy}}
 
-	rec, err := cage.CageVerifier(fake, host, "img")(claimOver(base, fix, tip))
+	rec, err := cage.CageVerifier(fake, host, "img", 30*time.Second)(claimOver(base, fix, tip))
 	require.NoError(t, err)
 	require.NotNil(t, rec, "the verdict must be recovered from output surrounded by log noise")
 	assert.Equal(t, catch.Catch, rec.Outcome)
@@ -144,7 +169,7 @@ func TestCageVerifier_mintsNothingForANoCatchTranscript(t *testing.T) {
 	})
 	fake := &fakeRunner{result: sandbox.Result{Output: string(b)}}
 
-	rec, err := cage.CageVerifier(fake, host, "img")(claimOver(base, fix, tip))
+	rec, err := cage.CageVerifier(fake, host, "img", 30*time.Second)(claimOver(base, fix, tip))
 	require.NoError(t, err)
 	assert.Nil(t, rec)
 }
@@ -156,7 +181,7 @@ func TestCageVerifier_failsOnOutputWithNoVerdict(t *testing.T) {
 	host, base, fix, tip := hostRepoWithThreeRevs(t)
 	fake := &fakeRunner{result: sandbox.Result{Output: "panic: something\nexit status 2\n"}}
 
-	rec, err := cage.CageVerifier(fake, host, "img")(claimOver(base, fix, tip))
+	rec, err := cage.CageVerifier(fake, host, "img", 30*time.Second)(claimOver(base, fix, tip))
 	require.Error(t, err, "output carrying no verdict JSON must be an error")
 	assert.Nil(t, rec)
 }
@@ -168,7 +193,7 @@ func TestCageVerifier_failsOnAnUndecodableVerdict(t *testing.T) {
 	host, base, fix, tip := hostRepoWithThreeRevs(t)
 	fake := &fakeRunner{result: sandbox.Result{Output: "noise {not valid json, line: \"oops\"} trailing"}}
 
-	rec, err := cage.CageVerifier(fake, host, "img")(claimOver(base, fix, tip))
+	rec, err := cage.CageVerifier(fake, host, "img", 30*time.Second)(claimOver(base, fix, tip))
 	require.Error(t, err, "a present-but-undecodable verdict object must be an error")
 	assert.Nil(t, rec)
 }
@@ -184,7 +209,7 @@ func TestCageVerifier_propagatesAMaterializeFailure(t *testing.T) {
 	}}
 	fake := &fakeRunner{result: sandbox.Result{Output: catchTranscriptJSON(t, "adult.go", 2)}}
 
-	rec, err := cage.CageVerifier(fake, host, "img")(bogus)
+	rec, err := cage.CageVerifier(fake, host, "img", 30*time.Second)(bogus)
 	require.Error(t, err, "an unresolvable claim revision must fail before any cage run")
 	assert.Nil(t, rec)
 	assert.Equal(t, sandbox.Spec{}, fake.got, "the runner must never be invoked when materialization fails")
@@ -197,7 +222,7 @@ func TestCageVerifier_propagatesARunnerFailure(t *testing.T) {
 	host, base, fix, tip := hostRepoWithThreeRevs(t)
 	fake := &fakeRunner{err: assertErr{}}
 
-	rec, err := cage.CageVerifier(fake, host, "img")(claimOver(base, fix, tip))
+	rec, err := cage.CageVerifier(fake, host, "img", 30*time.Second)(claimOver(base, fix, tip))
 	require.Error(t, err)
 	assert.Nil(t, rec)
 }
@@ -214,7 +239,7 @@ func TestCageVerifier_reapsTheWorkdirAfterVerifying(t *testing.T) {
 	host, base, fix, tip := hostRepoWithThreeRevs(t)
 	fake := &fakeRunner{result: sandbox.Result{Output: catchTranscriptJSON(t, "adult.go", 2)}}
 
-	_, err := cage.CageVerifier(fake, host, "img")(claimOver(base, fix, tip))
+	_, err := cage.CageVerifier(fake, host, "img", 30*time.Second)(claimOver(base, fix, tip))
 	require.NoError(t, err)
 	require.Len(t, fake.got.Mounts, 1)
 
@@ -231,7 +256,7 @@ func TestCageVerifier_propagatesAnAnchorMismatchRefusal(t *testing.T) {
 	// claim anchors adult.go:2, but the cage's transcript reports a different line
 	fake := &fakeRunner{result: sandbox.Result{Output: catchTranscriptJSON(t, "adult.go", 99)}}
 
-	rec, err := cage.CageVerifier(fake, host, "img")(claimOver(base, fix, tip))
+	rec, err := cage.CageVerifier(fake, host, "img", 30*time.Second)(claimOver(base, fix, tip))
 	require.Error(t, err, "a transcript for a different anchor than the claim must be refused")
 	assert.Nil(t, rec)
 }
@@ -276,7 +301,7 @@ func TestCageVerifier_verifiesAGenuineCatchInsideTheRealCage(t *testing.T) {
 	requireCageImage(t, "packets-cage:dev")
 	host, base, fix := catchRepo(t)
 
-	rec, err := cage.CageVerifier(sandbox.DockerRunner{}, host, "packets-cage:dev")(catchClaim(base, fix))
+	rec, err := cage.CageVerifier(sandbox.DockerRunner{}, host, "packets-cage:dev", 30*time.Second)(catchClaim(base, fix))
 	require.NoError(t, err)
 	require.NotNil(t, rec, "a strengthened boundary test is a confirmed catch the cage must derive")
 	assert.Equal(t, catch.Catch, rec.Outcome)
@@ -297,7 +322,7 @@ func TestCageVerifier_mintsNothingForANoCatchInsideTheRealCage(t *testing.T) {
 	write(t, dir, "extra.go", "package capm\n") // churn below the anchor; test not strengthened
 	fix := commitAll(t, dir, "churn")
 
-	rec, err := cage.CageVerifier(sandbox.DockerRunner{}, dir, "packets-cage:dev")(catchClaim(base, fix))
+	rec, err := cage.CageVerifier(sandbox.DockerRunner{}, dir, "packets-cage:dev", 30*time.Second)(catchClaim(base, fix))
 	require.NoError(t, err)
 	assert.Nil(t, rec, "no strengthening across the revs → no catch → nothing minted")
 }

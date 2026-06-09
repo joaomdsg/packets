@@ -43,7 +43,7 @@ func TestConsumeDurable_resumesPastAckedEventsOnRebind(t *testing.T) {
 	var got1 []uint64
 	done1 := make(chan error, 1)
 	go func() {
-		done1 <- f.ConsumeDurable(ctx1, "claims_s_i", filter, func(e fabric.Event) error {
+		done1 <- f.ConsumeDurable(ctx1, "claims_s_i", filter, 30*time.Second, func(e fabric.Event) error {
 			got1 = append(got1, e.Seq)
 			if len(got1) == 2 {
 				cancel1()
@@ -60,7 +60,7 @@ func TestConsumeDurable_resumesPastAckedEventsOnRebind(t *testing.T) {
 	var got2 []uint64
 	done2 := make(chan error, 1)
 	go func() {
-		done2 <- f.ConsumeDurable(ctx2, "claims_s_i", filter, func(e fabric.Event) error {
+		done2 <- f.ConsumeDurable(ctx2, "claims_s_i", filter, 30*time.Second, func(e fabric.Event) error {
 			got2 = append(got2, e.Seq)
 			cancel2()
 			return nil
@@ -87,7 +87,7 @@ func TestConsumeDurable_redeliversAMessageTheHandleRejects(t *testing.T) {
 	var deliveries int
 	done := make(chan error, 1)
 	go func() {
-		done <- f.ConsumeDurable(ctx, "claims_s_i", filter, func(e fabric.Event) error {
+		done <- f.ConsumeDurable(ctx, "claims_s_i", filter, 30*time.Second, func(e fabric.Event) error {
 			deliveries++
 			if deliveries == 1 {
 				return assertErr{} // reject the first delivery → must be redelivered, not acked
@@ -125,7 +125,7 @@ func TestConsumeDurable_surfacesAStreamFailureRatherThanMaskingItAsCleanShutdown
 	inLoop := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- f.ConsumeDurable(ctx, "claims_s_i", filter, func(e fabric.Event) error {
+		done <- f.ConsumeDurable(ctx, "claims_s_i", filter, 30*time.Second, func(e fabric.Event) error {
 			close(inLoop)
 			return nil
 		})

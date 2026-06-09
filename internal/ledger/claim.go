@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/joaomdsg/packets/internal/fabric"
 )
@@ -61,9 +62,14 @@ type Verifier func(ClaimRecord) (*CatchRecord, error)
 // also skipped — best-effort, matching the in-process mint. It blocks until ctx
 // is canceled (the only teardown), then returns; the caller runs it in a
 // goroutine and MUST cancel ctx when done.
-func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier) error {
+//
+// ackWait is the durable consumer's redelivery window: a claim is acked only
+// after verify returns, so ackWait MUST exceed the verifier's per-claim deadline,
+// or a slow verify is redelivered into a concurrent re-verify. The caller wires
+// the two together (the cage verify deadline and this ackWait above it).
+func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.Duration) error {
 	filter := fabric.EventSubject(l.session, l.instance, fabric.StatusClaim, ">")
-	return l.f.ConsumeDurable(ctx, claimDurable(l.session, l.instance), filter, func(e fabric.Event) error {
+	return l.f.ConsumeDurable(ctx, claimDurable(l.session, l.instance), filter, ackWait, func(e fabric.Event) error {
 		claim, err := DecodeClaim(e.Data)
 		if err != nil {
 			return nil // a malformed claim is skipped (acked), not redelivered forever
