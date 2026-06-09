@@ -24,6 +24,13 @@ COPY . .
 # runs regardless of the base libc.
 RUN CGO_ENABLED=0 go build -o /usr/local/bin/packets ./cmd/packets
 
+# The cage runs as a non-root user (65534) over a repo bind-mounted from the
+# host and owned by a different uid, which trips git's "dubious ownership" guard
+# (exit 128). Disable it SYSTEM-wide (/etc/gitconfig, read regardless of HOME) so
+# the launch needs no runtime `git config`. Safe here: this single-purpose image
+# only ever runs git over the verification repo mounted into it.
+RUN git config --system --add safe.directory '*'
+
 # No ENTRYPOINT: the sandbox supplies the full argv (packets verify-catch ...),
 # and an empty default keeps the launch explicit.
 WORKDIR /work
