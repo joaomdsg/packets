@@ -65,8 +65,38 @@ Guardrails held: diagnostic-only (off the two-scores economy ledger), calm/hones
 (no scolding, no fabricated reward), reachability-grounded, server-contract tested +
 client browser-verified. #6 live boundary stays gated (this is the user's own session).
 
+## Build record (all four slices shipped + verified)
+
+- Slice 1 (cda844b): extracted buildWorktreeAt(ctx,repoDir,rev)→(wt,cleanup,err) from
+  runOracleAt — behavior-preserving (pipe tests green); shared worktree lifecycle.
+- Slice 2 (8852388): exported pipe.RerunWithTestOverlay(ctx,repoDir,rev,file,line,
+  testCmd,overlay) — buildWorktreeAt + write each overlay path→content (filepath.
+  IsLocal guard rejects escaping paths before any write) + mutation.Run scoped to
+  file:line → fresh findings. Real offline git+go-test tests: a killing boundary test
+  empties findings, a weak one leaves the survivor, an escaping overlay path is
+  rejected. Read-only w.r.t. the economy. (Blue caught the path-traversal → guarded.)
+- Slice 3 (a86d63d): ReviewCard answerfile/answerline/answertest signals +
+  AnswerQuestion action calling an injected rerunWithOverlay seam → setFindings
+  (FIREWALL: cache only, no ledger; balance-unchanged asserted). Flaky-truth fence
+  (transient err → no-op, question stays open). Tests: killing→empty, weak→stays,
+  error→stays, KEYED-session→that session only (no cross-session bleed; proves the
+  key threads through the action POST).
+- Slice 4 (12d4b64): /review renders the answer form (test textarea bound to
+  answertest + a submit that sets file/line and fires AnswerQuestion), via native
+  action+signal binding (server-render-testable); omitted when no questions.
+
+VERIFIED END-TO-END (browser, :3000): a real session with a surviving `>=` mutant at
+main.go:31 — Monaco showed the source + the question; typing a boundary test (the 18
+case) into the textarea and submitting re-ran the oracle, killed the mutant, and
+/review fell to the calm "No open questions" empty state. The mastery loop closes;
+nothing minted (diagnostic). NOTE: the submit runs the oracle SYNCHRONOUSLY (the
+action blocks ~10s during the run, freezing the tab); an async "running…" status is
+the natural follow-up polish. A richer editable Monaco answer pane (vs the textarea)
+is likewise deferred — the textarea is the robust, testable v1.
+
 ## New clashes opened / resolved
 
-None — a clean convergence. The R62 deferral of editable answering is now RESOLVED
-(maintainer greenlit; scoped diagnostic-only with the firewall + flaky-fence).
+None — a clean convergence. The R62 deferral of editable answering is RESOLVED
+(maintainer greenlit; scoped diagnostic-only with the firewall + flaky-fence; built
++ verified across slices 1–4). EDITABLE-ANSWERING THREAD COMPLETE.
 </content>
