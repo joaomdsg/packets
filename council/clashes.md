@@ -186,4 +186,13 @@ resolution, **the experiment that settles it**, and the verdict trail
 - **Experiment:** build C4 both ways on the rendered board; judge which reads as
   honestly-distinct (a viewer can't mistake a bet for a catch) without a
   stylesheet, and whether introducing CSS earns its serving complexity now.
-- **Verdict (post-build):** _TBD — Round 36 settles it._
+- **Verdict (R36 — RESOLVED, no CSS):** unanimous against a stylesheet this
+  slice. C4 ships a CSS-FREE structural grouping: the bet lifecycle (in-flight +
+  verified-lost) is one explicitly-labelled "bets" cluster, structurally sealed
+  from the confirmed "caught" stock — fixing the flat-span confusability the
+  Two-scores Guardian flagged (a bet blending into the stock tally at glance
+  speed) with structure + label text, not hue. The existing class hooks
+  (`board-row__inflight`/`__rejected`) are kept so a future stylesheet adds color
+  with no server change; only `/` and `/board` are HTML anyway (`/fleet`,
+  `/stream` are machine SSE/JSON APIs). Color DEFERRED to a real stylesheet
+  driver (dark mode / design system), where it's a no-cost addition on the hooks.

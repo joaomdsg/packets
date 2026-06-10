@@ -123,8 +123,16 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 			h.Data("key", r.Key),
 			h.Span(h.Class("board-row__key"), h.Text(r.Key)),
 			h.Span(h.Class("board-row__stock"), h.Text(strconv.Itoa(r.Confirmed)+" confirmed, "+strconv.Itoa(r.Reinvested)+" reinvested")),
-			h.Span(h.Class("board-row__inflight"), h.Text(strconv.Itoa(r.InFlight)+" in flight")),
-			h.Span(h.Class("board-row__rejected"), h.Text(strconv.Itoa(r.Rejected)+" verified-lost")),
+			// The producers' BET lifecycle, sealed into one explicitly-labelled
+			// cluster so a pending/lost bet can't blend into the confirmed stock at a
+			// glance — the two-scores separation carried by STRUCTURE, not by hoping a
+			// reader parses each label. The inner spans keep their class hooks so a
+			// future stylesheet can color bets muted-vs-solid with no server change.
+			h.Div(h.Class("board-row__bets"),
+				h.Span(h.Class("board-row__bets-label"), h.Text("bets:")),
+				h.Span(h.Class("board-row__inflight"), h.Text(strconv.Itoa(r.InFlight)+" in flight")),
+				h.Span(h.Class("board-row__rejected"), h.Text(strconv.Itoa(r.Rejected)+" verified-lost")),
+			),
 			h.Span(h.Class("board-row__balance"), h.Text("balance "+strconv.Itoa(r.Balance))),
 			h.Span(h.Class("board-row__activity"), h.Text("queued "+strconv.Itoa(r.Queued)+", running "+strconv.Itoa(r.Running)+", done "+strconv.Itoa(r.Done))),
 			h.Span(h.Class("board-row__misses"), h.Text(strconv.Itoa(r.Misses)+" misses")),
