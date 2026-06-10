@@ -49,7 +49,7 @@ func IngestProducerObjects(ctx context.Context, store, producerID string, bundle
 	// alphabet check passes, e.g. "a..b"); a lone "." is the current-dir segment.
 	// Reject both up front so the failure is an honest bad-id, not a downstream
 	// "invalid bundle" once git refuses the refspec.
-	if !safeProducerID.MatchString(producerID) || producerID == "." || strings.Contains(producerID, "..") {
+	if !safeProducerSegment(producerID) {
 		return fmt.Errorf("ingest: producer id %q: %w", producerID, ErrBadProducerID)
 	}
 	if maxBytes > 0 && int64(len(bundle)) > maxBytes {
@@ -85,6 +85,49 @@ func IngestProducerObjects(ctx context.Context, store, producerID string, bundle
 		return fmt.Errorf("ingest: unbundle into namespace (%s): %w", strings.TrimSpace(out), ErrBundleInvalid)
 	}
 	return nil
+}
+
+// safeProducerSegment reports whether id is usable as a single ref segment under
+// refs/producers/: the trusted alphabet, never a lone "." nor any ".." (a refspec
+// range/traversal metacharacter), so it can only ever name one namespace segment.
+func safeProducerSegment(id string) bool {
+	return safeProducerID.MatchString(id) && id != "." && !strings.Contains(id, "..")
+}
+
+// PruneProducerObjects reclaims a producer's ingested objects once they are no
+// longer needed, WITHOUT ever orphaning a pending claim. The economy-safe
+// retention rule (council R39): a producer's ingested objects back its claims'
+// revisions, so they MUST survive while any of that producer's claims is in
+// flight; once none is (every claim resolved, or it only uploaded and never
+// claimed), the whole namespace is dead weight. hasInFlightClaims is the caller's
+// answer (e.g. ledger.ClaimsInFlight()>0 for the session) — when true this is a
+// no-op, when false it deletes every ref under refs/producers/<producerID>/,
+// making those objects unreachable and eligible for git's gc. It deletes only
+// that one namespace, never the host's own refs nor another producer's.
+//
+// This is SESSION-granularity (prune-all-iff-none-in-flight), a strictly-safe
+// simplification of the per-target rule: it never prunes while a claim pends, so
+// it cannot orphan an in-flight target. Finer per-target pruning, and the actual
+// disk reclamation via `git gc --prune`, are deferred follow-ups.
+func PruneProducerObjects(ctx context.Context, store, producerID string, hasInFlightClaims bool) (deleted int, err error) {
+	if !safeProducerSegment(producerID) {
+		return 0, fmt.Errorf("ingest: producer id %q: %w", producerID, ErrBadProducerID)
+	}
+	if hasInFlightClaims {
+		return 0, nil // a pending claim's objects must survive — never orphan a verify
+	}
+	prefix := "refs/producers/" + producerID + "/"
+	out, err := git(ctx, store, "for-each-ref", "--format=%(refname)", "--end-of-options", prefix)
+	if err != nil {
+		return 0, fmt.Errorf("ingest: list producer refs (%s): %w", strings.TrimSpace(out), err)
+	}
+	for _, ref := range strings.Fields(out) {
+		if delOut, derr := git(ctx, store, "update-ref", "-d", "--end-of-options", ref); derr != nil {
+			return deleted, fmt.Errorf("ingest: delete %s (%s): %w", ref, strings.TrimSpace(delOut), derr)
+		}
+		deleted++
+	}
+	return deleted, nil
 }
 
 // git runs a git command (in dir, or the process cwd when dir is empty) and

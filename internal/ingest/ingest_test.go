@@ -156,3 +156,112 @@ func TestIngestProducerObjects_rejectsAnUnsafeProducerID(t *testing.T) {
 	// Nothing was written anywhere in the store.
 	assert.Empty(t, allRefs(t, store), "an unsafe id writes no refs at all")
 }
+
+// Pruning must NEVER run while a claim is in flight: the producer's ingested
+// objects are exactly what the cage needs to verify that pending claim. So with
+// an in-flight claim, PruneProducerObjects keeps everything.
+func TestPruneProducerObjects_keepsObjectsWhileAClaimIsInFlight(t *testing.T) {
+	t.Parallel()
+	store := hostStore(t)
+	bundle, _ := producerBundle(t)
+	require.NoError(t, ingest.IngestProducerObjects(context.Background(), store, "alice", bundle, 1<<20))
+
+	deleted, err := ingest.PruneProducerObjects(context.Background(), store, "alice", true)
+	require.NoError(t, err)
+	assert.Equal(t, 0, deleted, "nothing is pruned while a claim is in flight")
+	assert.True(t, resolves(t, store, "refs/producers/alice/heads/main"),
+		"a pending claim's objects must survive — pruning them would orphan the verify")
+}
+
+// Once a producer has NO claims in flight (all resolved, or it only uploaded and
+// never claimed), its ingested namespace is dead weight and is reclaimed: the
+// refs are deleted so the objects become unreachable and collectable.
+func TestPruneProducerObjects_reclaimsAnIdleProducersNamespaceWhenNothingInFlight(t *testing.T) {
+	t.Parallel()
+	store := hostStore(t)
+	bundle, _ := producerBundle(t)
+	require.NoError(t, ingest.IngestProducerObjects(context.Background(), store, "alice", bundle, 1<<20))
+	require.True(t, resolves(t, store, "refs/producers/alice/heads/main"))
+
+	deleted, err := ingest.PruneProducerObjects(context.Background(), store, "alice", false)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, deleted, 1, "an idle producer's refs are reclaimed")
+	assert.False(t, resolves(t, store, "refs/producers/alice/heads/main"),
+		"the reclaimed ref no longer keeps the producer's objects reachable")
+}
+
+// An unsafe producer id is refused before any ref-delete runs, so a traversal /
+// extra-segment id can never drive deletions outside its own namespace (the
+// host's own refs are untouched).
+func TestPruneProducerObjects_refusesAnUnsafeProducerID(t *testing.T) {
+	t.Parallel()
+	store := hostStore(t)
+	// Give the store a real host ref the prune must never touch.
+	bundle, sha := producerBundle(t)
+	runGit(t, store, "fetch", "--no-tags", "--end-of-options", bundleFile(t, bundle), "refs/heads/*:refs/heads/*")
+	require.Equal(t, sha, strings.TrimSpace(runGit(t, store, "rev-parse", "refs/heads/main")))
+
+	deleted, err := ingest.PruneProducerObjects(context.Background(), store, "../evil", false)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ingest.ErrBadProducerID), "an unsafe id is refused")
+	assert.Equal(t, 0, deleted)
+	assert.True(t, resolves(t, store, "refs/heads/main"), "the host's own refs are untouched by a refused prune")
+}
+
+// Pruning a producer that never ingested anything is a harmless no-op.
+func TestPruneProducerObjects_isANoOpForAProducerWithNoIngestedObjects(t *testing.T) {
+	t.Parallel()
+	store := hostStore(t)
+	deleted, err := ingest.PruneProducerObjects(context.Background(), store, "bob", false)
+	require.NoError(t, err)
+	assert.Equal(t, 0, deleted, "nothing to prune for a producer with no ingested objects")
+}
+
+// A sibling producer whose id shares a prefix (alice vs alicelong) lives under a
+// distinct namespace; the trailing slash on the for-each-ref pattern must keep
+// pruning "alice" from spilling into "alicelong" — both valid safe ids.
+func TestPruneProducerObjects_doesNotMatchAPrefixSiblingNamespace(t *testing.T) {
+	t.Parallel()
+	store := hostStore(t)
+	a, _ := producerBundle(t)
+	b, _ := producerBundle(t)
+	require.NoError(t, ingest.IngestProducerObjects(context.Background(), store, "alice", a, 1<<20))
+	require.NoError(t, ingest.IngestProducerObjects(context.Background(), store, "alicelong", b, 1<<20))
+	require.True(t, resolves(t, store, "refs/producers/alice/heads/main"))
+	require.True(t, resolves(t, store, "refs/producers/alicelong/heads/main"))
+
+	deleted, err := ingest.PruneProducerObjects(context.Background(), store, "alice", false)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, deleted, 1)
+	assert.False(t, resolves(t, store, "refs/producers/alice/heads/main"), "alice's namespace is reclaimed")
+	assert.True(t, resolves(t, store, "refs/producers/alicelong/heads/main"),
+		"the prefix-sibling alicelong is untouched — the trailing slash confines the glob")
+}
+
+// bundleFile writes a bundle to a temp file and returns its path.
+func bundleFile(t *testing.T, bundle []byte) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "b.bundle")
+	require.NoError(t, os.WriteFile(p, bundle, 0o644))
+	return p
+}
+
+// Pruning one producer must touch ONLY its own namespace — never another
+// producer's refs (a prefix-glob bug that deleted refs/producers/* or matched
+// refs/producers/alicebob would corrupt a bystander's pending verifies).
+func TestPruneProducerObjects_leavesOtherProducersUntouched(t *testing.T) {
+	t.Parallel()
+	store := hostStore(t)
+	a, _ := producerBundle(t)
+	b, _ := producerBundle(t)
+	require.NoError(t, ingest.IngestProducerObjects(context.Background(), store, "alice", a, 1<<20))
+	require.NoError(t, ingest.IngestProducerObjects(context.Background(), store, "bob", b, 1<<20))
+	require.True(t, resolves(t, store, "refs/producers/alice/heads/main"))
+	require.True(t, resolves(t, store, "refs/producers/bob/heads/main"))
+
+	deleted, err := ingest.PruneProducerObjects(context.Background(), store, "alice", false)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, deleted, 1)
+	assert.False(t, resolves(t, store, "refs/producers/alice/heads/main"), "alice's namespace is reclaimed")
+	assert.True(t, resolves(t, store, "refs/producers/bob/heads/main"), "bob's namespace is untouched — only alice was pruned")
+}
