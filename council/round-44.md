@@ -55,6 +55,19 @@ DEFERRED (R45+): keyboard nav (j/k rows, →/Enter drill, ←/Esc back — needs
 action/event binding + focus/aria), per-state visual polish, menus, the larger
 management-sim interactions.
 
+## Verdict (post-build, 2026-06-10)
+
+BUILT (commit 8ef39a3): internal/app/nav.go navHeader(key) prepended to both
+Views; the /board row key is now a drill `<a href="/?key=<key>">`; the card's
+fleet crumb is the back link; calm nav CSS in style.go. The drill-and-return loop
+works by href alone (no JS). The Audit caught + fixed a real bug — the drill href
+must `url.QueryEscape` the session key (ValidToken admits `&`/`=`/`#`/`+`, which
+raw would split the query → wrong session); locked by a "a&b=c" key test. The
+breadcrumb shows the real key (honest). Blue+Audit clean, full gate green.
+NEXT (R45+): keyboard nav (j/k rows, →/Enter drill, ←/Esc back — via action/event
+binding + focus/aria), then per-state visual polish + the larger management-sim
+interactions, on this nav base.
+
 ## New clashes opened / resolved
 
 None. The breadcrumb-shows-the-real-key choice reaffirms the honesty rule (no
