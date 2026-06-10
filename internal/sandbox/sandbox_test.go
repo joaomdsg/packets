@@ -626,7 +626,13 @@ func without(s []string, drop string) []string {
 
 func requireDocker(t *testing.T) {
 	t.Helper()
+	// PACKETS_REQUIRE_CAGE (set in CI) turns a missing-docker SKIP into a hard FAIL,
+	// so the real-container enforcement proofs can't silently skip green in the
+	// pipeline. Locally (env unset) they skip gracefully when docker is absent.
 	if err := exec.Command("docker", "info").Run(); err != nil {
+		if os.Getenv("PACKETS_REQUIRE_CAGE") != "" {
+			t.Fatalf("PACKETS_REQUIRE_CAGE set but docker is not available: %v", err)
+		}
 		t.Skip("docker not available; skipping real-container enforcement test")
 	}
 }

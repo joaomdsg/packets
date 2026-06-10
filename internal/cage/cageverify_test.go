@@ -309,11 +309,24 @@ func TestCageVerifier_propagatesAnAnchorMismatchRefusal(t *testing.T) {
 
 func requireCageImage(t *testing.T, image string) {
 	t.Helper()
+	// In CI, PACKETS_REQUIRE_CAGE turns a would-be SKIP into a hard FAIL: the
+	// pipeline builds the image precisely so these break-out proofs run for real,
+	// and a silent skip would leave the security boundary unverified while the job
+	// stayed green. Setting the env lets the single main test run enforce "these
+	// actually ran" — no second verbose re-run needed. Locally (env unset) the
+	// tests still skip gracefully when docker/the image is absent.
+	bail := func(format string, args ...any) {
+		if os.Getenv("PACKETS_REQUIRE_CAGE") != "" {
+			t.Fatalf("PACKETS_REQUIRE_CAGE set but the cage cannot run: "+format, args...)
+		}
+		t.Skipf(format, args...)
+	}
 	if err := exec.Command("docker", "info").Run(); err != nil {
-		t.Skip("docker not available; skipping cage integration test")
+		bail("docker not available; skipping cage integration test")
+		return
 	}
 	if err := exec.Command("docker", "image", "inspect", image).Run(); err != nil {
-		t.Skipf("cage image %q not present (build: docker build -f internal/cage/Dockerfile -t %s .); skipping", image, image)
+		bail("cage image %q not present (build: docker build -f internal/cage/Dockerfile -t %s .); skipping", image, image)
 	}
 }
 

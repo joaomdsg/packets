@@ -55,23 +55,45 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          # Cache the module + build cache (default on) keyed on go.sum, so a code
+          # push that leaves go.sum unchanged reuses the prior run's compiled
+          # objects (incl. the separate -race set) instead of recompiling the deps
+          # + stdlib cold every run.
+          cache-dependency-path: packets/go.sum
       - name: Vet
         working-directory: packets
         run: go vet ./...
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       # Build the cage image so the #6c sandbox tests run for REAL instead of
       # skipping: requireCageImage / requireDocker gate the break-out proofs and
-      # the in-proc≡cage equivalence lock on this image being present. Without
-      # this step those tests skip green and the security boundary is unverified
-      # by the pipeline. ubuntu-latest ships a running Docker daemon.
+      # the in-proc≡cage equivalence lock on this image being present.
+      #
+      # Buildx + a persistent GitHub Actions layer cache (type=gha) keeps the slow
+      # layers — the golang:1.26 base and `go mod download` — warm across runs; only
+      # the COPY + go build layer re-runs when source changes. load: true makes the
+      # built image available to the local docker daemon for the test step.
       - name: Build cage image
-        working-directory: packets
-        run: docker build -f internal/cage/Dockerfile -t packets-cage:dev .
+        uses: docker/build-push-action@v6
+        with:
+          context: packets
+          file: packets/internal/cage/Dockerfile
+          tags: packets-cage:dev
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Test
         working-directory: packets
         # The catch oracle and mutation tests shell out to `go test` and git in
         # temp repos, so the suite needs git (present on ubuntu-latest) and a
         # longer timeout than the default. With the cage image built above, the
         # real-container sandbox + equivalence tests run here too.
+        #
+        # PACKETS_REQUIRE_CAGE turns a would-be SKIP of the cage/sandbox break-out
+        # proofs into a hard FAIL, so a missing image or a regression that made them
+        # skip can't leave the job green — enforced in THIS single run, so no second
+        # verbose re-run is needed (the old "assert they ran" step is removed; this
+        # halves the cage-test + container execution on the critical path).
         #
         # -p 1 serializes PACKAGE execution: the sandbox and cage packages both
         # launch containers labelled io.packets.sandbox=1, and the "no orphan /
@@ -80,22 +102,6 @@ jobs:
         # other's global-label assertion. Serial package execution keeps the
         # docker-state assertions isolated (within-package tests are already
         # non-parallel). Within-test parallelism (t.Parallel) is unaffected.
+        env:
+          PACKETS_REQUIRE_CAGE: "1"
         run: go test -race -timeout 20m -p 1 ./...
-      # Guard against silent skips: a regression (or a missing image) that made
-      # the cage tests skip would otherwise leave the job green. Re-run the
-      # load-bearing integration tests verbosely and FAIL unless they actually
-      # ran to PASS — a SKIP leaves no PASS line and trips the grep.
-      - name: Assert the cage security tests actually ran
-        working-directory: packets
-        shell: bash
-        run: |
-          set -o pipefail
-          go test -count=1 -v -timeout 20m -p 1 \
-            -run 'TestEquivalence_cagedCatchProjectionMatchesInProcess|TestDockerRunner_blocksNamespaceCreationViaSeccomp|TestDockerRunner_deniesEgressTheHardenedContainerHasNoNetwork' \
-            ./internal/cage/ ./internal/sandbox/ | tee cage-int.log
-          for tc in \
-            'TestEquivalence_cagedCatchProjectionMatchesInProcess' \
-            'TestDockerRunner_blocksNamespaceCreationViaSeccomp' \
-            'TestDockerRunner_deniesEgressTheHardenedContainerHasNoNetwork'; do
-            grep -q "^--- PASS: ${tc}" cage-int.log || { echo "FAIL: ${tc} did not run (skipped?) — the cage security boundary is unverified"; exit 1; }
-          done
