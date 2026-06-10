@@ -98,6 +98,9 @@ Layout of this directory:
 - [Round 39](round-39.md) — scoping slice B (governor hardening): verify-path is
   sufficient; build GC-by-resolved now (economy-safe); DEFER flood-defenses
   (rate-limit/quota) until producer AUTH exists on the live HTTP surface
+- [Round 40](round-40.md) — direction after #6c feature-complete: the live
+  boundary is maintainer-gated; next NON-GATED slice = the non-ASCII re-anchor
+  correctness fix; the Board is the next major thread (its own round)
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
