@@ -252,7 +252,14 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 			dispatch = c
 		}
 	}
+	// The "/" card with no ?key IS the default session — name it honestly in the
+	// breadcrumb rather than leave the crumb keyless.
+	navKey := c.Key
+	if navKey == "" {
+		navKey = defaultSessionKey
+	}
 	return h.Div(
+		navHeader(navKey),
 		surface.RenderStock(stock),
 		surface.RenderBalance(balance),
 		surface.RenderDispatch(dispatch),

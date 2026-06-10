@@ -1,6 +1,7 @@
 package app
 
 import (
+	"net/url"
 	"sort"
 	"strconv"
 
@@ -122,12 +123,17 @@ func hitRateLabel(r CardRow) string {
 // hit-rate standing. Calm spans in the stock idiom — no gauges, no priority, no
 // forecast.
 func (c *BoardCard) View(_ *via.CtxR) h.H {
-	parts := []h.H{h.Class("board"), h.Data("state", "board")}
+	parts := []h.H{h.Class("board"), h.Data("state", "board"), navHeader("")}
 	for _, r := range BoardRows() {
 		row := []h.H{
 			h.Class("board-row"),
 			h.Data("key", r.Key),
-			h.Span(h.Class("board-row__key"), h.Text(r.Key)),
+			// The row key DRILLS into that session's card — the fleet board is not a
+			// dead end. The default row links to /?key=default (explicit + honest). The
+			// key is URL-escaped: fabric.ValidToken admits query metacharacters ('&',
+			// '=', '#', '+'), which interpolated raw would split or truncate the query
+			// and target the WRONG session — QueryEscape makes the link round-trip.
+			h.A(h.Href("/?key="+url.QueryEscape(r.Key)), h.Class("board-row__key"), h.Text(r.Key)),
 			h.Span(h.Class("board-row__stock"), h.Text(strconv.Itoa(r.Confirmed)+" confirmed, "+strconv.Itoa(r.Reinvested)+" reinvested")),
 			// The producers' BET lifecycle, sealed into one explicitly-labelled
 			// cluster so a pending/lost bet can't blend into the confirmed stock at a

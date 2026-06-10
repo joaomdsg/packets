@@ -50,6 +50,23 @@ body {
   line-height: 1.5;
 }
 
+/* ---- shared nav header (fleet ↔ session card) ---- */
+.board-nav {
+  display: flex;
+  align-items: baseline;
+  gap: var(--pk-md);
+  padding-bottom: var(--pk-sm);
+  margin-bottom: var(--pk-lg);
+  border-bottom: 1px solid var(--pk-line);
+}
+.board-nav__home { color: var(--pk-ink); font-weight: 700; text-decoration: none; }
+.board-nav__home:hover { color: var(--pk-accent); }
+.board-nav__breadcrumb { display: inline-flex; align-items: baseline; gap: var(--pk-xs); color: var(--pk-ink-dim); font-size: 0.92em; }
+.board-nav__crumb { color: var(--pk-ink-dim); text-decoration: none; }
+.board-nav__crumb:hover { color: var(--pk-accent); }
+.board-nav__sep { color: var(--pk-ink-dim); }
+.board-nav__key { color: var(--pk-ink); }
+
 /* ---- the fleet board ---- */
 .board { display: flex; flex-direction: column; gap: var(--pk-sm); }
 .board-row {
@@ -63,7 +80,8 @@ body {
   border-radius: 6px;
 }
 .board-row:hover { background: var(--pk-surface-2); }           /* a calm cue for the future keyboard nav */
-.board-row__key { font-weight: 700; min-width: 7ch; }
+.board-row__key { font-weight: 700; min-width: 7ch; color: inherit; text-decoration: none; }
+.board-row__key:hover { color: var(--pk-accent); }
 .board-row__stock { font-weight: 600; color: var(--pk-confirmed); }
 .board-row__balance { color: var(--pk-balance); font-variant-numeric: tabular-nums; }
 .board-row__activity { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; }
