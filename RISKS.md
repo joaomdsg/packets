@@ -400,6 +400,33 @@ design risks above, which are about the spec). Each: where, the finding, the fix
   ASCII paths, so the current suite stays green; this is a correctness gap for
   non-ASCII repos, not a present test failure.
 
+### Claim AckWait omits the concurrency-semaphore queue-wait (slice: #6c governor) — KNOWN, ACCEPTED at prototype scale — surfaced by the R42 integration bug-hunt
+
+- **Symptom:** the governor pins `claimAckWait` (240s) > `cageVerifyTimeout`
+  (120s) so a slow-but-legal verify finishes before its durable redelivery
+  (internal/app/claims.go). But the durable consumer acks only after the WHOLE
+  `handle` returns, and handle latency = `Admission.Concurrency` semaphore
+  queue-wait + verify. The queue-wait is unbounded under sustained saturation
+  (many producers, few cage slots), so total handle time can exceed AckWait →
+  NATS redelivers the still-in-progress claim. The claims.go comment ("ackWait
+  MUST outlast cageVerifyTimeout") is necessary-but-NOT-sufficient — it omits the
+  queue-wait term.
+- **Why accepted:** `ConsumeDurable` Fetches one message at a time on a single
+  serial loop (internal/fabric/consume_durable.go), so a redelivery is a
+  SEQUENTIAL re-verify (wasted cage compute), never a concurrent double cage run;
+  and `Append`'s locked identity gate dedupes any re-mint. So the economy stays
+  correct — the cost is wasted compute under load, not a correctness bug. The
+  R42 cross-cutting concurrency bug-hunt otherwise found the assembled #6c system
+  sound (git clone/fetch/update-ref races empirically safe; double-mint
+  impossible; GC self-healing holds; no goroutine leaks).
+- **Fix when it matters (deployment/load):** make AckWait dynamic or generous
+  vs the worst-case queue depth, or bound the queue-wait (reject/shed beyond a
+  depth), or extend the ack (in-progress heartbeat). Couples with the deferred
+  flood-defenses (gated on producer auth, below). Also noted: FleetBoard's
+  two-pass replay can transiently over-count InFlight across a mint that commits
+  between the passes — display-only, self-corrects next event (see WatchFleet's
+  perf note).
+
 ### Unbounded producer-bundle ingest storage (slice: #6c A.2 POST /bundle) — KNOWN, DEFERRED (gated on producer auth) — council R39
 
 - **Symptom:** POST /bundle (internal/app/live.go) accepts a producer git bundle
