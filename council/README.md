@@ -89,6 +89,9 @@ Layout of this directory:
   the host card; lie-green fixed; opened Clash J (the gray-bets visual)
 - [Round 36](round-36.md) — #6c slice C4: the gray bets-vs-confirmed visual —
   settling Clash J (stylesheet vs CSS-free semantic distinction)
+- [Round 37](round-37.md) — sequencing the next #6 slice: CONVERGED 4/4 on
+  permanent-vs-transient verify failure first (reject an unverifiable claim
+  instead of lingering), then SHA transport, then governor hardening
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
