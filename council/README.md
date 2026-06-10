@@ -95,6 +95,9 @@ Layout of this directory:
 - [Round 38](round-38.md) — slice A (SHA transport) threat model: CONVERGED on
   bundle-over-authenticated-channel + per-producer ref namespacing; host-pull
   rejected on SSRF/egress (Clash K resolved)
+- [Round 39](round-39.md) — scoping slice B (governor hardening): verify-path is
+  sufficient; build GC-by-resolved now (economy-safe); DEFER flood-defenses
+  (rate-limit/quota) until producer AUTH exists on the live HTTP surface
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,

@@ -387,6 +387,30 @@ design risks above, which are about the spec). Each: where, the finding, the fix
   ASCII paths, so the current suite stays green; this is a correctness gap for
   non-ASCII repos, not a present test failure.
 
+### Unbounded producer-bundle ingest storage (slice: #6c A.2 POST /bundle) — KNOWN, DEFERRED (gated on producer auth) — council R39
+
+- **Symptom:** POST /bundle (internal/app/live.go) accepts a producer git bundle
+  and unbundles it into refs/producers/<key>/* of the session repo. It has a
+  per-CALL 32 MiB cap but NO per-producer rate limit and NO aggregate storage
+  quota, and ingested objects are never GC'd. A producer that POSTs bundles
+  repeatedly grows the host store without bound → disk-fill DoS; objects from
+  resolved or never-submitted claims are never reclaimed.
+- **Not an economy threat (council R39, Systems):** objects are off-ledger — the
+  two-scores ledger and single-minter invariants hold regardless of store size.
+  This is an ops/security concern, not a correctness one.
+- **Why deferred:** the per-producer flood-defenses (rate limit, aggregate quota)
+  presuppose a producer-AUTH boundary the live HTTP surface does NOT have today —
+  /claim and /bundle are SESSION-KEY-GATED, not authenticated (fabric's
+  ProducerGrant is the NATS path, not wired into the live server). Governing "a
+  producer" against a malicious flood is premature without that identity layer.
+  *Fix sequence:* (1) producer auth on the live HTTP surface; (2) per-producer
+  /bundle rate-limit (reuse the proven token bucket) + aggregate quota by
+  bytes-ACCEPTED (deterministic — never git's on-disk size, which is brittle);
+  (3) GC-by-resolved (BEING BUILT next — prune refs/producers/<key>/* for
+  minted/rejected targets, keep in-flight) reclaims the working set and frees
+  quota; (4) a TTL-reap for uploaded-but-never-claimed objects + a global disk
+  ceiling as defense-in-depth.
+
 ### Fleet-stream refold amplification (slice: #6c C3b2b live claim lifecycle) — KNOWN, ACCEPTED at prototype scale
 
 - **Symptom/cost:** to carry the claim lifecycle live, `WatchFleet` now wakes on
