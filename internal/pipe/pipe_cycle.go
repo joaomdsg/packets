@@ -67,6 +67,13 @@ type CycleResult struct {
 	// not survive (Outdated/LostViaRename).
 	Before catch.LineState
 	After  catch.LineState
+	// Findings are the FIX revision's oracle findings — the per-line mutation
+	// results (incl. the surviving mutants the reviewer should see as "question:"
+	// threads), carried up so the review surface can render them instead of dying
+	// inside the cycle. Stamped at the reanchored (fix) coordinates. Nil when the
+	// anchor did not survive to the fix (Outdated/LostViaRename) — no fix oracle ran,
+	// so there are no honest fix-revision findings to show.
+	Findings []mutation.Finding
 }
 
 // RunCatchCycle mints the catch's first real transaction from two real
@@ -114,6 +121,7 @@ func RunCatchCycleStreaming(ctx context.Context, repoDir, baseRev, fixRev, tipRe
 	}
 
 	var afterLS catch.LineState
+	var findings []mutation.Finding
 	outPath, outLine := anchor.Path, anchor.Start
 	if ra.State == reanchor.Same || ra.State == reanchor.Moved {
 		outPath, outLine = ra.Path, ra.Start
@@ -121,6 +129,7 @@ func RunCatchCycleStreaming(ctx context.Context, repoDir, baseRev, fixRev, tipRe
 		if runErr != nil {
 			return CycleResult{}, runErr
 		}
+		findings = fixRes.Findings // the reviewed revision's findings — carried up for the review surface
 		emit(
 			TraceEvent{T: time.Now(), Kind: "settle-fix", Msg: fmt.Sprintf("settled fix %s", short(fixRev))},
 			TraceEvent{T: time.Now(), Kind: "oracle-fix", Msg: fmt.Sprintf("oracle ran fix: %d considered", fixRes.MutantsConsidered)})
@@ -148,7 +157,7 @@ func RunCatchCycleStreaming(ctx context.Context, repoDir, baseRev, fixRev, tipRe
 
 	return CycleResult{
 		Outcome: outcome, Reason: reason, Path: outPath, Line: outLine, Land: land, Trace: trace,
-		Before: beforeLS, After: afterLS,
+		Before: beforeLS, After: afterLS, Findings: findings,
 	}, nil
 }
 
