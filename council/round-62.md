@@ -114,6 +114,37 @@ the questions anchored as inline decorations. The editor RENDER is the client is
 (not vt-unit-tested per the R62 testability boundary); flag for maintainer browser-
 verify since the loop can't confirm client rendering headlessly.
 
+## SLICE 2b (built): the Monaco read-only editor render
+
+The visible editor. reviewEditorIsland now emits, inside the data-ignore-morph
+island (scoped to /review, NOT AppendToHead, so Monaco loads only here): the pinned
+Monaco AMD loader (`cdn.jsdelivr.net/npm/monaco-editor@0.52.2`, CDN-first; vendoring
+behind a /static handler is a later hardening slice) + a defensive bootstrap that
+reads #review-threads-data, mounts a READ-ONLY editor (theme vs-dark, glyphMargin,
+no minimap) over the first reviewed file with source, and decorates each surviving-
+mutant line (whole-line accent + glyph + a "question: <body>" hover). style.go got
+.review-editor (60vh, collapses when :empty) + calm .review-survivor-line/glyph.
+
+PROGRESSIVE ENHANCEMENT (the safety): the bootstrap guards every step (require
+defined? container + payload present? JSON.parse in try/catch? a file with source?)
+and the server-rendered text threads remain ABOVE the editor — so a blocked loader,
+parse error, or missing source leaves the text threads carrying the review, never a
+broken page. Read-only per the R62 convergence (editable answering stays the
+maintainer-gated fork).
+
+Server test (review_island_internal_test.go TestReviewCard_shipsTheMonacoEditor
+WiringOverThePayload): the loader CDN URL + the editor mount call + the payload-read
+are emitted, and the text-thread fallback remains. Per the R62 testability boundary
+the editor's actual RENDER is the client island — NOT vt-unit-tested.
+
+VERIFICATION NOTE: I attempted to browser-verify the live render (a faithful
+standalone-HTML mirror of the island, served on localhost) via Chrome automation,
+but the navigation was declined, so the client render is UNVERIFIED-BY-ME. It is
+shipped because (a) the wiring is server-tested, (b) it is standard Monaco AMD-loader
+usage, and (c) it is contained progressive enhancement (text-thread fallback, can't
+break the page). The maintainer can confirm the visual at /review?key=<session with
+open questions>. If the render needs adjustment, that's a thin follow-up.
+
 ## New clashes opened / resolved
 
 - The R59 "Monaco untestable / no WithPlugins" claim is RESOLVED as a misread — via

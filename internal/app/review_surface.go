@@ -71,12 +71,60 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 func reviewEditorIsland(cfg LiveConfig, threads []review.Thread) h.H {
 	payload, _ := json.Marshal(reviewIslandData(cfg, threads))
 	return h.Div(
-		h.Class("review-editor"),
-		h.ID("review-editor"),
+		h.Class("review-editor-island"),
 		h.DataIgnoreMorph(),
+		// The structured payload the client editor reads (file sources + anchors).
 		h.Script(h.Type("application/json"), h.ID("review-threads-data"), h.Raw(string(payload))),
+		// The mount point Monaco renders into (sized in style.go).
+		h.Div(h.Class("review-editor"), h.ID("review-editor")),
+		// The Monaco AMD loader (pinned CDN) + the read-only bootstrap. Scoped to
+		// /review (not AppendToHead) so the editor loads only on this surface. The
+		// bootstrap is defensive — guards on the container/payload and try/catch — so
+		// a load or parse failure leaves the server-rendered text threads above intact
+		// (progressive enhancement, never a broken page).
+		h.Script(h.Src(monacoLoaderURL)),
+		h.Script(h.Raw(monacoBootstrapJS)),
 	)
 }
+
+// monacoLoaderURL pins the Monaco editor AMD loader to a fixed CDN version
+// (reproducible; not @latest). Vendoring it behind a /static handler is a later
+// hardening slice — CDN-first gets the editor visible without new asset plumbing.
+const monacoVersion = "0.52.2"
+const monacoLoaderURL = "https://cdn.jsdelivr.net/npm/monaco-editor@" + monacoVersion + "/min/vs/loader.js"
+
+// monacoBootstrapJS mounts a READ-ONLY Monaco editor over the #review-threads-data
+// payload: it renders the first reviewed file whose source is present and decorates
+// each surviving-mutant line with the "question:" body as a glyph-margin hover. It
+// is deliberately defensive — every step guards and the JSON parse is wrapped — so
+// any failure (loader blocked, parse error, no source) simply leaves the
+// server-rendered text threads as the fallback. Read-only per council R62 (editable
+// answering is a deferred, maintainer-gated fork).
+const monacoBootstrapJS = `(function(){
+  if (typeof require === 'undefined') return;
+  require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@` + monacoVersion + `/min/vs' } });
+  require(['vs/editor/editor.main'], function(){
+    var el = document.getElementById('review-editor');
+    var dataEl = document.getElementById('review-threads-data');
+    if (!el || !dataEl) return;
+    var island;
+    try { island = JSON.parse(dataEl.textContent); } catch (e) { return; }
+    var files = island.files || {};
+    var threads = island.threads || [];
+    var path = null;
+    for (var i = 0; i < threads.length; i++) { if (files[threads[i].file] != null) { path = threads[i].file; break; } }
+    if (!path) return;
+    var model = monaco.editor.createModel(files[path], undefined, monaco.Uri.file(path));
+    var editor = monaco.editor.create(el, { model: model, readOnly: true, automaticLayout: true, glyphMargin: true, minimap: { enabled: false }, scrollBeyondLastLine: false });
+    var decos = [];
+    for (var j = 0; j < threads.length; j++) {
+      var t = threads[j];
+      if (t.file !== path) continue;
+      decos.push({ range: new monaco.Range(t.line, 1, t.line, 1), options: { isWholeLine: true, className: 'review-survivor-line', glyphMarginClassName: 'review-survivor-glyph', glyphMarginHoverMessage: { value: t.tag + ': ' + t.body } } });
+    }
+    editor.createDecorationsCollection(decos);
+  });
+})();`
 
 // reviewIsland is the contract the client editor consumes: the reviewed file
 // sources (so it can render the file the questions are anchored to) keyed by path,

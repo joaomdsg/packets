@@ -155,6 +155,37 @@ func TestReviewCard_omitsFileSourceItCannotReadRatherThanLie(t *testing.T) {
 	require.Len(t, island.Threads, 1, "the threads still render so the question is not lost")
 }
 
+// The island is inert without the client editor: /review must ship the Monaco
+// loader + a bootstrap that mounts the read-only editor over the payload. This
+// asserts the WIRING is emitted (the loader script + the mount call) — the editor's
+// actual rendering is the client island, browser-verified, not asserted here. The
+// server-rendered text threads remain regardless, so a JS failure degrades to them.
+// NOT parallel (shared liveReg/liveFabric).
+func TestReviewCard_shipsTheMonacoEditorWiringOverThePayload(t *testing.T) {
+	resetConsumersForTest()
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	e := lookupLiveEntry(defaultSessionKey)
+	require.NotNil(t, e)
+	e.setFindings([]mutation.Finding{
+		{File: "auth.go", Line: 12, Outcome: mutation.Survived, Message: "mutated >= to >; tests still pass"},
+	})
+
+	body := bodyOf(vt.NewClient(t, server, "/review").HTML())
+	require.Contains(t, body, "cdn.jsdelivr.net/npm/monaco-editor", "the Monaco loader is shipped from a pinned CDN")
+	require.Contains(t, body, "monaco.editor.create", "a bootstrap mounts the read-only editor over the payload")
+	require.Contains(t, body, "review-threads-data", "the bootstrap reads the structured payload, not the server text")
+	// The server-rendered text thread survives as the no-JS / failure fallback.
+	require.Contains(t, body, "review-thread__body", "the text threads remain as the progressive-enhancement fallback")
+}
+
 // With no open questions there is nothing for the editor to show, so the island and
 // its payload are omitted entirely — the surface stays calm (the existing empty
 // state is the only thing rendered), and no editor is scaffolded over an empty set.

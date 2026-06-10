@@ -213,6 +213,17 @@ body {
 }
 .review-thread__anchor { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; }
 .review-thread__body { color: var(--pk-ink); }
+/* the Monaco review editor island: a sized mount point for the read-only editor.
+   The editor is progressive enhancement over the text threads above; if it never
+   mounts (loader blocked, JS off), this empty box just stays collapsed and the
+   text threads carry the review. */
+.review-editor-island { display: block; }
+.review-editor { width: 100%; height: 60vh; border: 1px solid var(--pk-line); border-radius: 6px; }
+.review-editor:empty { height: 0; border: 0; } /* no editor mounted → no empty box */
+/* a surviving-mutant line in the editor: a calm left-edge accent + a glyph, never
+   an alarm — the honest "the tests didn't catch this here" marker. */
+.review-survivor-line { background: color-mix(in srgb, var(--pk-accent) 12%, transparent); }
+.review-survivor-glyph { background: var(--pk-accent); width: 3px !important; margin-left: 2px; }
 .land-row__headline { margin: 0 0 var(--pk-xs) 0; font-weight: 600; }
 .land-row__detail { margin: 0; color: var(--pk-ink-dim); }
 
