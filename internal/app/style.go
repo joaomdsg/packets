@@ -156,4 +156,19 @@ body {
 }
 .onboarding__lead { margin: 0 0 var(--pk-xs) 0; font-weight: 600; color: var(--pk-ink); }
 .onboarding__step { margin: 0 0 var(--pk-xs) 0; color: var(--pk-ink-dim); font-size: 0.95em; }
+
+/* ---- the Spend action: the Lead's core economic move, shown only when there is
+   balance to spend. A calm, deliberate control in the balance hue — not an alarm,
+   not a pulsing call-to-action. ---- */
+.spend-action {
+  margin: 0 0 var(--pk-sm) 0;
+  padding: var(--pk-xs) var(--pk-md);
+  background: var(--pk-surface-2);
+  color: var(--pk-balance);
+  border: 1px solid var(--pk-line);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+.spend-action:hover { border-color: var(--pk-balance); }
 `

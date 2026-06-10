@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
+	"github.com/go-via/via/on"
 
 	"github.com/joaomdsg/packets/internal/bridge"
 	"github.com/joaomdsg/packets/internal/fabric"
@@ -264,9 +265,19 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	if hint := onboardingHint(stock); hint != nil {
 		parts = append(parts, hint)
 	}
+	parts = append(parts, surface.RenderStock(stock), surface.RenderBalance(balance))
+	// The Spend action — turning a confirmed catch into a funded work-order — is the
+	// Lead's core economic move. Render its trigger right under the balance it spends,
+	// but ONLY when there is balance to spend: offering a Spend control with nothing
+	// to spend is dishonest (the click would be a silent no-op).
+	if balance > 0 {
+		parts = append(parts, h.Button(
+			on.Click(c.Spend),
+			h.Class("spend-action"),
+			h.Text("Spend a catch → fund a work-order"),
+		))
+	}
 	parts = append(parts,
-		surface.RenderStock(stock),
-		surface.RenderBalance(balance),
 		surface.RenderDispatch(dispatch),
 		surface.RenderBeats(c.Beats.Read(ctx)),
 		surface.RenderVerdict(c.Verdict.Read(ctx)),
