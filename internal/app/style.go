@@ -237,6 +237,9 @@ body {
   border: 1px solid var(--pk-accent); border-radius: 4px;
   padding: 4px 12px; cursor: pointer;
 }
+/* the in-flight running status — calm dim text, shown by datastar (data-show) only
+   while the oracle re-run is in flight. */
+.review-answer__running { color: var(--pk-ink-dim); font-size: 0.92em; }
 /* a surviving-mutant line in the editor: a calm left-edge accent + a glyph, never
    an alarm — the honest "the tests didn't catch this here" marker. */
 .review-survivor-line { background: color-mix(in srgb, var(--pk-accent) 12%, transparent); }

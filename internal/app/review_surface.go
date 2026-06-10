@@ -127,8 +127,19 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 				on.SetSignal(&c.AnswerFile.Signal, anchor.File),
 				on.SetSignal(&c.AnswerLine.Signal, strconv.Itoa(anchor.StartLine)),
 			),
+			// datastar sets the "answering" signal true while this submit's request is
+			// in flight (the oracle re-run takes seconds), so the running line below can
+			// reveal itself — declaratively, surviving the surface's re-render.
+			h.Attr("data-indicator", "answering"),
 			h.Class("review-answer__submit"),
 			h.Text("Submit answer — re-run the oracle"),
+		),
+		// Shown ONLY while the re-run is in flight (data-show on the indicator signal):
+		// a calm status, not dead-air, for the seconds the oracle takes.
+		h.Div(
+			h.Attr("data-show", "$answering"),
+			h.Class("review-answer__running"),
+			h.Text("re-running the oracle — checking if your test kills the mutant…"),
 		),
 	))
 	return h.Div(parts...)

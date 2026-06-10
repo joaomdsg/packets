@@ -146,6 +146,32 @@ func TestReviewCard_omitsTheAnswerFormWhenNoOpenQuestions(t *testing.T) {
 	require.NotContains(t, body, "review-answer", "no answer form when there is nothing to answer")
 }
 
+// Submitting an answer re-runs the oracle (seconds of real work), so the form must
+// show a calm in-flight "running…" affordance rather than dead-air: the submit
+// carries a datastar indicator signal, and a sibling reveals a "re-running the
+// oracle…" line while the request is in flight. Declarative (datastar), so it
+// survives the surface's re-render. NOT parallel (shared liveReg).
+func TestReviewCard_showsACalmRunningAffordanceWhileTheAnswerReRuns(t *testing.T) {
+	resetConsumersForTest()
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	e := lookupLiveEntry(defaultSessionKey)
+	require.NotNil(t, e)
+	e.setFindings([]mutation.Finding{{File: "main.go", Line: 6, Outcome: mutation.Survived, Message: "mutated >= to >"}})
+
+	body := bodyOf(vt.NewClient(t, server, "/review").HTML())
+	require.Contains(t, body, `data-indicator="answering"`, "the submit marks the request in-flight via a datastar indicator signal")
+	require.Contains(t, body, `data-show="$answering"`, "a sibling reveals the running affordance only while in flight")
+	require.Contains(t, body, "re-running the oracle", "the calm running message, not dead-air")
+}
+
 // The flaky-truth fence: a transient re-run failure (oracle timeout, git error,
 // an Undetermined run) must NEVER clear the question — it stays open, retryable, so
 // a flake can't silently mark a line "answered" that isn't. NOT parallel.
