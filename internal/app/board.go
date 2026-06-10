@@ -4,10 +4,13 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
+	"github.com/go-via/via/on"
 
+	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/ledger"
 )
 
@@ -91,11 +94,34 @@ func BoardRows() []CardRow {
 }
 
 // BoardCard is the cross-card FLEET surface: a calm row-per-session tally of the
-// whole registry, ordered by queued ACTIVITY (see BoardRows). It is read-only —
-// it holds no per-tab state, it re-projects liveReg on render — and it never
-// labels a card by priority or leverage (the Lead sees where work is MOVING, not
-// a fabricated importance rank).
-type BoardCard struct{}
+// whole registry, ordered by queued ACTIVITY (see BoardRows). It re-projects
+// liveReg on render and never labels a card by priority or leverage (the Lead sees
+// where work is MOVING, not a fabricated importance rank). It also carries the one
+// command the fleet view owns: creating a new session.
+type BoardCard struct {
+	// NewKey holds the key typed into the create-session input (two-way bound), read
+	// by CreateSession on submit. Per-tab signal, not authoritative session state.
+	NewKey via.SignalStr `via:"newkey"`
+}
+
+// CreateSession starts a new session economy from the fleet view: it registers the
+// typed key (inheriting the default session's config) so the Lead can work it
+// immediately via the in-process card flow — no boot edit, no claim consumer needed
+// (consumers serve only the untrusted-producer POST /claim path). An invalid
+// subject token or a key that already exists is an honest no-op: a create never
+// forges a bad token nor clobbers a live economy's log. (Producer claims for a
+// runtime-created session are unsupported in V1 — the card flow works fully.)
+func (c *BoardCard) CreateSession(ctx *via.Ctx) {
+	key := strings.TrimSpace(c.NewKey.Read(ctx))
+	if key == "" || !fabric.ValidToken(key) {
+		return // never forge an invalid subject token
+	}
+	if _, exists := liveReg.Load(key); exists {
+		return // never clobber a live economy
+	}
+	cfg, _ := readLiveState(defaultSessionKey) // inherit the default config (same repo/revs)
+	_, _ = AddSession(key, cfg)                // validated above; a bind error leaves the registry unchanged
+}
 
 // hitRateLabel is the card's standing — the ONE honest progression number: Hits
 // (catches a bet minted, = Reinvested) over Bets (resolved dispatched orders,
@@ -123,7 +149,14 @@ func hitRateLabel(r CardRow) string {
 // hit-rate standing. Calm spans in the stock idiom — no gauges, no priority, no
 // forecast.
 func (c *BoardCard) View(_ *via.CtxR) h.H {
-	parts := []h.H{h.Class("board"), h.Data("state", "board"), navHeader("")}
+	parts := []h.H{h.Class("board"), h.Data("state", "board"), navHeader(""),
+		// The fleet view's one command: start a new session economy. A calm input +
+		// button, in the surface idiom — no modal, no menu.
+		h.Div(h.Class("board-create"),
+			h.Input(h.Type("text"), c.NewKey.Bind(), h.Class("board-create__key"), h.Placeholder("new session key")),
+			h.Button(on.Click(c.CreateSession), h.Class("board-create__btn"), h.Text("Create session")),
+		),
+	}
 	for _, r := range BoardRows() {
 		row := []h.H{
 			h.Class("board-row"),

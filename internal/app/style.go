@@ -69,6 +69,28 @@ body {
 
 /* ---- the fleet board ---- */
 .board { display: flex; flex-direction: column; gap: var(--pk-sm); }
+/* the fleet view's one command: create a session. A calm inline input + button,
+   in the surface idiom — no modal, no alarm. */
+.board-create { display: flex; gap: var(--pk-sm); align-items: baseline; margin-bottom: var(--pk-md); }
+.board-create__key {
+  padding: var(--pk-xs) var(--pk-sm);
+  background: var(--pk-surface);
+  color: var(--pk-ink);
+  border: 1px solid var(--pk-line);
+  border-radius: 6px;
+  font: inherit;
+}
+.board-create__key:focus { outline: none; border-color: var(--pk-accent); }
+.board-create__btn {
+  padding: var(--pk-xs) var(--pk-md);
+  background: var(--pk-surface-2);
+  color: var(--pk-balance);
+  border: 1px solid var(--pk-line);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+.board-create__btn:hover { border-color: var(--pk-balance); }
 .board-row {
   display: flex;
   flex-wrap: wrap;
