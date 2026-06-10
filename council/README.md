@@ -123,6 +123,11 @@ Layout of this directory:
   of zeros; chosen OVER keyboard nav because the latter is browser-side behavior
   our server-render tests can't verify ("prove it for real"). Server-rendered +
   fully vt-testable; keyboard nav deferred to R47+
+- [Round 47](round-47.md) — the Spend control: render a balance-gated trigger
+  bound to the (already-tested) Spend action, closing the core loop from the UI
+  (catch → balance → spend → work-order → reinvest). Shown iff balance>0; retracts
+  live over SSE when the last catch is spent. Fully vt-testable (markup + fire +
+  drain). keyboard nav deferred to R48+
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
