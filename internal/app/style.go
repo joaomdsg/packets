@@ -264,5 +264,17 @@ body {
   border-left: 2px solid var(--pk-line);
 }
 .bench__label { color: var(--pk-ink-dim); font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.04em; }
-.bench__item { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; }
+/* each bench item is a fund-this button — a calm mono chip, balance-hue on hover
+   (it spends a catch), never an alarm. */
+.bench__item {
+  padding: 1px var(--pk-sm);
+  background: transparent;
+  color: var(--pk-ink-dim);
+  border: 1px solid var(--pk-line);
+  border-radius: 6px;
+  font-family: var(--pk-mono);
+  font-size: 0.92em;
+  cursor: pointer;
+}
+.bench__item:hover { color: var(--pk-balance); border-color: var(--pk-balance); }
 `

@@ -330,6 +330,10 @@ type LiveCard struct {
 	// badge when the verdict's green hides unkilled mutants. Written by OnConnect
 	// after the cycle; the full anchored threads live on the /review surface.
 	Questions via.StateTabStr
+	// FundTarget carries the path:line of the bench item the Lead clicked to fund —
+	// set by that item's on.SetSignal just before the post, then read by FundChosen
+	// to dispatch the CHOSEN target instead of the FIFO head.
+	FundTarget via.SignalStr `via:"fundtarget"`
 	// Balance is the spend broadcast trigger: the balance ROW value is re-read
 	// from the ledger in View (the source of truth), but the ledger is not
 	// reactive — so Spend writes the new balance here to make the live SSE stream
@@ -399,7 +403,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	// slice, curates) what a Spend funds rather than a blind auto-pick. Omitted when
 	// there is no fundable work; guarded on log (fundableBacklog reads it).
 	if log != nil {
-		if bench := renderBench(fundableBacklog(cfg, log)); bench != nil {
+		if bench := renderBench(c, fundableBacklog(cfg, log)); bench != nil {
 			parts = append(parts, bench)
 		}
 	}
@@ -452,6 +456,50 @@ func (c *LiveCard) Spend(ctx *via.Ctx) {
 		c.Dispatch.Write(ctx, strconv.Itoa(d)) // announce the funded work-order so the dispatch row rises in the same render
 	}
 	go drainQueuedOrders(c.Key) // the order RUNS in the background — spend-to-earn
+}
+
+// FundChosen is the prep bench's payoff: it funds the CHOSEN bench target (set by
+// that item's on.SetSignal into FundTarget) instead of the FIFO head, turning
+// dispatch from a blind auto-pick into the Lead's management-sim decision. The
+// chosen target is VALIDATED to be in the fundable set (chosenFundable), so a click
+// can never fund the card's own cycle, an already-consumed target, or an arbitrary
+// one — the distinct-work / two-scores rules hold. Otherwise it mirrors Spend: one
+// atomic AppendDispatch debit, then announce the drain + risen dispatch over SSE and
+// run the order. An off-bench key or over-budget balance is a silent no-op.
+func (c *LiveCard) FundChosen(ctx *via.Ctx) {
+	cfg, log := readLiveState(c.Key)
+	if log == nil {
+		return
+	}
+	tgt, ok := chosenFundable(cfg, log, strings.TrimSpace(c.FundTarget.Read(ctx)))
+	if !ok {
+		return // not on the bench (unknown / consumed / own cycle): a no-op
+	}
+	if err := log.AppendDispatch("dispatch", tgt, ownTargetOf(cfg)); err != nil {
+		return // over-budget / nothing to spend: a no-op, never an error to the Lead
+	}
+	if b, err := log.Balance(); err == nil {
+		c.Balance.Write(ctx, strconv.Itoa(b))
+	}
+	if d, err := log.PendingDispatches(); err == nil {
+		c.Dispatch.Write(ctx, strconv.Itoa(d))
+	}
+	go drainQueuedOrders(c.Key)
+}
+
+// chosenFundable resolves a "path:line" bench key to the matching fundable target,
+// validating membership: only a target currently in fundableBacklog can be chosen,
+// so the own-cycle target and already-consumed work are never fundable by key.
+func chosenFundable(cfg LiveConfig, log *ledger.Log, key string) (ledger.Target, bool) {
+	if key == "" {
+		return ledger.Target{}, false
+	}
+	for _, t := range fundableBacklog(cfg, log) {
+		if t.Path+":"+strconv.Itoa(t.Line) == key {
+			return t, true
+		}
+	}
+	return ledger.Target{}, false
 }
 
 // maxOrderAttempts bounds how many times the runner will pick a single queued
