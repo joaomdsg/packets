@@ -152,6 +152,12 @@ Layout of this directory:
   Maintainer gave the council creative latitude; a 3-voice council chose this over a
   reinvest-rhythm loop (marginal) and a session-menu (reachability-blocked: boot-time
   consumer snapshot). Diagnostic only (two-scores: no balance/catch). R52 renders it.
+- [Round 52](round-52.md) — ORDER-DIAGNOSTICS thread (slice 2): RENDER the per-order
+  verdict on card + board (shared renderDispatches appends a dim board-row__dispatch-why
+  span on a resolved order: "done missed no-catch"), so a miss is diagnosable
+  (no-catch vs lost-via-rename vs no-oracle-signal), not undifferentiated. Calm dim
+  secondary detail; omitted when none persisted. The diagnostics loop now reads
+  end-to-end: spend → dispatch → resolve → SEE WHY.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
