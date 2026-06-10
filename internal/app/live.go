@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/joaomdsg/packets/internal/bridge"
 	"github.com/joaomdsg/packets/internal/fabric"
+	"github.com/joaomdsg/packets/internal/ingest"
 	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
@@ -516,6 +518,50 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 		}
 		if _, err := ledger.PublishClaim(r.Context(), f, key, ledgerInstance, ledger.ClaimRecord{Target: t}); err != nil {
 			http.Error(w, "claim: publish failed", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
+	// A cross-process producer uploads a git bundle of its commits here BEFORE
+	// submitting a claim. The host validates + namespace-confines it OFFLINE
+	// (ingest unbundles only into refs/producers/<key>/* of the session's repo),
+	// so a later claim's SHAs resolve against that repo WITHOUT the host ever
+	// fetching a producer-controlled URL — no egress, no SSRF (council R38). The
+	// producer id is the session key (the producer identity per one-session-per-
+	// producer); a key that is not a safe ref segment is refused by ingest (400).
+	// Mirrors POST /claim's session-key gate + body cap (this is the live server's
+	// HTTP producer surface; if that ever moves to the NATS ProducerGrant path,
+	// the bundle channel moves with it).
+	const maxBundleBytes = 32 << 20 // 32 MiB — a commit bundle is small; a hard ceiling on abuse
+	app.HandleFunc("POST /bundle", func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("key")
+		if key == "" {
+			key = defaultSessionKey
+		}
+		if _, ok := liveReg.Load(key); !ok {
+			http.NotFound(w, r)
+			return
+		}
+		cfg, _ := readLiveState(key)
+		// A session with no configured repo must refuse, not pass "" to ingest: an
+		// empty store makes git run in the server process cwd, so an upload would
+		// silently land the producer's commits in refs/producers/<key>/* of whatever
+		// repo the server was launched from. Reject before reading the body.
+		if cfg.RepoDir == "" {
+			http.Error(w, "bundle: session has no repository", http.StatusBadRequest)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBundleBytes)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "bundle: too large or unreadable", http.StatusBadRequest)
+			return
+		}
+		// A bad producer id, an invalid bundle, or one past the cap is a client
+		// error; keep the message generic — the typed reasons live in ingest, and
+		// leaking git internals would aid a prober.
+		if err := ingest.IngestProducerObjects(r.Context(), cfg.RepoDir, key, body, maxBundleBytes); err != nil {
+			http.Error(w, "bundle: rejected", http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
