@@ -173,14 +173,21 @@ func renderDispatches(views []ledger.DispatchView) h.H {
 	spans := []h.H{h.Class("board-row__dispatches"), h.Span(h.Class("board-row__dispatches-label"), h.Text("dispatches:"))}
 	for _, v := range views {
 		text := "WO#" + strconv.Itoa(v.ID) + " " + v.Target.Path + ":" + strconv.Itoa(v.Target.Line) + " " + v.Status
+		span := []h.H{h.Class("board-row__dispatch")}
+		// A resolved order carries its outcome as a hook so the calm palette can
+		// color caught vs missed at a glance (a queued/running order has no outcome
+		// yet, so no hook — it stays neutral).
 		if v.Status == "done" {
 			if v.Caught {
 				text += " caught"
+				span = append(span, h.Data("outcome", "caught"))
 			} else {
 				text += " missed"
+				span = append(span, h.Data("outcome", "missed"))
 			}
 		}
-		spans = append(spans, h.Span(h.Class("board-row__dispatch"), h.Text(text)))
+		span = append(span, h.Text(text))
+		spans = append(spans, h.Span(span...))
 	}
 	return h.Div(spans...)
 }

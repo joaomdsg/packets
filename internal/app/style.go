@@ -106,6 +106,12 @@ body {
 .board-row__inflight { color: var(--pk-inflight); }
 .board-row__rejected { color: var(--pk-lost); }
 .board-row__dispatch { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; }
+/* a resolved order's outcome, legible at a glance in the honest palette (extends
+   the per-state color of R45 to the dispatch round-trip): caught is a calm
+   confirmed, missed a muted loss — never an alarm red/green. A queued/running
+   order has no data-outcome, so it stays neutral dim. */
+.board-row__dispatch[data-outcome="caught"] { color: var(--pk-confirmed); }
+.board-row__dispatch[data-outcome="missed"] { color: var(--pk-lost); }
 
 /* ---- the single review card ---- */
 .stock-row, .balance-row, .dispatch-row, .beat-row, .review-card, .land-row, .onboarding {

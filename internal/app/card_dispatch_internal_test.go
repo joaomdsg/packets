@@ -57,6 +57,15 @@ func TestLiveCard_showsThisSessionsDispatchRoundTripOutcomes(t *testing.T) {
 	require.Contains(t, body, "caught", "WO#1 minted → caught, shown on the card")
 	require.Contains(t, body, "WO#2", "the card shows the missed order too")
 	require.Contains(t, body, "missed", "WO#2 ran but minted nothing → missed, shown on the card")
+	// Each resolved order carries a per-outcome hook so the calm palette can color
+	// caught vs missed — the round-trip outcome legible at a glance, not
+	// undifferentiated dim text (extends R45's per-state honesty to dispatches).
+	require.Contains(t, body, `data-outcome="caught"`, "the caught order carries a per-outcome hook")
+	require.Contains(t, body, `data-outcome="missed"`, "the missed order carries a per-outcome hook")
+	// The stylesheet colors both outcomes in the honest palette (selectors live in
+	// the head), never an alarm red/green.
+	require.Contains(t, body, `[data-outcome="caught"]`, "the stylesheet colors a caught order")
+	require.Contains(t, body, `[data-outcome="missed"]`, "the stylesheet colors a missed order")
 }
 
 // A session that has funded no work-orders must NOT render an empty dispatch
@@ -78,4 +87,39 @@ func TestLiveCard_omitsTheDispatchClusterWhenNoOrdersFunded(t *testing.T) {
 	body := bodyOf(vt.NewClient(t, server, "/").HTML())
 	require.NotContains(t, body, "board-row__dispatches",
 		"a session with no funded orders renders no dispatch cluster, not an empty block")
+}
+
+// A queued/running order has NOT resolved, so it must carry NO outcome hook — it
+// stays neutral, never colored caught or missed before it has an outcome. Without
+// this guard a bug could paint unresolved work as a confirmed catch or a loss.
+// NOT parallel (shared liveReg/liveFabric).
+func TestLiveCard_aQueuedOrderCarriesNoOutcomeHook(t *testing.T) {
+	ctx := context.Background()
+	f, err := fabric.Start(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+	log := ledger.Bind(f, "queuedc", "i")
+
+	// One catch funds one order, left QUEUED (no done status, no outcome yet).
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "c.go", Line: 100, ReasonTag: "catch"}))
+	own := ledger.Target{BaseRev: "ob", FixRev: "of", TipRev: "of", Path: "own.go", Line: 1}
+	require.NoError(t, log.AppendDispatch("d1", ledger.Target{BaseRev: "b", FixRev: "f", TipRev: "f", Path: "alpha.go", Line: 7}, own))
+	registerSession("queuedc", LiveConfig{BaseRev: "own-b-queuedc", FixRev: "own-f", Anchor: anchorForCap()}, log)
+
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, defLog, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = defLog.Close() })
+
+	// bodyOf scopes past the head — the stylesheet's [data-outcome=...] selectors
+	// live there; we assert the rendered queued ORDER carries no outcome attribute.
+	body := bodyOf(vt.NewClient(t, server, "/?key=queuedc").HTML())
+	require.Contains(t, body, "WO#1", "the queued order is shown")
+	require.Contains(t, body, "queued", "with its unresolved status")
+	require.NotContains(t, body, "data-outcome=",
+		"a queued order carries no outcome hook — it is never colored before it resolves")
 }
