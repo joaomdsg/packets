@@ -31,6 +31,7 @@ type CardRow struct {
 	Done             int
 	Misses           int // done orders that minted NOTHING (Done − Reinvested) — honest losses made visible, not silently discarded
 	BacklogRemaining int
+	OpenQuestions    int // the session's latest-cycle open review questions (surviving mutants) — test debt the green verdict hides, made visible across the fleet; a diagnostic, never scored (off the economy)
 	seq              int // registration ordinal — the deterministic tie-break, not rendered
 }
 
@@ -81,6 +82,10 @@ func BoardRows() []CardRow {
 			}
 			row.BacklogRemaining = len(fundableBacklog(e.cfg, e.log))
 		}
+		// Open review questions are the session's latest-cycle surviving mutants, read
+		// from the in-memory findings cache (not the log) — test debt the green verdict
+		// hides, surfaced across the fleet. A diagnostic count, never scored.
+		row.OpenQuestions = len(e.openFindings())
 		rows = append(rows, row)
 		return true
 	})
@@ -207,6 +212,16 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 			h.Span(h.Class("board-row__misses"), h.Text(strconv.Itoa(r.Misses)+" misses")),
 			h.Span(h.Class("board-row__hitrate"), h.Text(hitRateLabel(r))),
 			h.Span(h.Class("board-row__backlog"), h.Text(strconv.Itoa(r.BacklogRemaining)+" awaiting")),
+		}
+		// Open review questions (surviving mutants) — surfaced only when there ARE any,
+		// so a session carrying test debt the green verdict hides stands out at a glance
+		// without nagging the clean ones. Links into that session's /review surface.
+		if r.OpenQuestions > 0 {
+			row = append(row, h.A(
+				h.Href("/review?key="+url.QueryEscape(r.Key)),
+				h.Class("board-row__questions"),
+				h.Text(strconv.Itoa(r.OpenQuestions)+" open questions"),
+			))
 		}
 		// The funded work-order round-trip made legible: recent dispatches with their
 		// caught/missed outcome, in their own cluster (omitted when there are none).

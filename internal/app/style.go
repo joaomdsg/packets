@@ -110,6 +110,11 @@ body {
 .board-row__misses { color: var(--pk-lost); }
 .board-row__hitrate { color: var(--pk-ink-dim); }
 .board-row__backlog { color: var(--pk-ink-dim); }
+/* open review questions (surviving mutants) for a session — test debt the green
+   verdict hides, a quiet accent link into that session's /review; only shown when
+   there are any. Never an alarm. */
+.board-row__questions { color: var(--pk-ink-dim); text-decoration: none; border-bottom: 1px dotted var(--pk-accent); }
+.board-row__questions:hover { color: var(--pk-ink); }
 /* retire a session from the fleet view — a quiet, low-emphasis control (dim until
    hover), never an alarm; only on non-default rows. */
 .board-row__retire {
