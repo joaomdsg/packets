@@ -220,6 +220,23 @@ body {
 .review-editor-island { display: block; }
 .review-editor { width: 100%; height: 60vh; border: 1px solid var(--pk-line); border-radius: 6px; }
 .review-editor:empty { height: 0; border: 0; } /* no editor mounted → no empty box */
+/* the answer affordance: write a killing test + submit. Calm, in the surface idiom —
+   a monospace input area + a quiet submit; the reward is the question vanishing, so
+   nothing here shouts. */
+.review-answer { display: flex; flex-direction: column; gap: var(--pk-xs); margin-top: var(--pk-sm); }
+.review-answer__label { margin: 0; color: var(--pk-ink-dim); font-size: 0.92em; }
+.review-answer__test {
+  width: 100%; min-height: 8em; resize: vertical;
+  font-family: var(--pk-mono); font-size: 0.92em;
+  color: var(--pk-ink); background: var(--pk-surface);
+  border: 1px solid var(--pk-line); border-radius: 6px; padding: var(--pk-sm);
+}
+.review-answer__submit {
+  align-self: flex-start;
+  color: var(--pk-ink); background: var(--pk-surface);
+  border: 1px solid var(--pk-accent); border-radius: 4px;
+  padding: 4px 12px; cursor: pointer;
+}
 /* a surviving-mutant line in the editor: a calm left-edge accent + a glyph, never
    an alarm — the honest "the tests didn't catch this here" marker. */
 .review-survivor-line { background: color-mix(in srgb, var(--pk-accent) 12%, transparent); }

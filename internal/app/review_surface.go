@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
+	"github.com/go-via/via/on"
 
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
@@ -110,6 +111,26 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 	// shields the editor's own DOM from being clobbered by an SSE re-render. Emitted
 	// only when there ARE questions — nothing to scaffold over an empty set.
 	parts = append(parts, reviewEditorIsland(cfg, threads))
+	// The answer affordance: write a test that kills the mutant and submit it. The
+	// textarea is bound to the answer signal; the submit sets the answered file/line
+	// (the anchored question) and fires AnswerQuestion, which re-runs the oracle with
+	// the test injected — a kill makes the question vanish (diagnostic, off-economy).
+	anchor := threads[0]
+	parts = append(parts, h.Div(
+		h.Class("review-answer"),
+		h.P(h.Class("review-answer__label"),
+			h.Text("Answer: write a test that kills the mutant on "+anchor.File+":"+strconv.Itoa(anchor.StartLine))),
+		h.Textarea(c.AnswerTest.Bind(), h.Class("review-answer__test"),
+			h.Placeholder("write a Go test that constrains this line — it runs against the reviewed revision")),
+		h.Button(
+			on.Click(c.AnswerQuestion,
+				on.SetSignal(&c.AnswerFile.Signal, anchor.File),
+				on.SetSignal(&c.AnswerLine.Signal, strconv.Itoa(anchor.StartLine)),
+			),
+			h.Class("review-answer__submit"),
+			h.Text("Submit answer — re-run the oracle"),
+		),
+	))
 	return h.Div(parts...)
 }
 
