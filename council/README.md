@@ -187,8 +187,12 @@ Layout of this directory:
   suppress on a lost anchor (Refactoring). Slice 1 (commit 7fb1ec9): plumb the fix
   oracle's findings out of the cycle into CycleResult.Findings (nil on lost anchor).
   Slice 2 (commit 79a2151): map them into Resolution + a gated, calm "N open
-  questions" count badge on the card (the humble summary; full threads → /review
-  after persistence). Slice 3 (next): persist findings as a diagnostic ledger fact.
+  questions" count badge on the card (the humble summary; full threads → /review).
+  Slice 3 (commit 7b471ff): the /review surface — full anchored "question:" threads
+  from a per-session in-memory findings cache (off the economy; the mastery loop =
+  answer → mutant dies → thread vanishes next cycle); the badge links to it. The
+  thread is now FEATURE-USABLE. Remaining optional polish: reviewer intent tags;
+  ledger persistence only if cross-restart history is wanted (deferred).
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,

@@ -76,6 +76,27 @@ fact, off the two-scores economy per the Systems guard) must precede the /review
 full-thread surface (slice 3b/4), inverting the council's original render-then-
 persist order.
 
+## Slice 3 (built, commit 7b471ff)
+
+The /review surface — the full anchored "question:" threads the card's badge only
+counts. ReviewCard (mounted at /review) renders sessionOpenThreads(key): each
+finding as a .review-thread anchored File:Line + "question: <message>", or a calm
+empty state. The card badge is now a link to it. Threads come from a per-session
+in-memory findings cache on the liveEntry (written by the connect cycle,
+mutex-guarded wholesale-replace; read by the /review GET) — EPHEMERAL diagnostic
+state, recomputed each connect, deliberately OFF the economy ledger (the Systems
+guard: a question never mints/scores/spends). Because it is the LATEST cycle's
+findings, answering a question makes it vanish next cycle (the Game Designer's
+mastery loop) with no scored transaction. Unknown keys fall back to default
+(consistent with the card/stream/claim surfaces). Blue: concurrency-safe (slice
+replaced wholesale, read under the lock), no dead code, no badge regression.
+
+The review-thread surface thread is now FEATURE-USABLE: a verdict's green that
+hides surviving mutants shows a gated count on the card → click → /review reads the
+full open questions. Remaining (optional polish): reviewer intent tags
+(question→blocking/suggestion), and ledger PERSISTENCE if cross-restart history is
+wanted (deferred — the open-questions view needs only the latest cycle).
+
 ## New clashes opened / resolved
 
 Clashes 1 (base vs fix) + 2 (where to render) resolved above. None left open.
