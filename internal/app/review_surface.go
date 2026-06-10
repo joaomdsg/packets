@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strconv"
 
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
 
+	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
 	"github.com/joaomdsg/packets/internal/review"
 )
@@ -17,15 +19,63 @@ import (
 // so tests inject canned source (the git-show boundary is real subprocess I/O).
 var reviewFileReader = reanchor.FileAt
 
+// rerunWithOverlay re-runs the oracle at the fix rev with the reviewer's test
+// injected — the seam behind answering a question. A package var so tests inject a
+// canned verdict (the real one is a full oracle run over git worktrees).
+var rerunWithOverlay = pipe.RerunWithTestOverlay
+
+// answerTestFilename is where a reviewer's submitted test is written in the worktree
+// — a fixed _test.go beside the reviewed file, so `go test ./...` compiles it into
+// that package. Its content is the reviewer's submission (which declares its own
+// package), so the name only has to be a unique _test.go in the right directory.
+const answerTestFilename = "packets_review_answer_test.go"
+
 // ReviewCard is the dedicated review surface (/review?key=<session>): the full
 // anchored "question:" threads the card's badge only counts. Each thread is a
 // surviving/undetermined mutant the fix oracle found — an honest test gap the green
-// verdict hides. It is READ-ONLY and diagnostic: the threads are the session's
-// latest connect-cycle findings (recomputed each cycle, off the economy ledger), so
-// answering a question — strengthening the test until the mutant dies — makes it
-// vanish on the next cycle (the mastery loop), never a scored transaction.
+// verdict hides. The threads are the session's latest connect-cycle findings
+// (recomputed each cycle, off the economy ledger). A reviewer ANSWERS a question by
+// submitting a test for its line (AnswerQuestion): the oracle re-runs with that test
+// injected, and if the mutant dies the question vanishes — diagnostic only, never a
+// scored transaction.
 type ReviewCard struct {
 	Key string `query:"key"`
+	// The reviewer's answer submission, set by the editor before posting AnswerQuestion.
+	AnswerFile via.SignalStr `via:"answerfile"`
+	AnswerLine via.SignalStr `via:"answerline"`
+	AnswerTest via.SignalStr `via:"answertest"`
+}
+
+// AnswerQuestion re-runs the oracle for the answered line with the reviewer's test
+// injected into a throwaway worktree, and replaces the session's cached findings
+// with the result: a test that KILLS the mutant leaves no finding (the question
+// vanishes on the next render); a weak one leaves the survivor (the question stays
+// open). FIREWALL: it writes ONLY the off-economy findings cache — never the ledger,
+// never balance — so answering mints nothing (the vanishing question is the reward).
+// A blank/invalid submission or a transient re-run error is a no-op: the question
+// stays open, retryable (an Undetermined/failed run never falsely clears it).
+func (c *ReviewCard) AnswerQuestion(ctx *via.Ctx) {
+	key := c.Key
+	e := lookupLiveEntry(key)
+	if e == nil {
+		return
+	}
+	file := c.AnswerFile.Read(ctx)
+	test := c.AnswerTest.Read(ctx)
+	line, err := strconv.Atoi(c.AnswerLine.Read(ctx))
+	if file == "" || test == "" || err != nil || line < 1 {
+		return // nothing to answer
+	}
+	cfg, _ := readLiveState(key)
+	overlay := map[string]string{filepath.Join(filepath.Dir(file), answerTestFilename): test}
+	newFindings, err := rerunWithOverlay(context.Background(), cfg.RepoDir, cfg.FixRev, file, line, cfg.TestCmd, overlay)
+	if err != nil {
+		return // transient — leave the question open, retryable (flaky-truth fence)
+	}
+	// Wholesale replace is correct because the live card anchors ONE line and
+	// mutation.Run is scoped to it, so the cache only ever holds that line's findings.
+	// (If multi-line answering is ever added, replace only the answered line's entries.)
+	e.setFindings(newFindings) // diagnostic cache only; no ledger touch — FIREWALL
 }
 
 // View renders the session's open question-threads, anchored File:Line with their
