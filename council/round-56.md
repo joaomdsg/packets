@@ -59,6 +59,23 @@ in the ra.Same||ra.Moved branch; nil when the anchor is lost); app.Resolution ga
 oracle fixture): a cycle whose FIX leaves a surviving `>=` mutant carries it in
 CycleResult.Findings — the findings no longer die in the cycle.
 
+## Slice 2 (built, commit 79a2151)
+
+app.Resolution gained Findings (a pass-through of CycleResult.Findings). LiveCard
+gained a Questions cell; OnConnect writes the open-question COUNT (len of the fix
+oracle's non-killed findings) after the connect cycle; View renders a GATED, calm
+".review-questions" badge ("N open question(s) — the oracle found unkilled mutants
+the tests didn't catch") only when count > 0. Per the UX Designer's guidance the
+card shows the COUNT ONLY (a humble summary), not the full threads. Tests (SSE):
+survivors → the badge with its count + class; a clean verdict → no badge.
+
+Re-sequencing note: a []Finding can't ride a scalar via state cell, so the card
+carries only the count. The full anchored threads need the findings RETRIEVABLE,
+which requires PERSISTENCE — so slice 3 (persist findings as a diagnostic ledger
+fact, off the two-scores economy per the Systems guard) must precede the /review
+full-thread surface (slice 3b/4), inverting the council's original render-then-
+persist order.
+
 ## New clashes opened / resolved
 
 Clashes 1 (base vs fix) + 2 (where to render) resolved above. None left open.
