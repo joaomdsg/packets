@@ -202,8 +202,14 @@ Layout of this directory:
   the fundable backlog as a "bench" and let the Lead choose what the next Spend funds
   (kills dead-air; a real management-sim decision; on supply.go's existing plumbing;
   server-testable). Keyboard nav deferred (browser-only = test-theater per TDD);
-  Land/merge fleet surface queued as the next thread. Slices: (1) render the bench,
-  (2) choose-to-fund, (3) optional reorder.
+  Land/merge fleet surface queued as the next thread. Slices: (1) render the bench
+  (commit d857cbf), (2) choose-to-fund (commit cdc0130). FEATURE-COMPLETE — the Lead
+  sees the fundable work + chooses what each Spend funds (reorder declared marginal).
+- [Round 58](round-58.md) — the LAND/MERGE FLEET SURFACE thread (council-queued in
+  R57, CI/CD's pick: "Landed ≠ Merged"). Slice 1 (commit 2e6de9b): cache the per-
+  session integration verdict on the liveEntry (like the R56 findings cache) and
+  surface BLOCKED verdicts (conflict / checks-red) on the fleet board — gated, honest
+  color — so a Lead sees which sessions can't land. Off the economy, server-testable.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
