@@ -58,6 +58,18 @@ target is never re-funded (Systems two-scores / no-degenerate-farm); every choic
 backed by the AppendDispatch logged fact; server-render-testable only (no browser-
 only behavior); #6 live boundary gated.
 
+## Slice 1 (built, commit d857cbf)
+
+renderBench(fundableBacklog(cfg, log)) on the card: a calm ".bench" list of the next
+fundable targets (path:line), the FIFO-next marked "(next)", capped at benchCap.
+Read-only — the Lead sees what's on deck while compute runs. Pure projection of
+existing supply.go plumbing; omitted when no fundable work; guarded on log. Tests:
+seeded backlog → bench shows both targets + "(next)"; no fundable work → no bench;
+a backlog past the cap → exactly benchCap items. Full-repo -race green. (A small
+render helper mirroring renderDispatches — verified via the three tests + the
+full-repo gate rather than a separate Blue/Audit subagent, proportionate to size.)
+Next: slice 2 — choose-to-fund.
+
 ## New clashes opened / resolved
 
 Clash: prep-bench vs keyboard nav vs land-surface. Resolved on prep-bench (3 votes +
