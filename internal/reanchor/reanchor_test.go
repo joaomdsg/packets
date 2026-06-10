@@ -171,6 +171,27 @@ func TestReanchor_marksLostViaRenameWithNewPath(t *testing.T) {
 	assert.Equal(t, "renamed.txt", got.Path)
 }
 
+// A rename of a NON-ASCII path must still be followed: git's default
+// core.quotepath octal-quotes such paths in --name-status output (café.txt →
+// "caf\303\251.txt"), so an Anchor.Path with non-ASCII bytes would never match
+// the rename record and the anchor would phantom-resolve as Same instead of
+// LostViaRename — silently losing a catch on any repo with non-ASCII filenames.
+func TestReanchor_followsARenameOfANonASCIIPath(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	body := numbered(20)
+	write(t, dir, "café.txt", body)
+	base := commitAll(t, dir, "base")
+	runGit(t, dir, "mv", "café.txt", "résumé.txt")
+	head := commitAll(t, dir, "rename café->résumé")
+
+	a := reanchor.Anchor{Path: "café.txt", Start: 10, End: 12, LineHash: reanchor.HashLines(linesOf(body, 10, 12))}
+	got, err := reanchor.Reanchor(context.Background(), dir, a, base, head)
+	require.NoError(t, err)
+	assert.Equal(t, reanchor.LostViaRename, got.State, "a non-ASCII rename must be detected, not read as Same")
+	assert.Equal(t, "résumé.txt", got.Path, "the new path is the real unquoted non-ASCII name")
+}
+
 func TestReanchor_accumulatesDeltaFromMultipleHunksAbove(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)

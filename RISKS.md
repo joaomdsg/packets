@@ -369,9 +369,22 @@ design risks above, which are about the spec). Each: where, the finding, the fix
      K-concurrent-settle benchmark must measure this INTEGRATED cost (3× suite + per-tip
      re-runs) before any catch PRICING (#17), per the Round-10/12 gate.
 
-### Non-ASCII paths break re-anchor + diff path-matching (slice: re-anchoring)
+### Non-ASCII paths break re-anchor + diff path-matching (slice: re-anchoring) — FIXED 2026-06-10 (council R40)
 
-- **Where:** `internal/reanchor/reanchor.go` `fileStatus` (name-status parse) and
+- **Fix:** pinned `-c core.quotepath=false` on the git invocations in BOTH
+  `internal/reanchor/reanchor.go` `fileStatus` and `internal/diff/diff.go`
+  `Compute`, so git emits real non-ASCII pathnames instead of the octal-quoted
+  `"caf\303\251.txt"` form — path-matching and path extraction now work on
+  accented/CJK filenames. Locked by `TestReanchor_followsARenameOfANonASCIIPath`
+  (a `café.txt`→`résumé.txt` rename resolves LostViaRename with the real new path)
+  and `TestCompute_reportsTheRealPathForANonASCIIFile`. The Audit confirmed no
+  third latent site (settle already uses `-z` raw paths; reanchor's `fileAt` and
+  ingest's `for-each-ref` parse no file paths from output). **Residual (exotic,
+  not fixed):** filenames containing a literal TAB / newline / `"` / control char
+  are still C-quoted by git even with quotepath=false, so they could mis-split on
+  the `\t` delimiter in `fileStatus`; the proper fix is `-z` (as settle does) — a
+  larger change, deferred as pathological.
+- ~~(original)~~ **Where:** `internal/reanchor/reanchor.go` `fileStatus` (name-status parse) and
   the `f.Path == a.Path` hunk loop; `internal/diff/diff.go` path extraction.
 - **Finding:** git's default `core.quotepath=true` octal-quotes and double-quote-
   wraps non-ASCII paths in `--name-status`/`--numstat`/`diff` output (e.g.

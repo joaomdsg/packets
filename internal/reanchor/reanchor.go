@@ -138,7 +138,12 @@ type fileChange struct {
 // unchanged; an "R" record (path on the old side) is a rename; "D" a deletion;
 // anything else a modification.
 func fileStatus(ctx context.Context, repoDir, path, fromRev, toRev string) (fileChange, error) {
-	out, err := git(ctx, repoDir, "diff", "--find-renames", "--name-status", fromRev, toRev)
+	// -c core.quotepath=false: git's default octal-quotes + double-quote-wraps
+	// non-ASCII paths in --name-status (café.txt → "caf\303\251.txt"), so an
+	// Anchor.Path with non-ASCII bytes would never match and the file would read
+	// as unchanged — a phantom Same that silently drops a catch.
+	out, err := git(ctx, repoDir, "-c", "core.quotepath=false",
+		"diff", "--find-renames", "--name-status", fromRev, toRev)
 	if err != nil {
 		return fileChange{}, err
 	}

@@ -43,7 +43,11 @@ type Diff struct {
 // delete + an add (see RISKS.md "reanchor-rename-similarity-cliff", a later
 // brick). Line CONTENT is not captured (ranges/counts only).
 func Compute(ctx context.Context, repoDir, fromRev, toRev string) (Diff, error) {
-	cmd := exec.CommandContext(ctx, "git", "diff",
+	// -c core.quotepath=false: git's default octal-quotes non-ASCII paths in the
+	// `diff --git`/`+++ b/` headers (café.txt → "caf\303\251.txt"), so the parsed
+	// FileDiff.Path would be the mangled quoted form and never match a consumer's
+	// real anchor path.
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.quotepath=false", "diff",
 		"--no-color", "--no-ext-diff", "--no-renames",
 		"--src-prefix=a/", "--dst-prefix=b/",
 		fromRev, toRev)

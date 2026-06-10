@@ -259,3 +259,21 @@ func TestCompute_parsesMultipleHunksInOneFileSeparately(t *testing.T) {
 	assert.True(t, brackets(f.Hunks[0], 5), "first hunk %+v must bracket line 5", f.Hunks[0])
 	assert.True(t, brackets(f.Hunks[1], 35), "second hunk %+v must bracket line 35", f.Hunks[1])
 }
+
+// A changed NON-ASCII file must surface under its REAL path, not git's default
+// core.quotepath octal-quoted form ("caf\303\251.txt"): a consumer matching on
+// the anchor's path would otherwise never find the file's diff.
+func TestCompute_reportsTheRealPathForANonASCIIFile(t *testing.T) {
+	dir := initRepo(t)
+	write(t, dir, "café.txt", numbered(20))
+	base := commitAll(t, dir, "base")
+	lines := strings.Split(numbered(20), "\n")
+	lines[9] = "CHANGED"
+	write(t, dir, "café.txt", strings.Join(lines, "\n"))
+	head := commitAll(t, dir, "edit line 10 of café.txt")
+
+	d, err := diff.Compute(context.Background(), dir, base, head)
+	require.NoError(t, err)
+	_, ok := fileByPath(d, "café.txt")
+	require.Truef(t, ok, "café.txt missing from diff (quoted-path mangling?): %+v", d.Files)
+}
