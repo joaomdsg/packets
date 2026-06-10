@@ -171,6 +171,13 @@ Layout of this directory:
   now verify + mint. Adversarial audit caught two real defects a green bar hid: a
   closure-capture race (fixed via locals-under-lock) and cross-test global
   contamination (fixed via a test reset). Full -race gate (incl. -count) green.
+- [Round 55](round-55.md) — SESSION-MANAGEMENT thread (slice 3, V1 complete):
+  retire a session from the fleet (a per-row retire control via on.SetSignal binding
+  the row's key → RetireSession → liveReg.Delete), the honest completion of create.
+  Default never retirable; in-use retire degrades gracefully to default (no
+  nil-deref); benign documented consumer-goroutine leak. Council DEFERRED the bigger
+  prep-bench thread as under-specified — surfaced as needing a maintainer product
+  decision, not a council guess.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
