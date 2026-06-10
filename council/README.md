@@ -237,6 +237,21 @@ Layout of this directory:
   nested. Blue-confirmed non-breaking restructure. Flagged moderate — the reachable+
   testable moderate space is now thin; next tick weighs holding for a maintainer
   steer vs. another peripheral slice (skeptic gate).
+- [Round 62](round-62.md) — the MONACO REVIEW UI thread opens (maintainer steer:
+  "steer to Monaco, I can't wait to see the review UI working, nail the user flows").
+  A grounded scout OVERTURNED R59's "no WithPlugins / untestable" claim: via HAS a
+  Plugin interface + WithPlugins (echarts precedent) and h.DataIgnoreMorph() makes a
+  Monaco subtree survive SSE re-renders — so Monaco is reachable, with the server
+  data contract testable and only the in-editor rendering client-only. Full six
+  converged UNANIMOUSLY: READ-ONLY review first (the honest mastery beat — answer →
+  mutant dies → thread vanishes; the kill happens in the real suite); editable-in-
+  browser is a DEEP fork DEFERRED to an explicit maintainer steer (cage cost +
+  degenerate-strategy + the diagnostic-vs-minted firewall must be designed first).
+  Extend /review's one projection (no fork); test the server payload, never fake-test
+  the client editor. Slice 1 (built): /review emits a data-ignore-morph editor island
+  + a JSON thread payload {file,line,tag,body} from sessionOpenThreads. Slice 2 = load
+  Monaco read-only + decorations (CDN-vs-vendor decided then, lean vendor); slice 3 =
+  editable (gated).
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,

@@ -1,10 +1,13 @@
 package app
 
 import (
+	"encoding/json"
 	"strconv"
 
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
+
+	"github.com/joaomdsg/packets/internal/review"
 )
 
 // ReviewCard is the dedicated review surface (/review?key=<session>): the full
@@ -43,5 +46,42 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 			h.Span(h.Class("review-thread__body"), h.Text(t.Render())), // "question: <body>"
 		))
 	}
+	// The editor island: a DOM subtree the client-side Monaco review editor (a later
+	// slice) mounts into, plus the SAME threads as a machine-readable JSON payload so
+	// the editor reads structured data, not the human text above. data-ignore-morph
+	// shields the editor's own DOM from being clobbered by an SSE re-render. Emitted
+	// only when there ARE questions — nothing to scaffold over an empty set.
+	parts = append(parts, reviewEditorIsland(threads))
 	return h.Div(parts...)
+}
+
+// reviewEditorIsland renders the Monaco mount point + a JSON payload of the threads.
+// The payload comes from the SAME projection as the server text (one source, no
+// drift). encoding/json HTML-escapes <, >, & by default, so an oracle message
+// containing "</script>" can't break out of the script element.
+func reviewEditorIsland(threads []review.Thread) h.H {
+	payload, _ := json.Marshal(reviewThreadPayloads(threads))
+	return h.Div(
+		h.Class("review-editor"),
+		h.ID("review-editor"),
+		h.DataIgnoreMorph(),
+		h.Script(h.Type("application/json"), h.ID("review-threads-data"), h.Raw(string(payload))),
+	)
+}
+
+// reviewThreadPayload is the per-thread shape the client editor consumes: the
+// minimum to anchor a decoration (file, line) and show the question (tag, body).
+type reviewThreadPayload struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
+	Tag  string `json:"tag"`
+	Body string `json:"body"`
+}
+
+func reviewThreadPayloads(threads []review.Thread) []reviewThreadPayload {
+	out := make([]reviewThreadPayload, 0, len(threads))
+	for _, t := range threads {
+		out = append(out, reviewThreadPayload{File: t.File, Line: t.StartLine, Tag: t.Tag, Body: t.Body})
+	}
+	return out
 }
