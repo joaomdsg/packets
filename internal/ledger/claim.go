@@ -3,12 +3,22 @@ package ledger
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/joaomdsg/packets/internal/fabric"
 )
+
+// ErrClaimUnverifiable marks a PERMANENT verify failure: the claim's target can
+// never verify (its revisions are unresolvable or malformed, so no retry can
+// succeed). A Verifier signals this by returning an error WRAPPING it
+// (fmt.Errorf("...: %w", ErrClaimUnverifiable)); ConsumeClaims then durably
+// rejects the claim — it leaves the in-flight set like a clean no-catch — rather
+// than treating it as a transient flake and letting it linger in-flight forever.
+// A plain (non-wrapping) error stays TRANSIENT: ack, no marker, resubmittable.
+var ErrClaimUnverifiable = errors.New("ledger: claim can never verify — reject it durably")
 
 // subjectKindClaim is the claim-subtree token for a unit of work submitted for
 // verification — distinct from the minted-catch kind, so a claim and a catch can
@@ -162,10 +172,17 @@ func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.D
 		}
 		rec, err := verify(claim)
 		if err != nil {
-			// A verifier ERROR is transient (the cage blew up / timed out): ack and
-			// move on, but write NO verdict — branding a valid claim "rejected" on a
-			// flake would silently discard recoverable work. It stays in flight,
-			// resubmittable.
+			if errors.Is(err, ErrClaimUnverifiable) {
+				// A PERMANENT failure: the target can never verify (unresolvable/
+				// malformed revisions). Reject it durably — it leaves the in-flight set
+				// like a clean no-catch — rather than lingering in-flight forever as a
+				// doomed transient retry. Best-effort publish, mirroring the no-catch path.
+				_, _ = PublishClaimVerdict(ctx, l.f, l.session, l.instance, ClaimVerdict{Target: claim.Target, Rejected: true})
+				return nil
+			}
+			// A TRANSIENT error (the cage blew up / timed out): ack and move on, but
+			// write NO verdict — branding a valid claim "rejected" on a flake would
+			// silently discard recoverable work. It stays in flight, resubmittable.
 			return nil
 		}
 		if rec == nil {

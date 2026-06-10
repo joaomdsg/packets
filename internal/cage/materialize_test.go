@@ -2,6 +2,7 @@ package cage_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,6 +36,45 @@ func hostRepoWithThreeRevs(t *testing.T) (dir, base, fix, tip string) {
 
 func targetOf(base, fix, tip string) ledger.Target {
 	return ledger.Target{BaseRev: base, FixRev: fix, TipRev: tip, Path: "adult.go", Line: 2}
+}
+
+// A claim whose revision the host cannot resolve (a bogus/never-committed SHA, or
+// a producer's commit that never reached the host) is a PERMANENT failure: no
+// retry can succeed. Materialize must surface it as ErrUnresolvableRevision so the
+// caller can durably reject the claim instead of looping on it forever — distinct
+// from a transient clone/IO failure.
+func TestMaterialize_unknownRevisionIsAnUnresolvableRevisionError(t *testing.T) {
+	t.Parallel()
+	host, _, fix, tip := hostRepoWithThreeRevs(t)
+	bogus := "0123456789012345678901234567890123456789" // a SHA the host never committed
+
+	_, _, err := cage.Materialize(context.Background(), host, ledger.Target{
+		BaseRev: bogus, FixRev: fix, TipRev: tip, Path: "adult.go", Line: 2,
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, cage.ErrUnresolvableRevision),
+		"an unresolvable revision is a permanent failure the caller can durably reject, not a transient retry")
+}
+
+// A rev-parse that fails because the verify deadline expired (or the host is
+// shutting down) is TRANSIENT, never permanent: the revision may be perfectly
+// resolvable and a later retry could succeed. Misclassifying a cancelled context
+// as ErrUnresolvableRevision would durably reject a valid claim and silently
+// discard recoverable work. Only a genuinely-unresolvable revision earns the
+// permanent sentinel; a context error must surface as itself, unwrapped of it.
+func TestMaterialize_aCancelledContextStaysTransientNotPermanent(t *testing.T) {
+	t.Parallel()
+	host, base, fix, tip := hostRepoWithThreeRevs(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before any git runs
+
+	_, _, err := cage.Materialize(ctx, host, targetOf(base, fix, tip))
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, context.Canceled),
+		"a cancelled-context failure must surface as the context error, so the caller can retry it")
+	assert.False(t, errors.Is(err, cage.ErrUnresolvableRevision),
+		"a cancelled context is transient — it must NOT be branded a permanent unresolvable revision and durably rejected")
 }
 
 // The cage runs the oracle over the claim's revisions, so the materialized repo

@@ -3,6 +3,7 @@ package cage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,6 +37,13 @@ func CageVerifier(runner sandbox.Runner, hostRepo, image string, verifyTimeout t
 		defer cancel()
 		wd, cleanup, err := Materialize(ctx, hostRepo, c.Target)
 		if err != nil {
+			// An unresolvable revision can NEVER verify: map it to the ledger's
+			// permanent-reject sentinel so the consumer durably rejects the claim
+			// instead of looping on it forever. Other materialize failures (clone/IO)
+			// are transient and propagate unchanged.
+			if errors.Is(err, ErrUnresolvableRevision) {
+				return nil, fmt.Errorf("%w: %v", ledger.ErrClaimUnverifiable, err)
+			}
 			return nil, err
 		}
 		defer cleanup()

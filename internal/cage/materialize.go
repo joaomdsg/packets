@@ -6,6 +6,7 @@ package cage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,13 @@ import (
 
 	"github.com/joaomdsg/packets/internal/ledger"
 )
+
+// ErrUnresolvableRevision marks a PERMANENT materialization failure: a target
+// revision the host cannot resolve (absent, empty, or a producer's commit that
+// never reached the host). No retry can succeed, so the caller maps it to the
+// ledger's permanent-reject sentinel rather than treating it as a transient
+// clone/IO failure. errors.Is against this distinguishes it from those.
+var ErrUnresolvableRevision = errors.New("cage: host repo cannot resolve a target revision")
 
 // The fixed layout of the cage's writable /work mount. The repo clone lives in a
 // subdir; the go-tool scratch dirs are SIBLINGS so the mutation oracle's
@@ -55,14 +63,24 @@ type Workdir struct {
 func Materialize(ctx context.Context, hostRepo string, t ledger.Target) (*Workdir, func(), error) {
 	for _, rev := range []string{t.BaseRev, t.FixRev, t.TipRev} {
 		if strings.TrimSpace(rev) == "" {
-			return nil, nil, fmt.Errorf("cage: empty target revision")
+			return nil, nil, fmt.Errorf("cage: empty target revision: %w", ErrUnresolvableRevision)
 		}
 		// `--end-of-options` stops a leading-dash rev (e.g. a forged claim's
 		// "--git-dir=...") from being parsed as a git flag: everything after it is
 		// a revision, never an option. Plain `--` does NOT serve this role for
 		// `rev-parse --verify`.
 		if err := git(ctx, hostRepo, "rev-parse", "--verify", "--quiet", "--end-of-options", rev+"^{commit}"); err != nil {
-			return nil, nil, fmt.Errorf("cage: host repo cannot resolve revision %q: %w", rev, err)
+			// A context cancellation/deadline is TRANSIENT, not permanent: the
+			// revision may be perfectly resolvable and the verify just ran out of
+			// time (or the host is shutting down). Surface it unwrapped of the
+			// permanent sentinel so the caller retries rather than durably rejecting
+			// a valid claim. Only a genuine resolve failure wraps ErrUnresolvableRevision.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, nil, fmt.Errorf("cage: revision %q: %w", rev, ctxErr)
+			}
+			// Wrap the permanent sentinel (errors.Is target); fold the git stderr into
+			// the message text since fmt.Errorf allows only one %w.
+			return nil, nil, fmt.Errorf("cage: revision %q (%v): %w", rev, err, ErrUnresolvableRevision)
 		}
 	}
 

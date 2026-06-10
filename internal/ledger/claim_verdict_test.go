@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -99,6 +101,65 @@ func TestClaimsInFlight_skipsMalformedVerdictEvents(t *testing.T) {
 	inflight, err := log.ClaimsInFlight()
 	require.NoError(t, err, "a malformed verdict event must be skipped, not error the count")
 	require.Equal(t, 1, inflight, "only the one valid claim is in flight; the garbage verdict is ignored")
+}
+
+// An UNVERIFIABLE claim — one whose target can never verify (unresolvable or
+// malformed revisions: no retry will ever succeed) — must leave the in-flight
+// set via a durable rejection, exactly like a clean no-catch. Otherwise it
+// lingers in-flight FOREVER (an unbounded-in-flight hole). The verifier signals
+// this permanent failure by returning an error WRAPPING ledger.ErrClaimUnverifiable.
+func TestConsumeClaims_anUnverifiableClaimIsDurablyRejectedNotLeftInFlight(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	permanent := func(ledger.ClaimRecord) (*ledger.CatchRecord, error) {
+		return nil, fmt.Errorf("host repo cannot resolve revision: %w", ledger.ErrClaimUnverifiable)
+	}
+	go func() { _ = log.ConsumeClaims(ctx, permanent, 30*time.Second, nil) }()
+
+	require.NoError(t, mustPublishClaim(ctx, f, claimAt(4)))
+	require.Eventually(t, func() bool {
+		rej, err := log.ClaimsRejected()
+		return err == nil && rej == 1
+	}, 3*time.Second, 20*time.Millisecond, "a permanently-unverifiable claim must be durably rejected")
+	inflight, err := log.ClaimsInFlight()
+	require.NoError(t, err)
+	require.Equal(t, 0, inflight, "the rejected unverifiable claim leaves the in-flight set — it does not linger forever")
+	require.True(t, balanceIs(log, 0)(), "an unverifiable claim mints nothing (two-scores)")
+}
+
+// A TRANSIENT verify error (a cage flake / timeout — the opposite of permanent)
+// must NOT be branded a rejection: the claim stays a bet in flight, resubmittable,
+// because a later attempt could succeed. This is the non-vacuous contrast that
+// makes the permanent-rejection meaningful — only a wrapped ErrClaimUnverifiable
+// rejects; a plain error does not.
+func TestConsumeClaims_aTransientVerifyErrorStaysInFlightResubmittable(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	var invoked atomic.Int32
+	flake := func(ledger.ClaimRecord) (*ledger.CatchRecord, error) {
+		invoked.Add(1)
+		return nil, errors.New("cage flake: docker daemon hiccup")
+	}
+	go func() { _ = log.ConsumeClaims(ctx, flake, 30*time.Second, nil) }()
+
+	require.NoError(t, mustPublishClaim(ctx, f, claimAt(4)))
+	require.Eventually(t, func() bool { return invoked.Load() >= 1 },
+		3*time.Second, 20*time.Millisecond, "the verifier must run on the posted claim")
+	require.Never(t, func() bool {
+		inflight, err := log.ClaimsInFlight()
+		return err == nil && inflight == 0
+	}, 1*time.Second, 50*time.Millisecond, "a transient flake must NOT resolve the bet — it stays in flight, resubmittable")
+	rej, err := log.ClaimsRejected()
+	require.NoError(t, err)
+	require.Equal(t, 0, rej, "a flake is never a verified-loss — only a permanent failure rejects")
 }
 
 // A verified-loss must be COUNTED, not just removed from flight: the host ran

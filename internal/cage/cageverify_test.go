@@ -3,6 +3,7 @@ package cage_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,6 +68,49 @@ func TestCageVerifier_cancelsAVerifyThatExceedsTheDeadline(t *testing.T) {
 
 func claimOver(base, fix, tip string) ledger.ClaimRecord {
 	return ledger.ClaimRecord{Target: targetOf(base, fix, tip)} // targetOf: Path "adult.go", Line 2
+}
+
+// A claim the host can never resolve (a producer's commit that never reached the
+// host, or a bogus SHA) is a PERMANENT failure. CageVerifier must surface it as
+// ledger.ErrClaimUnverifiable — the seam the in-package-ledger consumer keys on to
+// durably REJECT the claim — rather than as a plain (transient) error that would
+// leave the bet lingering in flight forever. A transient runner failure over a
+// RESOLVABLE claim must NOT carry that sentinel.
+func TestCageVerifier_anUnresolvableClaimSurfacesThePermanentRejectSentinel(t *testing.T) {
+	t.Parallel()
+	host, _, fix, tip := hostRepoWithThreeRevs(t)
+	bogus := "0123456789012345678901234567890123456789"
+
+	t.Run("unresolvable revision is permanent (the reject sentinel)", func(t *testing.T) {
+		t.Parallel()
+		fake := &fakeRunner{result: sandbox.Result{Output: catchTranscriptJSON(t, "adult.go", 2)}}
+		rec, err := cage.CageVerifier(fake, host, "img", 30*time.Second)(
+			ledger.ClaimRecord{Target: ledger.Target{BaseRev: bogus, FixRev: fix, TipRev: tip, Path: "adult.go", Line: 2}})
+		require.Error(t, err)
+		assert.Nil(t, rec, "an unverifiable claim mints nothing")
+		assert.True(t, errors.Is(err, ledger.ErrClaimUnverifiable),
+			"the consumer must be able to durably reject this — it can never verify")
+	})
+
+	t.Run("a runner failure over a resolvable claim is transient (no reject sentinel)", func(t *testing.T) {
+		t.Parallel()
+		fake := &fakeRunner{err: errors.New("docker daemon hiccup")}
+		rec, err := cage.CageVerifier(fake, host, "img", 30*time.Second)(claimOver(fixBase(t, host), fix, tip))
+		require.Error(t, err)
+		assert.Nil(t, rec)
+		assert.False(t, errors.Is(err, ledger.ErrClaimUnverifiable),
+			"a transient cage/runner failure must stay resubmittable, never branded permanently unverifiable")
+	})
+}
+
+// fixBase returns a resolvable base SHA for the host repo (its first commit), so
+// the resolvable-claim subtest exercises a real Materialize that succeeds and a
+// runner that then fails — isolating the transient (runner) failure path.
+func fixBase(t *testing.T, host string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", host, "rev-list", "--max-parents=0", "HEAD").Output()
+	require.NoError(t, err)
+	return strings.TrimSpace(string(out))
 }
 
 // catchTranscriptJSON is the verdict bytes a cage emits for a genuine catch on
