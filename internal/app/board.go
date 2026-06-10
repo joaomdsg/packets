@@ -183,7 +183,12 @@ func hitRateLabel(r CardRow) string {
 // hit-rate standing. Calm spans in the stock idiom — no gauges, no priority, no
 // forecast.
 func (c *BoardCard) View(_ *via.CtxR) h.H {
-	parts := []h.H{h.Class("board"), h.Data("state", "board"), navHeader(""),
+	// The fleet content is the page's main landmark (named for screen-reader
+	// navigation). It is NOT aria-live: /board is a request-scoped GET with no SSE
+	// re-render, so marking it live would lie about its liveness. The nav is a sibling
+	// landmark (added in the final wrap), never nested inside main.
+	parts := []h.H{h.Class("board"), h.Data("state", "board"),
+		h.Role("main"), h.Attr("aria-label", "fleet board"),
 		// The fleet view's one command: start a new session economy. A calm input +
 		// button, in the surface idiom — no modal, no menu.
 		h.Div(h.Class("board-create"),
@@ -269,7 +274,8 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 		}
 		parts = append(parts, h.Div(row...))
 	}
-	return h.Div(parts...)
+	// nav landmark first, then the main fleet region — distinct sibling landmarks.
+	return h.Div(navHeader(""), h.Div(parts...))
 }
 
 // boardLand maps a session's raw integration verdict to the board's (data-state,

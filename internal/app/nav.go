@@ -22,6 +22,10 @@ func navHeader(key string) h.H {
 	}
 	return h.Nav(
 		h.Class("board-nav"),
+		// A named navigation landmark, distinct from the main content region, so an
+		// assistive-tech user can jump between chrome and content rather than tabbing
+		// through everything.
+		h.Attr("aria-label", "primary"),
 		h.A(h.Href("/board"), h.Class("board-nav__home"), h.Text("packets")),
 		h.Div(crumb...),
 	)

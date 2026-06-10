@@ -226,6 +226,17 @@ Layout of this directory:
   landing", surfaced only when ≥1 blocked (silent when all-clear), a pure projection
   of the R58 per-session land verdicts, off the economy. Server-render-testable
   (3 vt tests incl. an honest-count ratio guard). Flagged moderate.
+- [Round 61](round-61.md) — accessibility landmark pass (R60's queued moderate
+  candidate; UX north star is "keyboard-native, accessible"). Container-level only
+  (dodges TDD's attr-spray-theater flag + Refactoring's per-span-churn flag): the
+  shared nav becomes a named landmark (aria-label="primary"); the LiveCard economy
+  is wrapped in role="main" + aria-live="polite" + aria-label (the live region
+  announces SSE catch/balance/dispatch changes); the board is role="main" +
+  aria-label but NOT aria-live (a static GET — marking it live would be a
+  data-honesty lie, guarded by a NotContains test). nav is a sibling of main, not
+  nested. Blue-confirmed non-breaking restructure. Flagged moderate — the reachable+
+  testable moderate space is now thin; next tick weighs holding for a maintainer
+  steer vs. another peripheral slice (skeptic gate).
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,

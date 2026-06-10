@@ -400,7 +400,16 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	if navKey == "" {
 		navKey = defaultSessionKey
 	}
-	parts := []h.H{navHeader(navKey)}
+	// The economy region (everything below the nav) is the page's main content and a
+	// LIVE region: this card re-renders over SSE on every catch/balance/dispatch
+	// change, so role="main" + aria-live="polite" lets assistive tech announce those
+	// changes without the user hunting for them. The nav is a sibling landmark (added
+	// in the final wrap), never nested inside main.
+	parts := []h.H{
+		h.Role("main"),
+		h.Attr("aria-live", "polite"),
+		h.Attr("aria-label", "session economy"),
+	}
 	// A brand-new session gets a calm onboarding affordance ahead of the (all-zero)
 	// economy rows, so a first-run Lead sees the next action, not a dead screen.
 	if hint := onboardingHint(stock); hint != nil {
@@ -444,7 +453,8 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 		parts = append(parts, b)
 	}
 	parts = append(parts, surface.RenderLand(pipe.LandState(c.Land.Read(ctx))))
-	return h.Div(parts...)
+	// nav landmark first, then the main economy region — distinct sibling landmarks.
+	return h.Div(navHeader(navKey), h.Div(parts...))
 }
 
 // Spend funds one unit of dispatched work against the balance — the Lead's first
