@@ -105,6 +105,9 @@ Layout of this directory:
   autonomous-safe work — high-value Board increments need maintainer product/UX
   taste (or hit the refused fabricated-leverage trap); remaining work is gated or
   taste-dependent → surface the direction fork to the maintainer
+- [Round 42](round-42.md) — maintainer re-delegated direction to the council:
+  build the per-session RECENT-DISPATCHES legibility surface (honest caught/missed
+  per work-order; no fabricated rank/treasury, CSS-free, non-gated)
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
