@@ -84,8 +84,18 @@ it fills → drill in → SEE the edits it made (diff) → REVIEW its questions 
 them in place (re-run on the order's revs) → the question vanishes. All off the
 economy ledger (the order's catch mints; its questions/diff/answers are diagnostic).
 Server contracts unit-tested; the Monaco diff/answer editors are client islands
-(browser-verified on :3000). Optional remainder (judge if wanted): reveal the
-diff/beats as the order fills (the "watch it work" beat) — slice 4.
+(browser-verified on :3000).
+
+- Slice 4 (7d685c3): "WATCH IT FILL" — while the runner fills an order, the card shows
+  it live ("filling WO#<id> — <beats>"), the cycle beats accruing as the oracle works
+  (then vanishing on done). runOneOrder accrues beats into a per-session live-fill
+  buffer (startFill/addFillBeat/endFill) instead of discarding them; the card's Stream
+  polls the buffer + writes a FillBeats cell to re-render (the runner has no request
+  ctx — same poll workaround as the dispatch tally). Off-ledger. The whole loop is now
+  FELT end-to-end: catch → spend → fund → WATCH it fill → see the edits (diff) →
+  review its questions → answer in place → vanishes.
+
+THREAD FULLY COMPLETE (slices 1, 2, 3, 2b, 4).
 
 ## New clashes opened / resolved
 
