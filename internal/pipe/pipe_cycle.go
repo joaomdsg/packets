@@ -254,6 +254,50 @@ func buildWorktreeAt(ctx context.Context, repoDir, rev string) (wt string, clean
 	return wt, cleanup, nil
 }
 
+// RerunWithTestOverlay re-runs the mutation oracle at rev, scoped to file:line, with
+// the reviewer's test files OVERLAID into a throwaway worktree — the diagnostic
+// re-run behind the editable-answering review flow: the reviewer writes a test that
+// should kill a surviving mutant, and this reports the fresh findings so the surface
+// can tell whether the answer constrained the line (a killing test → the finding
+// disappears; a weak one → it remains). Each overlay entry path→content is written
+// into the worktree (parent dirs created), overwriting any committed file at that
+// path, so `go test ./...` picks up the reviewer's test. It is READ-ONLY w.r.t. the
+// economy: it returns findings and touches no ledger.
+func RerunWithTestOverlay(ctx context.Context, repoDir, rev, file string, line int, testCmd []string, overlay map[string]string) ([]mutation.Finding, error) {
+	wt, cleanup, err := buildWorktreeAt(ctx, repoDir, rev)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	for path, content := range overlay {
+		// The overlay carries reviewer-influenced paths; reject any that isn't a plain
+		// relative path inside the worktree (absolute, or "..\"-escaping) BEFORE any
+		// write, so an answer can never clobber a file outside the throwaway worktree.
+		if !filepath.IsLocal(path) {
+			return nil, fmt.Errorf("pipe: overlay path %q is not local to the worktree", path)
+		}
+		dst := filepath.Join(wt, path)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return nil, fmt.Errorf("pipe: overlay mkdir %s: %w", path, err)
+		}
+		if err := os.WriteFile(dst, []byte(content), 0o644); err != nil {
+			return nil, fmt.Errorf("pipe: overlay write %s: %w", path, err)
+		}
+	}
+
+	res, err := mutation.Run(ctx, mutation.Options{
+		Dir:     wt,
+		File:    file,
+		Lines:   []mutation.LineRange{{Start: line, End: line}},
+		TestCmd: testCmd,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res.Findings, nil
+}
+
 // runOracleAt materializes rev in a throwaway detached worktree, runs the
 // mutation oracle scoped to the given line, and returns the result plus the
 // file's content at that revision. The worktree is always cleaned up.
