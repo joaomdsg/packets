@@ -25,6 +25,7 @@ import (
 
 	"github.com/joaomdsg/packets/internal/app"
 	"github.com/joaomdsg/packets/internal/fabric"
+	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
 	"github.com/joaomdsg/packets/internal/sandbox"
@@ -180,6 +181,8 @@ func main() {
 	cageImage := flag.String("cage-image", "packets-cage:dev", "Docker image the claim verifier runs producer-submitted work in")
 	var sessions sessionFlag
 	flag.Var(&sessions, "session", "additional keyed review target served at /?key=NAME; repeatable: key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA]")
+	var backlog backlogFlag
+	flag.Var(&backlog, "backlog", "seed a fundable work-order target on the primary session so Spend can dispatch+fill it; repeatable: base=SHA,fix=SHA,file=F,line=N[,tip=SHA]")
 	flag.Parse()
 
 	if *base == "" || *fix == "" || *file == "" || *line == 0 {
@@ -195,14 +198,32 @@ func main() {
 		log.Fatalf("packets: %v", err)
 	}
 
+	// Seed any -backlog specs as fundable work-order targets on the primary session,
+	// computing each anchor's line hash from git (the same re-anchor identity the
+	// primary target carries). Without this, DispatchBacklog is empty and Spend is a
+	// no-op via the CLI — the dispatch→fund→fill→review loop is unreachable.
+	var dispatchBacklog []ledger.Target
+	for _, spec := range backlog.specs {
+		tgt, err := parseBacklogSpec(spec)
+		if err != nil {
+			log.Fatalf("packets: %v", err)
+		}
+		tgt.LineHash, err = lineHashAt(*repo, tgt.BaseRev, tgt.Path, tgt.Line)
+		if err != nil {
+			log.Fatalf("packets: backlog %q: %v", spec, err)
+		}
+		dispatchBacklog = append(dispatchBacklog, tgt)
+	}
+
 	application, ledgerLog, err := app.NewServer(app.LiveConfig{
-		RepoDir:    *repo,
-		BaseRev:    *base,
-		FixRev:     *fix,
-		TipRev:     tipRev,
-		Anchor:     reanchor.Anchor{Path: *file, Start: *line, End: *line, LineHash: hash},
-		TestCmd:    []string{"go", "test", "./..."},
-		LedgerPath: *ledgerPath,
+		RepoDir:         *repo,
+		BaseRev:         *base,
+		FixRev:          *fix,
+		TipRev:          tipRev,
+		Anchor:          reanchor.Anchor{Path: *file, Start: *line, End: *line, LineHash: hash},
+		TestCmd:         []string{"go", "test", "./..."},
+		LedgerPath:      *ledgerPath,
+		DispatchBacklog: dispatchBacklog,
 		// Cap concurrent catch cycles: each is several full-suite runs (#15), and
 		// per-cycle wall-time stays flat through ~2 concurrent on the bench, so 2 is
 		// the honest default ceiling — connects beyond it queue, never pile on.
