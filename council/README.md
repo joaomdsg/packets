@@ -112,6 +112,9 @@ Layout of this directory:
   authorized): CSS now in scope; converged on a calm control-room visual language
   + flows/nav (deferred) + guardrails; first slice = base stylesheet on existing
   hooks via AppendToHead, no markup change
+- [Round 44](round-44.md) — first nav / drill-and-return flow: a shared nav
+  header (packets home + fleet breadcrumb) + clickable board rows → /?key=<key>
+  → back; honest raw keys, no menus/JS/keyboard yet (keyboard nav = R45+)
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
