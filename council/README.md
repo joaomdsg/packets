@@ -146,6 +146,12 @@ Layout of this directory:
   remaining work is marginal polish OR a bigger thread (menus, order diagnostics,
   fleet actions) needing a maintainer steer; loop will surface that, not manufacture
   marginal slices.
+- [Round 51](round-51.md) — ORDER-DIAGNOSTICS thread (slice 1): persist the
+  oracle's per-order verdict as a ledger fact (kind "woverdict"), projected into
+  DispatchView.Verdict — so a missed order can show WHY, not just "done, not caught".
+  Maintainer gave the council creative latitude; a 3-voice council chose this over a
+  reinvest-rhythm loop (marginal) and a session-menu (reachability-blocked: boot-time
+  consumer snapshot). Diagnostic only (two-scores: no balance/catch). R52 renders it.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
