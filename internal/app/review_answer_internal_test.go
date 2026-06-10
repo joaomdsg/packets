@@ -123,10 +123,10 @@ func TestReviewCard_rendersAnAnswerFormWiredToAnswerQuestion(t *testing.T) {
 
 	body := bodyOf(vt.NewClient(t, server, "/review").HTML())
 	require.Contains(t, body, "review-answer", "an answer form is offered for the open question")
-	require.Contains(t, body, `data-bind="answertest"`, "the test textarea is bound to the answer signal")
+	require.Contains(t, body, "review-answer", "an answer affordance is offered for the open question")
 	require.Contains(t, body, "/_action/AnswerQuestion", "the submit fires the AnswerQuestion action")
-	require.Contains(t, body, "answerfile", "the answered file is set before the post")
-	require.Contains(t, body, "answerline", "the answered line is set before the post")
+	require.Contains(t, body, "$answerfile=evt.detail.file", "the answered file is set inline before the post")
+	require.Contains(t, body, "$answerline=evt.detail.line", "the answered line is set inline before the post")
 }
 
 // With no open questions there is nothing to answer, so the answer form is omitted —
@@ -144,6 +144,36 @@ func TestReviewCard_omitsTheAnswerFormWhenNoOpenQuestions(t *testing.T) {
 
 	body := bodyOf(vt.NewClient(t, server, "/review").HTML())
 	require.NotContains(t, body, "review-answer", "no answer form when there is nothing to answer")
+}
+
+// Bells & whistles: the answer is written in an editable Monaco pane (Go syntax,
+// matching the read-only source pane), not a bare textarea. Following the maplibre
+// plugin's bridge, the editor + submit sit in a morph-shielded wrapper whose
+// data-on:viaanswer lifts the editor's value into the answer signals and posts the
+// action — no data-bind. NOT parallel (shared liveReg).
+func TestReviewCard_offersAnEditableMonacoAnswerPane(t *testing.T) {
+	resetConsumersForTest()
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	e := lookupLiveEntry(defaultSessionKey)
+	require.NotNil(t, e)
+	e.setFindings([]mutation.Finding{{File: "main.go", Line: 6, Outcome: mutation.Survived, Message: "mutated >= to >"}})
+
+	body := bodyOf(vt.NewClient(t, server, "/review").HTML())
+	require.Contains(t, body, `id="answer-editor"`, "an editable Monaco mount point for writing the test")
+	require.Contains(t, body, "review-answer__input", "the editor + submit sit in a morph-shielded wrapper")
+	require.Contains(t, body, "data-ignore-morph", "so the editor survives the surface's re-renders")
+	require.Contains(t, body, "data-on:viaanswer", "the wrapper lifts the editor's value into signals and posts on the answer event")
+	require.Contains(t, body, "$answertest=evt.detail.test", "the submitted test is assigned inline before the post (maplibre-style bridge, no data-bind)")
+	require.Contains(t, body, "/_action/AnswerQuestion", "and posts the AnswerQuestion action")
+	require.Contains(t, body, "monaco.editor.create", "a bootstrap mounts the editable editor")
 }
 
 // Submitting an answer re-runs the oracle (seconds of real work), so the form must

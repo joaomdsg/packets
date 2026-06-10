@@ -3,12 +3,12 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strconv"
 
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
-	"github.com/go-via/via/on"
 
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
@@ -111,28 +111,33 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 	// shields the editor's own DOM from being clobbered by an SSE re-render. Emitted
 	// only when there ARE questions — nothing to scaffold over an empty set.
 	parts = append(parts, reviewEditorIsland(cfg, threads))
-	// The answer affordance: write a test that kills the mutant and submit it. The
-	// textarea is bound to the answer signal; the submit sets the answered file/line
-	// (the anchored question) and fires AnswerQuestion, which re-runs the oracle with
-	// the test injected — a kill makes the question vanish (diagnostic, off-economy).
+	// The answer affordance: write the killing test in an editable Monaco pane and
+	// submit. Following the maplibre plugin's client→server pattern (the only one
+	// that survives morphs cleanly): the editor + submit live in ONE data-ignore-morph
+	// wrapper, the submit dispatches a CustomEvent carrying the editor's value, and the
+	// wrapper's data-on:viaanswer ASSIGNS the answer signals from evt.detail INLINE,
+	// then @posts AnswerQuestion. Assigning in the datastar expression (not data-bind)
+	// is what makes the signal reliably present at post time. AnswerQuestion re-runs
+	// the oracle with the test injected — a kill makes the question vanish
+	// (diagnostic, off-economy).
 	anchor := threads[0]
 	parts = append(parts, h.Div(
 		h.Class("review-answer"),
 		h.P(h.Class("review-answer__label"),
-			h.Text("Answer: write a test that kills the mutant on "+anchor.File+":"+strconv.Itoa(anchor.StartLine))),
-		h.Textarea(c.AnswerTest.Bind(), h.Class("review-answer__test"),
-			h.Placeholder("write a Go test that constrains this line — it runs against the reviewed revision")),
-		h.Button(
-			on.Click(c.AnswerQuestion,
-				on.SetSignal(&c.AnswerFile.Signal, anchor.File),
-				on.SetSignal(&c.AnswerLine.Signal, strconv.Itoa(anchor.StartLine)),
-			),
-			// datastar sets the "answering" signal true while this submit's request is
-			// in flight (the oracle re-run takes seconds), so the running line below can
-			// reveal itself — declaratively, surviving the surface's re-render.
+			h.Text("Answer: write a test that kills the mutant on "+anchor.File+":"+strconv.Itoa(anchor.StartLine)+" (⌘/Ctrl+Enter to submit)")),
+		h.Div(
+			h.Class("review-answer__input"),
+			h.DataIgnoreMorph(),
+			// datastar catches the editor's submit CustomEvent, lifts its detail into
+			// the answer signals, and posts the action — the maplibre-proven bridge.
+			h.Data("on:viaanswer", "$answerfile=evt.detail.file;$answerline=evt.detail.line;$answertest=evt.detail.test;@post('/_action/AnswerQuestion')"),
+			// while that post is in flight (the oracle re-run takes seconds), the
+			// "answering" signal is true so the running line below reveals itself.
 			h.Attr("data-indicator", "answering"),
-			h.Class("review-answer__submit"),
-			h.Text("Submit answer — re-run the oracle"),
+			h.Div(h.ID("answer-editor"), h.Class("review-answer__editor")),
+			h.Button(h.Type("button"), h.Class("review-answer__submit"),
+				h.Text("Submit answer — re-run the oracle")),
+			h.Script(h.Raw(answerEditorJS(anchor.File, anchor.StartLine))),
 		),
 		// Shown ONLY while the re-run is in flight (data-show on the indicator signal):
 		// a calm status, not dead-air, for the seconds the oracle takes.
@@ -143,6 +148,32 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 		),
 	))
 	return h.Div(parts...)
+}
+
+// answerEditorJS mounts an EDITABLE Monaco editor (Go, vs-dark) into #answer-editor
+// and wires its submit: a button click OR ⌘/Ctrl+Enter dispatches a "viaanswer"
+// CustomEvent carrying {file, line, test:<editor content>} on the wrapper, where the
+// data-on:viaanswer handler lifts it into signals and posts. This mirrors the
+// maplibre plugin (client lib → CustomEvent → datastar expr → @post), the bridge
+// that works without data-bind and survives morphs. require is loaded by the
+// read-only island's loader; a dataset guard prevents a double-mount.
+func answerEditorJS(file string, line int) string {
+	detail := fmt.Sprintf("{file:%s,line:%s,test:ed.getValue()}", strconv.Quote(file), strconv.Quote(strconv.Itoa(line)))
+	return `(function(){
+  if (typeof require === 'undefined') return;
+  require(['vs/editor/editor.main'], function(){
+    var el = document.getElementById('answer-editor');
+    if (!el || el.dataset.mounted) return;
+    el.dataset.mounted = '1';
+    var wrap = el.closest('.review-answer__input');
+    var ed = monaco.editor.create(el, { value: '', language: 'go', readOnly: false, automaticLayout: true, theme: 'vs-dark', minimap: { enabled: false }, scrollBeyondLastLine: false, lineNumbers: 'on' });
+    var submit = function(){ if (wrap) wrap.dispatchEvent(new CustomEvent('viaanswer', { detail: ` + detail + ` })); };
+    var btn = wrap ? wrap.querySelector('.review-answer__submit') : null;
+    if (btn) btn.addEventListener('click', submit);
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, submit);
+    ed.focus();
+  });
+})();`
 }
 
 // reviewEditorIsland renders the Monaco mount point + a JSON payload the editor

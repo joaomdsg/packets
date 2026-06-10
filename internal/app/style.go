@@ -225,12 +225,10 @@ body {
    nothing here shouts. */
 .review-answer { display: flex; flex-direction: column; gap: var(--pk-xs); margin-top: var(--pk-sm); }
 .review-answer__label { margin: 0; color: var(--pk-ink-dim); font-size: 0.92em; }
-.review-answer__test {
-  width: 100%; min-height: 8em; resize: vertical;
-  font-family: var(--pk-mono); font-size: 0.92em;
-  color: var(--pk-ink); background: var(--pk-surface);
-  border: 1px solid var(--pk-line); border-radius: 6px; padding: var(--pk-sm);
-}
+/* the editable Monaco answer pane: write the killing test in a real editor matching
+   the read-only source pane above. */
+.review-answer__input { display: flex; flex-direction: column; gap: var(--pk-xs); }
+.review-answer__editor { width: 100%; height: 14em; border: 1px solid var(--pk-line); border-radius: 6px; }
 .review-answer__submit {
   align-self: flex-start;
   color: var(--pk-ink); background: var(--pk-surface);
