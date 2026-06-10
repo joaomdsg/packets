@@ -101,6 +101,19 @@ real `git bundle` + temp dirs (no network, no Docker). Load-bearing RED:
 upload (how the bundle bytes arrive, ProducerGrant-gated) is wiring, deferred
 behind an `ObjectIngestor` seam.
 
+## Verdict (post-build, 2026-06-10)
+
+Increment A.1 BUILT (commit 8867b49): `internal/ingest.IngestProducerObjects`
+validates a producer bundle (safe-id → byte cap → `git bundle verify`) and
+unbundles it via the forced refspec `refs/*:refs/producers/<id>/*` into the host
+store — namespace confinement verified empirically (funny/traversal/HEAD/tag
+refs + a leading-dash id all stay inside the namespace). Offline TDD, no
+network/Docker. The Audit fixed an honest-errors gap (a `..`-containing id is now
+ErrBadProducerID up front, not a misleading ErrBundleInvalid). REMAINING for
+slice A: A.2 the ProducerGrant-authed wire upload (behind an ObjectIngestor
+seam), and A.3 pointing `cage.Materialize` at the producer-namespaced refs so a
+claim resolves against the ingested objects.
+
 ## New clashes opened / resolved
 
 - **Clash K — SHA-transport mechanism: RESOLVED (R38).** bundle-over-channel,
