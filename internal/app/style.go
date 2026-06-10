@@ -112,6 +112,9 @@ body {
    order has no data-outcome, so it stays neutral dim. */
 .board-row__dispatch[data-outcome="caught"] { color: var(--pk-confirmed); }
 .board-row__dispatch[data-outcome="missed"] { color: var(--pk-lost); }
+/* the oracle's verdict for a resolved order — the WHY behind the outcome, shown as
+   calm dim secondary detail (the outcome word already carries the color). */
+.board-row__dispatch-why { color: var(--pk-ink-dim); }
 
 /* ---- the single review card ---- */
 .stock-row, .balance-row, .dispatch-row, .beat-row, .review-card, .land-row, .onboarding {

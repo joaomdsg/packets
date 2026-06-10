@@ -187,6 +187,12 @@ func renderDispatches(views []ledger.DispatchView) h.H {
 			}
 		}
 		span = append(span, h.Text(text))
+		// The oracle's verdict for a resolved order — the WHY behind a catch/miss
+		// (no-catch vs lost-via-rename vs no-oracle-signal …) — as a calm secondary
+		// detail. Omitted when none is persisted (never an empty "why" tag).
+		if v.Status == "done" && v.Verdict != "" {
+			span = append(span, h.Span(h.Class("board-row__dispatch-why"), h.Text(" "+v.Verdict)))
+		}
 		spans = append(spans, h.Span(span...))
 	}
 	return h.Div(spans...)
