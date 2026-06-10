@@ -182,3 +182,48 @@ func TestBoardCard_sealsTheBetLifecycleIntoOneClusterApartFromConfirmedStock(t *
 	require.Contains(t, strings.ToLower(body), "1 verified-lost")
 	require.Contains(t, body, "1 confirmed", "the caught stock is still its own count")
 }
+
+// The board makes the funded work-order ROUND-TRIP legible: each session's recent
+// dispatches show their target and CAUGHT/MISSED outcome, distinct from the
+// confirmed stock and the pending-bets cluster. This is VISION's "watch a funded
+// order resolve" — honest per-order outcomes, never a fabricated rank. NOT parallel.
+func TestBoardCard_showsRecentDispatchesWithCaughtOrMissedOutcome(t *testing.T) {
+	ctx := context.Background()
+	f, err := fabric.Start(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+	log := ledger.Bind(f, "disp", "i")
+
+	// Fund two dispatches (two catches → balance 2), run both: WO#1 mints (caught),
+	// WO#2 does not (missed).
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "c.go", Line: 100, ReasonTag: "catch"}))
+	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "c.go", Line: 101, ReasonTag: "catch"}))
+	own := ledger.Target{BaseRev: "ob", FixRev: "of", TipRev: "of", Path: "own.go", Line: 1}
+	require.NoError(t, log.AppendDispatch("d1", ledger.Target{BaseRev: "b", FixRev: "f", TipRev: "f", Path: "alpha.go", Line: 7}, own))
+	require.NoError(t, log.AppendDispatch("d2", ledger.Target{BaseRev: "b", FixRev: "f", TipRev: "f", Path: "beta.go", Line: 9}, own))
+	require.NoError(t, log.AppendStatus(1, "done"))
+	require.NoError(t, log.AppendStatus(2, "done"))
+	caught := ledger.CatchRecord{Outcome: catch.Catch, Path: "alpha.go", Line: 7, ReasonTag: "catch", Producer: "wo:1"}
+	require.NoError(t, log.Append(caught))
+	registerSession("disp", LiveConfig{BaseRev: "own-b-disp", FixRev: "own-f", Anchor: anchorForCap()}, log)
+
+	r := BoardRows()[rowIndex(BoardRows(), "disp")]
+	require.Len(t, r.Dispatches, 2, "both funded orders are surfaced")
+
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, defLog, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = defLog.Close() })
+
+	body := vt.NewClient(t, server, "/board").HTML()
+	require.Contains(t, body, "board-row__dispatches", "recent dispatches render in their own cluster")
+	require.Contains(t, body, "WO#1", "the caught order is shown by id")
+	require.Contains(t, body, "alpha.go:7", "with its target")
+	require.Contains(t, body, "caught", "WO#1 minted → caught")
+	require.Contains(t, body, "WO#2", "the missed order is shown too")
+	require.Contains(t, body, "missed", "WO#2 ran but minted nothing → missed")
+}

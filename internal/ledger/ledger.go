@@ -336,6 +336,31 @@ func (l *Log) AppendDispatch(reason string, target, own Target) error {
 	return nil
 }
 
+// DispatchView is one funded work-order's round-trip, made legible: its id, the
+// target it runs, its current status (queued→running→done), and whether its run
+// minted a catch (Caught) or not (a missed bet). Honest per-order outcome — never
+// a fabricated rank. Caught keys on the order's own "wo:<id>" mint provenance, so
+// an unrelated connect-cycle catch never falsely credits it.
+type DispatchView struct {
+	ID     int
+	Target Target
+	Status string
+	Caught bool
+}
+
+// RecentDispatches projects this log's funded work-orders into the most-recent n
+// DispatchViews, NEWEST FIRST (n<=0 returns all) — the data behind the board's
+// "watch a funded order round-trip" surface. A pure projection of the persisted
+// log: status is the order's last status line (default "queued"), Caught is
+// whether a catch with Producer "wo:<id>" was minted.
+func (l *Log) RecentDispatches(n int) ([]DispatchView, error) {
+	p, err := l.project()
+	if err != nil {
+		return nil, err
+	}
+	return p.RecentDispatches(n), nil
+}
+
 // WorkOrders reads back every funded work-order in order, a pure projection of
 // the persisted log (catch and spend lines are skipped). The monotonic id and
 // producer/status fields are read straight from the stream, so they replay identically.

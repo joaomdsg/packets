@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/joaomdsg/packets/internal/fabric"
@@ -49,6 +50,37 @@ func (p Projection) DispatchStatusCounts() DispatchCounts {
 		}
 	}
 	return c
+}
+
+// RecentDispatches projects the funded orders into DispatchViews, NEWEST FIRST,
+// capped at n (n<=0 = all). Per order: its current status (last status line,
+// default queued) and whether its run minted a catch (a catch tagged
+// Producer "wo:<id>"). Pure projection; mirrors Log.RecentDispatches.
+func (p Projection) RecentDispatches(n int) []DispatchView {
+	caughtIDs := make(map[string]bool)
+	for _, c := range p.catches {
+		if strings.HasPrefix(c.Producer, "wo:") {
+			caughtIDs[c.Producer] = true
+		}
+	}
+	views := make([]DispatchView, 0, len(p.orders))
+	for i := len(p.orders) - 1; i >= 0; i-- { // newest (highest id) first
+		o := p.orders[i]
+		status := p.status[o.ID]
+		if status == "" {
+			status = "queued"
+		}
+		views = append(views, DispatchView{
+			ID:     o.ID,
+			Target: o.Target,
+			Status: status,
+			Caught: caughtIDs["wo:"+strconv.Itoa(o.ID)],
+		})
+		if n > 0 && len(views) == n {
+			break
+		}
+	}
+	return views
 }
 
 // QueuedWorkOrders returns the orders whose current status is exactly queued, in

@@ -20,6 +20,7 @@ type CardRow struct {
 	Reinvested       int
 	InFlight         int // claims submitted but not yet minted — producers' pending BETS, never confirmed catches (two-scores)
 	Rejected         int // verified-lost: bets the host verified and found no catch — a RESOLVED loss, distinct from a pending in-flight bet and from a confirmed catch (two-scores)
+	Dispatches       []ledger.DispatchView // this session's recent funded work-orders + their caught/missed outcome — honest per-order round-trip legibility, never a fabricated rank
 	Balance          int
 	Queued           int
 	Running          int
@@ -59,6 +60,11 @@ func BoardRows() []CardRow {
 			// 0 on a read error, like every other field.
 			if n, err := e.log.ClaimsRejected(); err == nil {
 				row.Rejected = n
+			}
+			// Recent funded work-orders + their caught/missed outcome — the
+			// round-trip made legible. Degrade to nil on a read error like the rest.
+			if ds, err := e.log.RecentDispatches(5); err == nil {
+				row.Dispatches = ds
 			}
 			if c, err := e.log.DispatchStatusCounts(); err == nil {
 				row.Queued, row.Running, row.Done = c.Queued, c.Running, c.Done
@@ -118,7 +124,7 @@ func hitRateLabel(r CardRow) string {
 func (c *BoardCard) View(_ *via.CtxR) h.H {
 	parts := []h.H{h.Class("board"), h.Data("state", "board")}
 	for _, r := range BoardRows() {
-		parts = append(parts, h.Div(
+		row := []h.H{
 			h.Class("board-row"),
 			h.Data("key", r.Key),
 			h.Span(h.Class("board-row__key"), h.Text(r.Key)),
@@ -138,7 +144,37 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 			h.Span(h.Class("board-row__misses"), h.Text(strconv.Itoa(r.Misses)+" misses")),
 			h.Span(h.Class("board-row__hitrate"), h.Text(hitRateLabel(r))),
 			h.Span(h.Class("board-row__backlog"), h.Text(strconv.Itoa(r.BacklogRemaining)+" awaiting")),
-		))
+		}
+		// The funded work-order round-trip made legible: recent dispatches with their
+		// caught/missed outcome, in their own cluster (omitted when there are none).
+		// Honest per-order outcomes, never a fabricated rank.
+		if d := renderDispatches(r.Dispatches); d != nil {
+			row = append(row, d)
+		}
+		parts = append(parts, h.Div(row...))
 	}
 	return h.Div(parts...)
+}
+
+// renderDispatches renders a session's recent work-orders as a calm cluster —
+// one span per order: "WO#<id> <path>:<line> <status>[ caught|missed]". The
+// caught/missed outcome is shown only for a done order (a queued/running order
+// has no outcome yet). Returns nil when there are none, so the cluster is omitted.
+func renderDispatches(views []ledger.DispatchView) h.H {
+	if len(views) == 0 {
+		return nil
+	}
+	spans := []h.H{h.Class("board-row__dispatches"), h.Span(h.Class("board-row__dispatches-label"), h.Text("dispatches:"))}
+	for _, v := range views {
+		text := "WO#" + strconv.Itoa(v.ID) + " " + v.Target.Path + ":" + strconv.Itoa(v.Target.Line) + " " + v.Status
+		if v.Status == "done" {
+			if v.Caught {
+				text += " caught"
+			} else {
+				text += " missed"
+			}
+		}
+		spans = append(spans, h.Span(h.Class("board-row__dispatch"), h.Text(text)))
+	}
+	return h.Div(spans...)
 }
