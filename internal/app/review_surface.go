@@ -115,7 +115,7 @@ const monacoBootstrapJS = `(function(){
     for (var i = 0; i < threads.length; i++) { if (files[threads[i].file] != null) { path = threads[i].file; break; } }
     if (!path) return;
     var model = monaco.editor.createModel(files[path], undefined, monaco.Uri.file(path));
-    var editor = monaco.editor.create(el, { model: model, readOnly: true, automaticLayout: true, glyphMargin: true, minimap: { enabled: false }, scrollBeyondLastLine: false });
+    var editor = monaco.editor.create(el, { model: model, readOnly: true, automaticLayout: true, glyphMargin: true, theme: 'vs-dark', minimap: { enabled: false }, scrollBeyondLastLine: false });
     var decos = [];
     for (var j = 0; j < threads.length; j++) {
       var t = threads[j];
