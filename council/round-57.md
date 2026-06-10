@@ -68,7 +68,23 @@ seeded backlog → bench shows both targets + "(next)"; no fundable work → no 
 a backlog past the cap → exactly benchCap items. Full-repo -race green. (A small
 render helper mirroring renderDispatches — verified via the three tests + the
 full-repo gate rather than a separate Blue/Audit subagent, proportionate to size.)
-Next: slice 2 — choose-to-fund.
+## Slice 2 (built, commit cdc0130)
+
+The choice: each bench item is now a fund-this button (on.Click(c.FundChosen,
+on.SetSignal(&c.FundTarget.Signal, "path:line")) — the R55 per-row pattern). A new
+FundChosen action dispatches the CHOSEN target instead of the FIFO head, mirroring
+Spend's economy (one atomic AppendDispatch debit + balance/dispatch SSE writes +
+background drain). chosenFundable validates the key is in the current fundableBacklog,
+so a click can never fund the own-cycle target, a consumed one, or an arbitrary one
+(distinct-work / two-scores hold; fundableBacklog already filters). Tests: funding
+the 2nd bench target dispatches IT (not the FIFO head); an off-bench key funds
+nothing. Blue: economy mirrors Spend (no double-fund / two-scores intact), validation
+strengthens safety, no regression, no dead code. Full-repo -race green.
+
+The prep-bench thread is now FEATURE-USABLE: the Lead sees the fundable work on the
+bench and chooses what each Spend funds — dispatch is a curation decision, not a
+blind auto-pick. Optional further slice (3): reorder/richer curation — judge whether
+it adds real value or the thread is complete.
 
 ## New clashes opened / resolved
 
