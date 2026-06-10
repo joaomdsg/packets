@@ -62,6 +62,19 @@ DEFERRED to later UX rounds (R44+): the top nav/breadcrumb header + keyboard nav
 (markup), the drill-and-return flow, per-state visual polish, menus, and the
 larger management-sim interactions. Each its own thin slice on the now-calm base.
 
+## Verdict (post-build, 2026-06-10)
+
+Slice 1 BUILT (commit 4c74dab): internal/app/style.go (packetsStyle — `--pk-*`
+design tokens + the calm dark/honest-state base on the existing class hooks) +
+`app.AppendToHead(styleHead())` in NewServer. Every page now carries the visual
+language in its <head>, zero server-markup change. Blue+Audit clean (boot-only
+attach is safe, the CSS const has no injection/break-out, /stream+/fleet
+untouched). One pre-existing whole-page-index brittleness in the C4 structural
+test surfaced (the head CSS now contains the class names) → fixed by scoping that
+test to the rendered body (bodyOf), the correct structural scope. Pixel/color are
+taste (asserted by presence/structure, never values). NEXT (R44+): the nav/
+breadcrumb header + keyboard nav + the drill-and-return flow, on this calm base.
+
 ## New clashes opened / resolved
 
 None. Reaffirms the data-honesty refusals as the boundary the visual language
