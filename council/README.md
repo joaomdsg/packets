@@ -133,6 +133,12 @@ Layout of this directory:
   counts, so the Lead watches the order they funded resolve on the SAME surface
   they spent on (reuses the board's renderDispatches; rides SSE; omitted when no
   orders). keyboard nav + "nothing-to-fund" affordance deferred to R49+
+- [Round 49](round-49.md) — preview what the Spend funds: the Spend control names
+  the actual next target ("Spend a catch → fund alpha.go:8") via a pure helper, so
+  the Lead makes an informed choice (honest — same nextUnconsumedTarget the action
+  funds). REJECTED the "nothing-to-fund" affordance as near-unreachable (supply
+  refills from own catches). Lesson: verify a slice's target state is reachable
+  before building. keyboard nav deferred to R50+
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
