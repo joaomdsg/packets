@@ -272,6 +272,46 @@ func (l *Log) ClaimsInFlight() (int, error) {
 	return len(seen), nil
 }
 
+// ClaimsRejected counts the DISTINCT claim target identities this log has
+// terminally rejected — producers' bets the host verified and found no catch (a
+// "verified-loss"). It is the resolved-loss counterpart to ClaimsInFlight: a
+// pending bet is neither, a confirmed catch leaves both. A target that is BOTH
+// rejected AND minted counts as ZERO losses — a confirmed catch is never also a
+// loss (two-scores), so the catch wins. Dedupe is by the catch identity
+// {BaseRev,FixRev,Path,Line} (TipRev excluded), matching Append/ClaimsInFlight.
+func (l *Log) ClaimsRejected() (int, error) {
+	filter := fabric.EventSubject(l.session, l.instance, fabric.StatusClaim, ">")
+	events, err := l.f.ReplaySubject(context.Background(), filter)
+	if err != nil {
+		return 0, err
+	}
+	records, err := l.Records()
+	if err != nil {
+		return 0, err
+	}
+
+	type identity struct {
+		base, fix, path string
+		line            int
+	}
+	lost := make(map[identity]bool)
+	for _, e := range events {
+		if !isVerdictKind(e.Subject) {
+			continue // only a verdict marker can be a loss; a work claim is not
+		}
+		v, derr := DecodeClaimVerdict(e.Data)
+		if derr != nil || !v.Rejected {
+			continue // a malformed or non-rejecting verdict is not a loss
+		}
+		if targetAlreadyMinted(records, v.Target) {
+			continue // a confirmed catch is never also a loss — the catch wins
+		}
+		t := v.Target
+		lost[identity{t.BaseRev, t.FixRev, t.Path, t.Line}] = true
+	}
+	return len(lost), nil
+}
+
 // claimDurable is the stable durable-consumer name for a log's claim subtree,
 // derived from its session+instance so a restart resumes the SAME consumer
 // (resuming past already-processed claims). NATS durable names forbid the subject

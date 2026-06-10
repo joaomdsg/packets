@@ -101,6 +101,155 @@ func TestClaimsInFlight_skipsMalformedVerdictEvents(t *testing.T) {
 	require.Equal(t, 1, inflight, "only the one valid claim is in flight; the garbage verdict is ignored")
 }
 
+// A verified-loss must be COUNTED, not just removed from flight: the host ran
+// the oracle and the bet lost, and that resolved outcome has to surface
+// somewhere (the board) — otherwise a rejection is silently invisible
+// (lie-green). ClaimsRejected counts distinct targets with a terminal rejection.
+func TestClaimsRejected_countsAVerifiedLoss(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	require.NoError(t, mustPublishClaim(ctx, f, claimAt(4)))
+	_, err := ledger.PublishClaimVerdict(ctx, f, "s", "i", ledger.ClaimVerdict{Target: claimAt(4).Target, Rejected: true})
+	require.NoError(t, err)
+
+	lost, err := log.ClaimsRejected()
+	require.NoError(t, err)
+	require.Equal(t, 1, lost, "a target the host verified and rejected is one verified-loss")
+}
+
+// A pending bet is NOT a loss: only a resolved (verdict) rejection counts. A
+// claim still in flight has no terminal outcome to report.
+func TestClaimsRejected_aPendingBetIsNotALoss(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	require.NoError(t, mustPublishClaim(ctx, f, claimAt(4)))
+
+	lost, err := log.ClaimsRejected()
+	require.NoError(t, err)
+	require.Equal(t, 0, lost, "a still-pending bet has no verdict — it is not a loss")
+}
+
+// A target can never be booked as BOTH a confirmed catch and a verified-loss:
+// if a rejected target is somehow also minted, the catch wins and it counts as
+// zero losses (the two-scores invariant — a confirmed catch is never a loss).
+func TestClaimsRejected_aMintedTargetIsNeverAlsoCountedAsALoss(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	require.NoError(t, mustPublishClaim(ctx, f, claimAt(4)))
+	_, err := ledger.PublishClaimVerdict(ctx, f, "s", "i", ledger.ClaimVerdict{Target: claimAt(4).Target, Rejected: true})
+	require.NoError(t, err)
+	// The same identity also minted — the catch must win.
+	rec, err := confirmFromClaim(claimAt(4))
+	require.NoError(t, err)
+	require.NoError(t, log.Append(*rec))
+
+	lost, err := log.ClaimsRejected()
+	require.NoError(t, err)
+	require.Equal(t, 0, lost, "a minted target is a confirmed catch, never also a verified-loss")
+	require.True(t, balanceIs(log, 1)(), "it is the confirmed catch")
+}
+
+// A replayed rejection of one identity is one loss, not many — dedupe by the
+// catch identity (TipRev excluded), matching ClaimsInFlight.
+func TestClaimsRejected_dedupesReplayedRejectionsOfOneIdentity(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	v := ledger.ClaimVerdict{Target: claimAt(4).Target, Rejected: true}
+	_, err := ledger.PublishClaimVerdict(ctx, f, "s", "i", v)
+	require.NoError(t, err)
+	_, err = ledger.PublishClaimVerdict(ctx, f, "s", "i", v) // a redelivered/replayed verdict
+	require.NoError(t, err)
+
+	lost, err := log.ClaimsRejected()
+	require.NoError(t, err)
+	require.Equal(t, 1, lost, "a replayed rejection of one identity is one loss, not two")
+}
+
+// Two rejections of the SAME catch identity over different trunk tips are one
+// loss, not two — the dedupe keys on {BaseRev,FixRev,Path,Line}, excluding
+// TipRev, matching ClaimsInFlight and Append. Pins that TipRev is not identity.
+func TestClaimsRejected_dedupesSameIdentityAcrossDifferentTipRevs(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	a := ledger.ClaimVerdict{Target: ledger.Target{BaseRev: "base", FixRev: "fix", TipRev: "tipA", Path: "a.go", Line: 4}, Rejected: true}
+	b := ledger.ClaimVerdict{Target: ledger.Target{BaseRev: "base", FixRev: "fix", TipRev: "tipB", Path: "a.go", Line: 4}, Rejected: true}
+	_, err := ledger.PublishClaimVerdict(ctx, f, "s", "i", a)
+	require.NoError(t, err)
+	_, err = ledger.PublishClaimVerdict(ctx, f, "s", "i", b)
+	require.NoError(t, err)
+
+	lost, err := log.ClaimsRejected()
+	require.NoError(t, err)
+	require.Equal(t, 1, lost, "same catch identity over two tips is one loss — dedupe ignores TipRev")
+}
+
+// A non-rejecting verdict (Rejected=false) is not a loss — only a true rejection
+// is a verified-loss.
+func TestClaimsRejected_aNonRejectingVerdictIsNotALoss(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	_, err := ledger.PublishClaimVerdict(ctx, f, "s", "i", ledger.ClaimVerdict{Target: claimAt(4).Target, Rejected: false})
+	require.NoError(t, err)
+
+	lost, err := log.ClaimsRejected()
+	require.NoError(t, err)
+	require.Equal(t, 0, lost, "only a true rejection is a loss")
+}
+
+// A malformed verdict event on the shared subtree is skipped, never erroring or
+// inflating the loss count.
+func TestClaimsRejected_skipsMalformedVerdictEvents(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	_, err := f.Publish(ctx, fabric.EventSubject("s", "i", fabric.StatusClaim, "verdict"), []byte("not json"))
+	require.NoError(t, err)
+	_, err = ledger.PublishClaimVerdict(ctx, f, "s", "i", ledger.ClaimVerdict{Target: claimAt(4).Target, Rejected: true})
+	require.NoError(t, err)
+
+	lost, err := log.ClaimsRejected()
+	require.NoError(t, err, "a malformed verdict must be skipped, not error the count")
+	require.Equal(t, 1, lost, "only the one valid rejection is a loss")
+}
+
+// A fresh log has no losses.
+func TestClaimsRejected_isZeroWithNoVerdicts(t *testing.T) {
+	t.Parallel()
+	f := isolatedFab(t)
+	log := ledger.Bind(f, "s", "i")
+
+	lost, err := log.ClaimsRejected()
+	require.NoError(t, err)
+	require.Equal(t, 0, lost, "no verdicts → no losses")
+}
+
 // A PublishClaimVerdict payload round-trips through DecodeClaimVerdict — the
 // verdict marker is a first-class, decodable record, not opaque bytes, so a
 // reader (the in-flight projection, the SSE bridge) can recover the target it

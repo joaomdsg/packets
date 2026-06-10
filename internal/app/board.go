@@ -19,6 +19,7 @@ type CardRow struct {
 	Confirmed        int
 	Reinvested       int
 	InFlight         int // claims submitted but not yet minted — producers' pending BETS, never confirmed catches (two-scores)
+	Rejected         int // verified-lost: bets the host verified and found no catch — a RESOLVED loss, distinct from a pending in-flight bet and from a confirmed catch (two-scores)
 	Balance          int
 	Queued           int
 	Running          int
@@ -52,6 +53,12 @@ func BoardRows() []CardRow {
 			// a read error, like every other field.
 			if n, err := e.log.ClaimsInFlight(); err == nil {
 				row.InFlight = n
+			}
+			// Verified-losses (bets the host rejected) are the resolved counterpart
+			// to in-flight bets, kept off Confirmed/Balance (two-scores). Degrade to
+			// 0 on a read error, like every other field.
+			if n, err := e.log.ClaimsRejected(); err == nil {
+				row.Rejected = n
 			}
 			if c, err := e.log.DispatchStatusCounts(); err == nil {
 				row.Queued, row.Running, row.Done = c.Queued, c.Running, c.Done
@@ -103,9 +110,11 @@ func hitRateLabel(r CardRow) string {
 }
 
 // View renders one row per registered session: its confirmed/reinvested stock,
-// spendable balance, queued/running/done activity, the distinct work still
-// awaiting a spend, and the hit-rate standing. Calm spans in the stock idiom —
-// no gauges, no priority, no forecast.
+// the producers' bet lifecycle (in-flight bets and verified-losses, each its own
+// span, never folded into the confirmed stock — two-scores), spendable balance,
+// queued/running/done activity, the distinct work still awaiting a spend, and the
+// hit-rate standing. Calm spans in the stock idiom — no gauges, no priority, no
+// forecast.
 func (c *BoardCard) View(_ *via.CtxR) h.H {
 	parts := []h.H{h.Class("board"), h.Data("state", "board")}
 	for _, r := range BoardRows() {
@@ -115,6 +124,7 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 			h.Span(h.Class("board-row__key"), h.Text(r.Key)),
 			h.Span(h.Class("board-row__stock"), h.Text(strconv.Itoa(r.Confirmed)+" confirmed, "+strconv.Itoa(r.Reinvested)+" reinvested")),
 			h.Span(h.Class("board-row__inflight"), h.Text(strconv.Itoa(r.InFlight)+" in flight")),
+			h.Span(h.Class("board-row__rejected"), h.Text(strconv.Itoa(r.Rejected)+" verified-lost")),
 			h.Span(h.Class("board-row__balance"), h.Text("balance "+strconv.Itoa(r.Balance))),
 			h.Span(h.Class("board-row__activity"), h.Text("queued "+strconv.Itoa(r.Queued)+", running "+strconv.Itoa(r.Running)+", done "+strconv.Itoa(r.Done))),
 			h.Span(h.Class("board-row__misses"), h.Text(strconv.Itoa(r.Misses)+" misses")),
