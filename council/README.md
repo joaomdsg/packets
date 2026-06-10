@@ -158,6 +158,13 @@ Layout of this directory:
   (no-catch vs lost-via-rename vs no-oracle-signal), not undifferentiated. Calm dim
   secondary detail; omitted when none persisted. The diagnostics loop now reads
   end-to-end: spend → dispatch → resolve → SEE WHY.
+- [Round 53](round-53.md) — SESSION-MANAGEMENT thread (slice 1): create a session
+  from the fleet board (a NewKey signal input + a CreateSession on.Click action →
+  AddSession at runtime, inheriting the default cfg), so the board is a command
+  surface, not a static list. The new session is reachable + works the full card
+  flow with no boot edit, no claim consumer (documented V1 limit: no producer claims
+  for runtime sessions). Invalid/duplicate keys are honest no-ops. Reachability +
+  the via cmpID/tab routing verified before building.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
