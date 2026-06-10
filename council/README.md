@@ -128,6 +128,11 @@ Layout of this directory:
   (catch → balance → spend → work-order → reinvest). Shown iff balance>0; retracts
   live over SSE when the last catch is spent. Fully vt-testable (markup + fire +
   drain). keyboard nav deferred to R48+
+- [Round 48](round-48.md) — per-order dispatch round-trip on the live card:
+  surface this session's RecentDispatches (WO#id path:line caught/missed) below the
+  counts, so the Lead watches the order they funded resolve on the SAME surface
+  they spent on (reuses the board's renderDispatches; rides SSE; omitted when no
+  orders). keyboard nav + "nothing-to-fund" affordance deferred to R49+
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
