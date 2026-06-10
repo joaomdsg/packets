@@ -80,6 +80,20 @@ DEFERRED (with dependency named): /bundle rate-limit + per-producer quota
 (GATED ON producer auth on the HTTP surface), global disk ceiling, TTL-reap of
 uploaded-but-never-claimed objects, durable-across-restart accounting.
 
+## Verdict (post-build, 2026-06-10)
+
+GC-by-resolved BUILT (commit 4f6f7f2): `ingest.PruneProducerObjects(ctx, store,
+producerID, hasInFlightClaims)` — a no-op while a claim is in flight, else deletes
+the whole refs/producers/<id>/* namespace (the session-granularity simplification
+above). Namespace-confined and fail-closed (shared `safeProducerSegment` guard);
+the Audit added a shared-prefix-sibling regression (pruning "alice" never matches
+"alicelong"), and tests prove host refs + other producers are untouched. Ref-
+deletion is the economy-safe step; actual disk reclaim (`git gc --prune`) and the
+app-side wiring (call this on a maintenance tick with hasInFlightClaims =
+ClaimsInFlight()>0) are deferred. #6c is now feature-complete (verify + SHA
+transport + lifecycle UI + permanent-reject + GC); what remains is
+hardening/auth/ops, gated as recorded below.
+
 ## New clashes opened / resolved
 
 - No formal clash. Recorded a SEQUENCING decision: producer-AUTH on the live
