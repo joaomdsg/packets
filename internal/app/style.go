@@ -169,6 +169,9 @@ body {
 /* a filled order's reviewable test-debt — how many open review questions it left;
    a quiet accent count (the dispatch→review tie), never an alarm. */
 .board-row__dispatch-questions { color: var(--pk-ink-dim); }
+/* "watch it fill": a calm live row while the runner fills an order — the cycle beats
+   accruing as the oracle works. Dim mono, in the beat idiom; vanishes when done. */
+.order-filling { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; padding: var(--pk-xs) 0; }
 
 /* ---- the single review card ---- */
 .stock-row, .balance-row, .dispatch-row, .beat-row, .review-card, .land-row, .onboarding {

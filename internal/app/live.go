@@ -101,6 +101,47 @@ type liveEntry struct {
 	// oracle run, so two concurrent re-runs (a double-clicked submit) would race the
 	// shared repo's worktree operations. Guarded by findingsMu.
 	answering bool
+	// fillMu + fillingOrder/fillBeats: the live-fill buffer (see startFill). Guarded
+	// separately from findingsMu since beats accrue rapidly during a fill.
+	fillMu       sync.Mutex
+	fillingOrder int
+	fillBeats    []string
+}
+
+// fillMu guards the live-fill buffer: the work-order currently being filled by the
+// background runner and the cycle beats accrued so far, so the card can show it
+// filling LIVE ("watch it fill"). The runner has no request ctx to write the card's
+// cells, so it writes this buffer and the card's Stream polls it (like the dispatch
+// tally). Ephemeral, off the economy ledger.
+func (e *liveEntry) startFill(id int) {
+	e.fillMu.Lock()
+	e.fillingOrder, e.fillBeats = id, nil
+	e.fillMu.Unlock()
+}
+
+// addFillBeat appends one cycle beat for the filling order (the live tempo).
+func (e *liveEntry) addFillBeat(kind string) {
+	e.fillMu.Lock()
+	e.fillBeats = append(e.fillBeats, kind)
+	e.fillMu.Unlock()
+}
+
+// endFill clears the live-fill buffer when the order is done — the filling row
+// vanishes and the order's resolved outcome takes over.
+func (e *liveEntry) endFill() {
+	e.fillMu.Lock()
+	e.fillingOrder, e.fillBeats = 0, nil
+	e.fillMu.Unlock()
+}
+
+// fillSnapshot returns the filling order's id (0 if none) and a copy of its beats.
+func (e *liveEntry) fillSnapshot() (int, []string) {
+	e.fillMu.Lock()
+	defer e.fillMu.Unlock()
+	if e.fillingOrder == 0 {
+		return 0, nil
+	}
+	return e.fillingOrder, append([]string(nil), e.fillBeats...)
 }
 
 // beginAnswer claims the single in-flight answer slot for the session, returning
@@ -458,6 +499,10 @@ type LiveCard struct {
 	// here so the dispatch row rises over the live SSE stream in the SAME render as
 	// the balance drains. It carries no authoritative value — View is the source.
 	Dispatch via.StateTabStr
+	// FillBeats is a re-render trigger written by the Stream when the live-fill buffer
+	// (a currently-filling order's accruing beats) changes, so the card shows the
+	// order filling live. View reads the buffer; this cell only nudges the re-render.
+	FillBeats via.StateTabStr
 }
 
 // View renders the card's rows via the shared surface rendering: the retrospective
@@ -538,6 +583,18 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 		}
 	}
 	parts = append(parts, surface.RenderDispatch(dispatch))
+	// WATCH IT FILL: when the background runner is mid-fill on an order, show it live
+	// — the order id + the cycle beats accruing as the oracle works (re-rendered each
+	// Stream tick via the FillBeats poll). Omitted when nothing is filling.
+	if e := lookupLiveEntry(c.Key); e != nil {
+		if id, fb := e.fillSnapshot(); id > 0 {
+			parts = append(parts, h.Div(
+				h.Class("order-filling"),
+				h.Data("state", "beats"),
+				h.Text("filling WO#"+strconv.Itoa(id)+" — "+strings.Join(fb, " → ")),
+			))
+		}
+	}
 	// Below the aggregate counts, the per-order round-trip: each recent work-order
 	// with its caught/missed outcome, so the Lead watches the order they funded
 	// resolve in place (omitted when there are none — same helper the board uses).
@@ -693,15 +750,20 @@ func runOneOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 		e.sem <- struct{}{}
 		defer func() { <-e.sem }()
 	}
+	// Accrue the cycle's beats into the live-fill buffer so the card can show this
+	// order filling LIVE ("watch it fill"). The runner has no request ctx to write
+	// the card's cells; it writes the buffer and the card's Stream polls it.
+	e.startFill(order.ID)
 	beats := make(chan pipe.TraceEvent, 64)
-	go func() { // discard beats: the dispatched run's tempo is off-ledger
-		for range beats {
+	go func() {
+		for ev := range beats {
+			e.addFillBeat(ev.Kind)
 		}
 	}()
 	res, err := resolveCycle(context.Background(), e.cfg.RepoDir,
 		order.Target.BaseRev, order.Target.FixRev, order.Target.TipRev,
 		anchorFromTarget(order.Target), e.cfg.TestCmd, false, false, beats)
-	close(beats) // the cycle only SENDS on beats; the caller owns the close, so the discard goroutine exits (mirrors OnConnect)
+	close(beats) // the cycle only SENDS on beats; the caller owns the close, so the accrue goroutine exits (mirrors OnConnect)
 	if err == nil && res.Record != nil {
 		res.Record.Producer = "wo:" + strconv.Itoa(order.ID)
 		_ = e.log.Append(*res.Record) // deduped: a re-run of a seen identity mints nothing
@@ -717,6 +779,7 @@ func runOneOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 		e.setOrderFindings(order.ID, res.Findings)
 	}
 	_ = e.log.AppendStatus(order.ID, "done")
+	e.endFill() // the order is done — clear the live filling row; its outcome takes over
 }
 
 // anchorFromTarget reconstructs the re-anchor anchor a funded order runs against
@@ -766,6 +829,7 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 	}()
 	var accrued []string
 	lastDispatch := -1
+	lastFill := "0:0"
 	via.Stream(ctx, 100*time.Millisecond, func(ctx *via.Ctx, _ time.Time) {
 		for { // drain every beat available this tick, flushing the growing row
 			select {
@@ -792,6 +856,17 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 					lastDispatch = sig
 					c.Dispatch.Write(ctx, strconv.Itoa(sig))
 				}
+			}
+		}
+		// Poll the live-fill buffer too: the order the background runner is currently
+		// filling + its accruing cycle beats, so the Lead WATCHES the work happen, not
+		// just the queued→running→done counts. Keyed on (id, beat-count) so an
+		// unchanged buffer writes nothing.
+		if e := lookupLiveEntry(c.Key); e != nil {
+			id, fb := e.fillSnapshot()
+			if sig := strconv.Itoa(id) + ":" + strconv.Itoa(len(fb)); sig != lastFill {
+				lastFill = sig
+				c.FillBeats.Write(ctx, sig)
 			}
 		}
 		select {
