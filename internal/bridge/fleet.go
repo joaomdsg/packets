@@ -24,26 +24,30 @@ type fleetRow struct {
 	Running    int    `json:"running"`
 	Done       int    `json:"done"`
 	Misses     int    `json:"misses"`
+	InFlight   int    `json:"in_flight"` // producers' pending bets — never folded into confirmed (two-scores)
+	Rejected   int    `json:"rejected"`  // verified-losses: bets the host verified and found no catch
 }
 
-func encodeFleetFrame(fleet map[string]ledger.Projection) []byte {
+func encodeFleetFrame(fleet map[string]ledger.FleetView) []byte {
 	rows := make([]fleetRow, 0, len(fleet))
-	for key, p := range fleet {
-		stock := ledger.ConfirmedCatches(p.Records())
-		counts := p.DispatchStatusCounts()
+	for key, v := range fleet {
+		stock := ledger.ConfirmedCatches(v.Records())
+		counts := v.DispatchStatusCounts()
 		misses := counts.Done - stock.Reinvested
 		if misses < 0 {
 			misses = 0
 		}
 		rows = append(rows, fleetRow{
 			Key:        key,
-			Balance:    p.Balance(),
+			Balance:    v.Balance(),
 			Confirmed:  stock.Count,
 			Reinvested: stock.Reinvested,
 			Queued:     counts.Queued,
 			Running:    counts.Running,
 			Done:       counts.Done,
 			Misses:     misses,
+			InFlight:   v.InFlight,
+			Rejected:   v.Rejected,
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool {
@@ -80,8 +84,8 @@ func FleetHandler(f *fabric.Fabric) http.HandlerFunc {
 			flusher.Flush()
 		}
 
-		for fleet := range fleets {
-			if _, err := w.Write(encodeFleetFrame(fleet)); err != nil {
+		for board := range fleets {
+			if _, err := w.Write(encodeFleetFrame(board)); err != nil {
 				return
 			}
 			if flusher != nil {
@@ -91,33 +95,43 @@ func FleetHandler(f *fabric.Fabric) http.HandlerFunc {
 	}
 }
 
-// WatchFleet subscribes to the whole fabric's minted economy and emits a fresh
-// per-session projection map (ledger.FleetProjection) on every committed event,
-// across all sessions — history first (a late subscriber sees current state),
-// then live. It is the cross-session board's stream-driven feed: the board
-// reflects every session off the one stream, regardless of which producer wrote
-// it.
+// WatchFleet emits a fresh per-session board (ledger.FleetBoard) on every
+// committed event across all sessions — history first (a late subscriber sees
+// current state), then live. It wakes on the WHOLE event taxonomy
+// (FleetEventsSubject: minted ∪ claim ∪ scratch), not only mints, so a producer's
+// claim submission or the host's rejection verdict drives a live frame carrying
+// the updated claim lifecycle (in-flight bets, verified-losses) — the board is
+// never frozen until the next mint.
 //
 // Like Watch, re-folding the whole fleet per event reuses the canonical fold,
 // and canceling ctx is the only teardown — it stops the subscription and closes
 // the channel, with a send guard so an abandoned consumer cannot leak the feeder
 // goroutine. The caller MUST cancel ctx when done.
-func WatchFleet(ctx context.Context, f *fabric.Fabric) (<-chan map[string]ledger.Projection, error) {
-	events, err := f.Subscribe(ctx, fabric.FleetMintedSubject())
+//
+// PERF (prototype-scale, accepted): widening the wake from minted-only to the
+// whole taxonomy means EVERY event — including high-frequency discarded scratch
+// fan-out — now drives a refold, and each refold is FleetBoard = TWO full
+// ReplaySubject passes (minted + claim). So the cost is ~2 full-stream replays
+// per committed event per connected viewer, up from 1-on-mint-only. At prototype
+// scale (few sessions, few viewers, modest stream) this is fine; if the scratch
+// rate or viewer count grows, debounce/coalesce wakes or fold incrementally
+// rather than replaying the whole stream per event.
+func WatchFleet(ctx context.Context, f *fabric.Fabric) (<-chan map[string]ledger.FleetView, error) {
+	events, err := f.Subscribe(ctx, fabric.FleetEventsSubject())
 	if err != nil {
 		return nil, err
 	}
 
-	out := make(chan map[string]ledger.Projection, 64)
+	out := make(chan map[string]ledger.FleetView, 64)
 	go func() {
 		defer close(out)
 		for range events {
-			fleet, err := ledger.FleetProjection(ctx, f)
+			board, err := ledger.FleetBoard(ctx, f)
 			if err != nil {
 				return
 			}
 			select {
-			case out <- fleet:
+			case out <- board:
 			case <-ctx.Done():
 				return
 			}

@@ -58,6 +58,22 @@ func FleetMintedSubject() string {
 	return EventSubject("*", "*", StatusMinted, ">")
 }
 
+// FleetClaimSubject matches every session's claim-subtree events (producer
+// submissions and the host's verdicts) across the whole fabric — the
+// counterpart to FleetMintedSubject, the source the cross-session board folds
+// the claim lifecycle (in-flight bets, verified-losses) from.
+func FleetClaimSubject() string {
+	return EventSubject("*", "*", StatusClaim, ">")
+}
+
+// FleetEventsSubject matches EVERY session event regardless of status or kind —
+// the wake trigger for a stream that must react to the whole taxonomy (minted ∪
+// claim ∪ scratch), so a claim or a verdict drives a fresh frame, not only a
+// mint.
+func FleetEventsSubject() string {
+	return EventSubject("*", "*", "*", ">")
+}
+
 // ReplaySubject replays, in global sequence order, only the stored events whose
 // subject matches the NATS filter (JetStream-native FilterSubject — the broker
 // does the demux, not client-side string matching). Surviving events keep their

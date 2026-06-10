@@ -13,7 +13,7 @@ import (
 
 // awaitFleet drains fleet snapshots until one satisfies pred, proving the
 // cross-session feed converged on it. Intermediate snapshots are allowed.
-func awaitFleet(t *testing.T, ch <-chan map[string]ledger.Projection, pred func(map[string]ledger.Projection) bool) {
+func awaitFleet(t *testing.T, ch <-chan map[string]ledger.FleetView, pred func(map[string]ledger.FleetView) bool) {
 	t.Helper()
 	deadline := time.After(3 * time.Second)
 	for {
@@ -41,14 +41,14 @@ func TestWatchFleet_reflectsEverySessionsEconomyInOneSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, alpha.Append(sampleCatch()))
-	awaitFleet(t, ch, func(m map[string]ledger.Projection) bool {
+	awaitFleet(t, ch, func(m map[string]ledger.FleetView) bool {
 		return m["alpha"].Balance() == 1
 	})
 
 	require.NoError(t, beta.Append(sampleCatch()))
 	// One snapshot carries BOTH sessions — the cross-session aggregate, not a
 	// single session's feed.
-	awaitFleet(t, ch, func(m map[string]ledger.Projection) bool {
+	awaitFleet(t, ch, func(m map[string]ledger.FleetView) bool {
 		return m["alpha"].Balance() == 1 && m["beta"].Balance() == 1
 	})
 }
@@ -95,7 +95,7 @@ func TestWatchFleet_closesTheStreamWhenContextCanceled(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, alpha.Append(sampleCatch()))
-	awaitFleet(t, ch, func(m map[string]ledger.Projection) bool {
+	awaitFleet(t, ch, func(m map[string]ledger.FleetView) bool {
 		return m["alpha"].Balance() == 1
 	}) // alive before cancel
 

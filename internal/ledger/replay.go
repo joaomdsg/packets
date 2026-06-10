@@ -107,6 +107,55 @@ func FleetProjection(ctx context.Context, f *fabric.Fabric) (map[string]Projecti
 	return fleet, nil
 }
 
+// FleetView is one session's full board row: its confirmed economy (the embedded
+// Projection, whose Balance/Records/DispatchStatusCounts promote) PLUS the
+// producers' claim lifecycle — InFlight pending bets and Rejected verified-losses.
+// The bet counts are independent axes from the confirmed economy (two-scores): a
+// pending or lost bet never folds into Balance or the confirmed stock.
+type FleetView struct {
+	Projection
+	InFlight int
+	Rejected int
+}
+
+// FleetBoard folds the whole fabric into one per-session board row: the minted
+// economy (FleetProjection) overlaid with each session's claim lifecycle. It
+// replays the cross-session claim subtree separately from the minted subtree —
+// claim/verdict events are NOT economy events and must not go through the minted
+// fold — and computes InFlight/Rejected through the SAME pure projections the
+// per-Log ClaimsInFlight/ClaimsRejected use, so the stream and the in-process
+// board can never disagree on how a bet is classified. A session that has only
+// submitted claims (no mint yet) still appears, so a producer's new bets are
+// never invisible. Either replay error degrades the caller to (nil, err).
+func FleetBoard(ctx context.Context, f *fabric.Fabric) (map[string]FleetView, error) {
+	minted, err := FleetProjection(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	claimEvents, err := f.ReplaySubject(ctx, fabric.FleetClaimSubject())
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]FleetView, len(minted))
+	for s, p := range minted {
+		out[s] = FleetView{Projection: p}
+	}
+
+	bySession := map[string][]fabric.Event{}
+	for _, e := range claimEvents {
+		s := fabric.SessionOf(e.Subject)
+		bySession[s] = append(bySession[s], e)
+	}
+	for s, evs := range bySession {
+		v := out[s] // zero FleetView (nil Projection.Records()) for a claim-only session
+		v.InFlight = claimsInFlightFrom(evs, v.Records())
+		v.Rejected = claimsRejectedFrom(evs, v.Records())
+		out[s] = v
+	}
+	return out, nil
+}
+
 func foldEvents(events []fabric.Event) (Projection, error) {
 	p := Projection{status: map[int]string{}}
 	for _, e := range events {

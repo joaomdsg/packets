@@ -90,6 +90,25 @@ func TestFleetMintedSubject_isTheWildcardedMintedPath(t *testing.T) {
 	assert.Equal(t, fabric.EventSubject("*", "*", fabric.StatusMinted, ">"), fabric.FleetMintedSubject())
 }
 
+// The fleet claim filter is the minted filter's counterpart on the claim subtree
+// — it matches every session's producer submissions and verdicts, the source the
+// cross-session board's claim lifecycle (in-flight, verified-lost) folds from. A
+// wrong filter would silently miss claims or pull in unrelated subjects.
+func TestFleetClaimSubject_isTheWildcardedClaimPath(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "packets.session.*.events.*.claim.>", fabric.FleetClaimSubject())
+}
+
+// The fleet EVENTS filter matches every session event of ANY status and kind —
+// the wake trigger for a stream that must react to the WHOLE taxonomy (minted
+// ∪ claim ∪ scratch), so a claim or verdict drives a fresh frame, not only a
+// mint. Wildcarding the status token is the difference between a live claim
+// lifecycle and a board frozen until the next mint.
+func TestFleetEventsSubject_matchesEverySessionEventOfAnyStatus(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "packets.session.*.events.*.*.>", fabric.FleetEventsSubject())
+}
+
 // The whole point of the scratch/minted split: a consumer rebuilding the
 // source-of-truth projection must replay ONLY minted events and never see
 // discarded fan-out (scratch) activity — and the surviving events must keep

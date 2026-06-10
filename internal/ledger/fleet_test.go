@@ -42,6 +42,113 @@ func TestFleetProjection_foldsEachSessionsEconomySeparately(t *testing.T) {
 	assert.Len(t, fleet["beta"].Records(), 1, "beta's single catch is not mixed with alpha's")
 }
 
+// The cross-session board must carry each session's producer claim lifecycle —
+// pending bets (in-flight) and verified-losses (rejected) — alongside its
+// confirmed economy, computed exactly as the per-Log ClaimsInFlight/ClaimsRejected
+// do (the two-scores invariant on the fleet surface: a bet never inflates the
+// confirmed balance/stock, and a verified-loss is its own resolved count).
+func TestFleetBoard_carriesEachSessionsInFlightAndRejected(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := isolatedFab(t)
+
+	// alpha: three distinct bets, one of them verified-and-rejected.
+	targets := make([]ledger.Target, 0, 3)
+	for i := 1; i <= 3; i++ {
+		tgt := ledger.Target{BaseRev: "b", FixRev: "fx", TipRev: "fx", Path: "a.go", Line: i}
+		_, err := ledger.PublishClaim(ctx, f, "alpha", "i", ledger.ClaimRecord{Target: tgt})
+		require.NoError(t, err)
+		targets = append(targets, tgt)
+	}
+	_, err := ledger.PublishClaimVerdict(ctx, f, "alpha", "i", ledger.ClaimVerdict{Target: targets[0], Rejected: true})
+	require.NoError(t, err)
+
+	// beta: one confirmed catch, no claims.
+	beta := ledger.Bind(f, "beta", "i")
+	require.NoError(t, beta.Append(distinctRecord(0)))
+
+	board, err := ledger.FleetBoard(ctx, f)
+	require.NoError(t, err)
+
+	require.Contains(t, board, "alpha")
+	assert.Equal(t, 2, board["alpha"].InFlight, "two bets remain pending (one was rejected, leaving flight)")
+	assert.Equal(t, 1, board["alpha"].Rejected, "the rejected bet is one verified-loss")
+	assert.Equal(t, 0, board["alpha"].Balance(), "pending/rejected bets never inflate the confirmed balance (two-scores)")
+	assert.Equal(t, 0, ledger.ConfirmedCatches(board["alpha"].Records()).Count, "alpha confirmed nothing")
+
+	require.Contains(t, board, "beta")
+	assert.Equal(t, 1, board["beta"].Balance(), "beta's confirmed catch")
+	assert.Equal(t, 0, board["beta"].InFlight, "beta has no pending bets")
+	assert.Equal(t, 0, board["beta"].Rejected, "beta has no losses")
+}
+
+// A session with BOTH confirmed catches AND a separate still-pending bet must
+// carry both counts at once — the board seeds the row from the minted economy
+// and then overlays the claim lifecycle on the SAME row. Confirmed balance and
+// in-flight bets are independent axes (two-scores), never one folded into the other.
+func TestFleetBoard_carriesConfirmedAndPendingTogetherOnOneRow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := isolatedFab(t)
+	full := ledger.Bind(f, "full", "i")
+
+	require.NoError(t, full.Append(distinctRecord(0)))
+	require.NoError(t, full.Append(distinctRecord(1))) // two confirmed catches → balance 2
+	_, err := ledger.PublishClaim(ctx, f, "full", "i", ledger.ClaimRecord{
+		Target: ledger.Target{BaseRev: "b", FixRev: "fx", TipRev: "fx", Path: "z.go", Line: 9},
+	}) // one separate pending bet
+	require.NoError(t, err)
+
+	board, err := ledger.FleetBoard(ctx, f)
+	require.NoError(t, err)
+	require.Contains(t, board, "full")
+	assert.Equal(t, 2, board["full"].Balance(), "the two confirmed catches stand")
+	assert.Equal(t, 1, board["full"].InFlight, "the pending bet is its own count, not folded into balance")
+	assert.Equal(t, 0, board["full"].Rejected, "no losses")
+}
+
+// A session that has ONLY submitted claims (no minted events yet) must still
+// appear on the board with its in-flight count — otherwise a producer's brand-new
+// bets would be invisible until the host's first mint for that session.
+func TestFleetBoard_includesAClaimOnlySessionWithNoMint(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := isolatedFab(t)
+
+	_, err := ledger.PublishClaim(ctx, f, "newcomer", "i", ledger.ClaimRecord{
+		Target: ledger.Target{BaseRev: "b", FixRev: "fx", TipRev: "fx", Path: "a.go", Line: 1},
+	})
+	require.NoError(t, err)
+
+	board, err := ledger.FleetBoard(ctx, f)
+	require.NoError(t, err)
+	require.Contains(t, board, "newcomer", "a session with only pending bets must still appear on the board")
+	assert.Equal(t, 1, board["newcomer"].InFlight)
+	assert.Equal(t, 0, board["newcomer"].Balance(), "it has minted nothing")
+}
+
+// A confirmed target is in NEITHER in-flight NOR rejected — it is a catch. The
+// same identity, claimed then minted, must move cleanly into the confirmed
+// economy and out of every bet bucket (no double-booking on the fleet surface).
+func TestFleetBoard_aConfirmedTargetIsNeitherInFlightNorRejected(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := isolatedFab(t)
+	s := ledger.Bind(f, "s", "i")
+
+	_, err := ledger.PublishClaim(ctx, f, "s", "i", claimAt(4))
+	require.NoError(t, err)
+	rec, err := confirmFromClaim(claimAt(4))
+	require.NoError(t, err)
+	require.NoError(t, s.Append(*rec))
+
+	board, err := ledger.FleetBoard(ctx, f)
+	require.NoError(t, err)
+	assert.Equal(t, 0, board["s"].InFlight, "a minted target is no longer a pending bet")
+	assert.Equal(t, 0, board["s"].Rejected, "a confirmed catch is never a loss")
+	assert.Equal(t, 1, board["s"].Balance(), "it is the confirmed catch")
+}
+
 func TestFleetProjection_isEmptyWhenNoSessionHasMinted(t *testing.T) {
 	t.Parallel()
 	f := isolatedFab(t)

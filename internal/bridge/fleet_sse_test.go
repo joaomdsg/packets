@@ -34,7 +34,7 @@ func TestFleetHandler_ordersRowsByQueuedDescThenKeyAsc(t *testing.T) {
 
 	// beta (queued 1) sorts before alpha (queued 0); the exact frame pins the
 	// `data: ` framing, the row shape, the per-session values, and the ordering.
-	awaitLine(t, lines, `data: [{"key":"beta","balance":0,"confirmed":1,"reinvested":0,"queued":1,"running":0,"done":0,"misses":0},{"key":"alpha","balance":1,"confirmed":1,"reinvested":0,"queued":0,"running":0,"done":0,"misses":0}]`)
+	awaitLine(t, lines, `data: [{"key":"beta","balance":0,"confirmed":1,"reinvested":0,"queued":1,"running":0,"done":0,"misses":0,"in_flight":0,"rejected":0},{"key":"alpha","balance":1,"confirmed":1,"reinvested":0,"queued":0,"running":0,"done":0,"misses":0,"in_flight":0,"rejected":0}]`)
 }
 
 func TestFleetHandler_breaksQueuedTiesBySessionKeyAscending(t *testing.T) {
@@ -55,7 +55,7 @@ func TestFleetHandler_breaksQueuedTiesBySessionKeyAscending(t *testing.T) {
 	require.NoError(t, zeta.Append(sampleCatch()))
 	require.NoError(t, alpha.Append(sampleCatch()))
 
-	awaitLine(t, lines, `data: [{"key":"alpha","balance":1,"confirmed":1,"reinvested":0,"queued":0,"running":0,"done":0,"misses":0},{"key":"zeta","balance":1,"confirmed":1,"reinvested":0,"queued":0,"running":0,"done":0,"misses":0}]`)
+	awaitLine(t, lines, `data: [{"key":"alpha","balance":1,"confirmed":1,"reinvested":0,"queued":0,"running":0,"done":0,"misses":0,"in_flight":0,"rejected":0},{"key":"zeta","balance":1,"confirmed":1,"reinvested":0,"queued":0,"running":0,"done":0,"misses":0,"in_flight":0,"rejected":0}]`)
 }
 
 func TestFleetHandler_rowsCarryReinvestedDoneAndMisses(t *testing.T) {
@@ -87,7 +87,7 @@ func TestFleetHandler_rowsCarryReinvestedDoneAndMisses(t *testing.T) {
 	require.NoError(t, solo.AppendStatus(2, "running"))
 	require.NoError(t, solo.AppendStatus(2, "done")) // done 2; misses = done(2) − reinvested(1) = 1
 
-	awaitLine(t, lines, `data: [{"key":"solo","balance":0,"confirmed":2,"reinvested":1,"queued":0,"running":0,"done":2,"misses":1}]`)
+	awaitLine(t, lines, `data: [{"key":"solo","balance":0,"confirmed":2,"reinvested":1,"queued":0,"running":0,"done":2,"misses":1,"in_flight":0,"rejected":0}]`)
 }
 
 func TestFleetHandler_rowReportsAnInFlightRunningOrder(t *testing.T) {
@@ -108,7 +108,35 @@ func TestFleetHandler_rowReportsAnInFlightRunningOrder(t *testing.T) {
 		ledger.Target{BaseRev: "b2", FixRev: "f2", TipRev: "f2", Path: "other.go", Line: 9}, own)) // order 1 queued
 	require.NoError(t, solo.AppendStatus(1, "running")) // moves off queued → running, not done
 
-	awaitLine(t, lines, `data: [{"key":"solo","balance":0,"confirmed":1,"reinvested":0,"queued":0,"running":1,"done":0,"misses":0}]`)
+	awaitLine(t, lines, `data: [{"key":"solo","balance":0,"confirmed":1,"reinvested":0,"queued":0,"running":1,"done":0,"misses":0,"in_flight":0,"rejected":0}]`)
+}
+
+// The fleet stream must react to the producer claim LIFECYCLE, not only mints:
+// a submitted claim drives a frame showing the bet in flight, and the host's
+// rejection verdict drives a frame moving it to verified-lost — live, off the
+// same stream, with no mint involved. Before C3b2b the feed only woke on minted
+// events, so a producer's bets were invisible until an unrelated mint fired.
+func TestFleetHandler_streamsTheClaimLifecycleNotOnlyMints(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := startFabric(t)
+	srv := httptest.NewServer(bridge.FleetHandler(f))
+	defer srv.Close()
+
+	resp := connect(t, ctx, srv.URL)
+	lines := scanLines(resp.Body)
+
+	tgt := ledger.Target{BaseRev: "b", FixRev: "fx", TipRev: "fx", Path: "a.go", Line: 4}
+	// A submitted claim — no mint — must surface as one bet in flight.
+	_, err := ledger.PublishClaim(ctx, f, "prod", "i", ledger.ClaimRecord{Target: tgt})
+	require.NoError(t, err)
+	awaitLine(t, lines, `"key":"prod","balance":0,"confirmed":0,"reinvested":0,"queued":0,"running":0,"done":0,"misses":0,"in_flight":1,"rejected":0`)
+
+	// The host's rejection verdict — still no mint — must move it to verified-lost.
+	_, err = ledger.PublishClaimVerdict(ctx, f, "prod", "i", ledger.ClaimVerdict{Target: tgt, Rejected: true})
+	require.NoError(t, err)
+	awaitLine(t, lines, `"in_flight":0,"rejected":1`)
 }
 
 func TestFleetHandler_sendsEventStreamContentTypeAndActuallyStreams(t *testing.T) {
