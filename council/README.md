@@ -196,6 +196,14 @@ Layout of this directory:
   board (gated, links to /review), so test debt is visible across the fleet. Thread
   FEATURE-COMPLETE for V1 (findings → card badge → /review → board count). Deferred
   optional: delta-only surfacing, reviewer intent tags, ledger persistence.
+- [Round 57](round-57.md) — the PREP BENCH thread, full six-member council (maintainer
+  delegated scoping to the council). Converged (3 votes: Game Designer + Systems +
+  TDD) on turning dispatch from a blind auto-FIFO pick into a curated CHOICE: surface
+  the fundable backlog as a "bench" and let the Lead choose what the next Spend funds
+  (kills dead-air; a real management-sim decision; on supply.go's existing plumbing;
+  server-testable). Keyboard nav deferred (browser-only = test-theater per TDD);
+  Land/merge fleet surface queued as the next thread. Slices: (1) render the bench,
+  (2) choose-to-fund, (3) optional reorder.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
