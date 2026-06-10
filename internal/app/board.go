@@ -102,6 +102,30 @@ type BoardCard struct {
 	// NewKey holds the key typed into the create-session input (two-way bound), read
 	// by CreateSession on submit. Per-tab signal, not authoritative session state.
 	NewKey via.SignalStr `via:"newkey"`
+	// RetireKey carries the key of the row whose retire button was clicked — set by
+	// that button (on.SetSignal) just before the post, then read by RetireSession.
+	RetireKey via.SignalStr `via:"retirekey"`
+}
+
+// RetireSession removes a session from the fleet view — the honest completion of
+// CreateSession, so experiment sessions don't accumulate on the board. It unmounts
+// the key from the registry (the ledger's events persist on the fabric; this only
+// drops the live entry). The seeded default is NEVER retired — it is the "/" route's
+// single-card fallback — and an empty/unknown key is a no-op.
+//
+// A retired key's durable claim consumer goroutine (per-session, spawned by the
+// consumerSpawner and NOT tied to liveReg membership) keeps running until process
+// shutdown — Delete drops only the registry entry, not the goroutine. This leak is
+// BENIGN and intentionally NOT torn down here: POST /claim gates on liveReg.Load, so
+// a retired key 404s and receives no new claims, leaving the consumer parked on an
+// empty fetch. Adding teardown machinery would be out of scope for a fleet-view
+// retire and would risk racing an in-flight verify; the goroutine costs nothing idle.
+func (c *BoardCard) RetireSession(ctx *via.Ctx) {
+	key := strings.TrimSpace(c.RetireKey.Read(ctx))
+	if key == "" || key == defaultSessionKey {
+		return // never strand the default fallback
+	}
+	liveReg.Delete(key)
 }
 
 // CreateSession starts a new session economy from the fleet view: it registers the
@@ -189,6 +213,15 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 		// Honest per-order outcomes, never a fabricated rank.
 		if d := renderDispatches(r.Dispatches); d != nil {
 			row = append(row, d)
+		}
+		// A retire control on every NON-default row — the default is the "/" route's
+		// fallback and is never retirable. The button sets retirekey to THIS row's key
+		// (on.SetSignal) just before the post, so RetireSession removes the right one.
+		if r.Key != defaultSessionKey {
+			row = append(row, h.Button(
+				on.Click(c.RetireSession, on.SetSignal(&c.RetireKey.Signal, r.Key)),
+				h.Class("board-row__retire"), h.Text("retire"),
+			))
 		}
 		parts = append(parts, h.Div(row...))
 	}

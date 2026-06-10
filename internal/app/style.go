@@ -110,6 +110,20 @@ body {
 .board-row__misses { color: var(--pk-lost); }
 .board-row__hitrate { color: var(--pk-ink-dim); }
 .board-row__backlog { color: var(--pk-ink-dim); }
+/* retire a session from the fleet view — a quiet, low-emphasis control (dim until
+   hover), never an alarm; only on non-default rows. */
+.board-row__retire {
+  margin-left: auto;
+  padding: 0 var(--pk-sm);
+  background: transparent;
+  color: var(--pk-ink-dim);
+  border: 1px solid var(--pk-line);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.board-row__retire:hover { color: var(--pk-lost); border-color: var(--pk-lost); }
 
 /* the producers' bet lifecycle — one sealed cluster, distinct from confirmed stock */
 .board-row__bets, .board-row__dispatches {
