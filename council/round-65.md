@@ -64,6 +64,29 @@ Guardrails: diagnostic-only/off-economy (firewall), data-honesty (the edits are 
 static pre-funded diff — never fake "live agent" theater), calm/no fabricated reward,
 reachability-grounded, server-tested + client browser-verified. #6 boundary gated.
 
+## Build record — THREAD COMPLETE (slices 1, 2, 3, 2b)
+
+- Slice 1 (19ad88b): runOneOrder CAPTURES the filled order's findings into a per-order
+  cache on liveEntry (off-ledger); the card's dispatch rows show "N open questions".
+- Slice 2 (0277bf6): per-order review /review?wo=<id> renders THAT order's questions
+  as threads; the "N open questions" count drills in. Shared renderQuestionThreads.
+- Slice 3 (a323384): "see the edits" — a Monaco DIFF editor of the order's base→fix
+  source ("The edits WO#<id> made"), honestly a static diff (orderDiffIsland +
+  orderTarget; the {path,base,fix} payload is the server contract).
+- Slice 2b (6dd63c5): answer the order's questions IN-PLACE — the editable answer
+  pane on the order review, scoped to the order via a $answerwo signal so
+  AnswerQuestion re-runs on the ORDER's fix rev and updates the order's findings (a
+  kill empties them → the question vanishes, and sticks: the order cache isn't
+  cycle-re-populated). Shared renderAnswerForm(anchor, woID); session path = woID 0.
+
+THE VISION IS DELIVERED end-to-end + actionable: catch → spend → fund a work order →
+it fills → drill in → SEE the edits it made (diff) → REVIEW its questions → ANSWER
+them in place (re-run on the order's revs) → the question vanishes. All off the
+economy ledger (the order's catch mints; its questions/diff/answers are diagnostic).
+Server contracts unit-tested; the Monaco diff/answer editors are client islands
+(browser-verified on :3000). Optional remainder (judge if wanted): reveal the
+diff/beats as the order fills (the "watch it work" beat) — slice 4.
+
 ## New clashes opened / resolved
 
 None — a clean convergence. "Agent making edits" RESOLVED as the work-order diff (not
