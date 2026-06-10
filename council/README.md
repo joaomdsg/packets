@@ -101,6 +101,10 @@ Layout of this directory:
 - [Round 40](round-40.md) — direction after #6c feature-complete: the live
   boundary is maintainer-gated; next NON-GATED slice = the non-ASCII re-anchor
   correctness fix; the Board is the next major thread (its own round)
+- [Round 41](round-41.md) — scoping the Board: the loop reaches the edge of
+  autonomous-safe work — high-value Board increments need maintainer product/UX
+  taste (or hit the refused fabricated-leverage trap); remaining work is gated or
+  taste-dependent → surface the direction fork to the maintainer
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
