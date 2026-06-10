@@ -356,7 +356,7 @@ design risks above, which are about the spec). Each: where, the finding, the fix
      empty made `git rebase ""` exit non-zero → silently mislabeled `LandConflict` (a
      confidently-wrong terminal). Now guarded: `integrateOnTip` returns an error on an
      empty testCmd OR empty tipRev, so the card stays honestly in-flight rather than
-     showing a false integration verdict. `cmd/agntpr` defaults `-tip` to `-fix`.
+     showing a false integration verdict. `cmd/packets` defaults `-tip` to `-fix`.
   2. **Nonexistent `tipRev` conflated with conflict — DEFERRED (low severity).** A
      genuinely bad (nonexistent) tipRev also exits non-zero → reported as `LandConflict`
      rather than an error. Acceptable for now: the only caller (`app.Resolve` via the

@@ -135,6 +135,16 @@ Route **several packets** through one gateway — each its own isolated flow:
 # default flow at /  ·  keyed flows at /?key=rate-limiter and /?key=docs-pass
 ```
 
+Seed **fundable work orders** on the primary flow so the dispatch → fund → fill →
+review loop is exercisable end-to-end (without one, `Spend` has nothing to fund):
+
+```bash
+./packets -repo . -base <sha> -fix <sha> -file a.go -line 4 \
+  -backlog 'base=<sha>,fix=<sha>,file=pkg/y.go,line=12' \
+  -backlog 'base=<sha>,fix=<sha>,file=pkg/z.go,line=7,tip=<sha>'
+# Spend dispatches a seeded order → watch it fill → drill into its review questions
+```
+
 > **Tip:** if `go` errors with a `GOROOT` version mismatch, prefix commands
 > with `env -u GOROOT`.
 

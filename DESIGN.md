@@ -88,7 +88,7 @@ The hardest non-gameable part of the thesis — the confirmed-catch pipe —
 is built and tested end-to-end against the real oracle (`internal/`
 packages: `mutation`, `catch`, `diff`, `reanchor`, `review`, `settle`,
 `orchestrator`, `ledger`, `surface`, `translate`, `refactor`, `pipe`,
-`app`; `cmd/agntpr`). The fleet board, live SSE card, append-only catch
+`app`; `cmd/packets`). The fleet board, live SSE card, append-only catch
 ledger, and multi-session isolation are real.
 
 Built since (council rounds 28–35, `internal/fabric`, `internal/bridge`,
