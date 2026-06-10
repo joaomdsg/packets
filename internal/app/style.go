@@ -222,6 +222,10 @@ body {
    text threads carry the review. */
 .review-editor-island { display: block; }
 .review-editor { width: 100%; height: 60vh; border: 1px solid var(--pk-line); border-radius: 6px; }
+/* the per-order diff editor — the edits the work order made, base vs fix side by
+   side (a static, pre-funded diff; never a faked live agent). */
+.order-diff-island { display: block; }
+.order-diff-editor { width: 100%; height: 45vh; border: 1px solid var(--pk-line); border-radius: 6px; }
 .review-editor:empty { height: 0; border: 0; } /* no editor mounted → no empty box */
 /* the answer affordance: write a killing test + submit. Calm, in the surface idiom —
    a monospace input area + a quiet submit; the reward is the question vanishing, so

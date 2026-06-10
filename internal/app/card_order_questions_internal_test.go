@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -34,6 +35,21 @@ func TestLiveCard_aFilledOrderShowsItsOpenReviewQuestions(t *testing.T) {
 			{File: "alpha.go", Line: 7, Outcome: mutation.Survived, Message: "mutated >= to >"},
 			{File: "alpha.go", Line: 9, Outcome: mutation.Survived, Message: "mutated + to -"},
 		}}, nil // no Record → no mint; isolate the diagnostic findings (two-scores)
+	}
+
+	restoreReader := reviewFileReader
+	t.Cleanup(func() { reviewFileReader = restoreReader })
+	reviewFileReader = func(_ context.Context, _, rev, path string) (string, error) {
+		if path != "alpha.go" {
+			return "", errors.New("unexpected")
+		}
+		switch rev {
+		case "b":
+			return "package main\n\nfunc adult(n int) bool { return n > 17 }\n", nil
+		case "f":
+			return "package main\n\nfunc adult(n int) bool { return n >= 18 }\n", nil
+		}
+		return "", errors.New("unexpected")
 	}
 
 	ctx := context.Background()
@@ -71,6 +87,13 @@ func TestLiveCard_aFilledOrderShowsItsOpenReviewQuestions(t *testing.T) {
 	require.Contains(t, orderBody, "review-thread", "the order's questions render as anchored threads")
 	require.Contains(t, orderBody, "alpha.go:7", "anchored to the order's surviving-mutant line")
 	require.Contains(t, orderBody, "question: mutated &gt;= to &gt;", "carrying the order's finding as a question")
+	// "See the edits the order made": the base→fix diff in a Monaco diff editor.
+	require.Contains(t, orderBody, "The edits WO#1 made", "the per-order review shows the order's edits")
+	require.Contains(t, orderBody, "order-diff-editor", "a diff editor mount for the edits")
+	require.Contains(t, orderBody, "createDiffEditor", "a bootstrap mounts the base↔fix diff editor")
+	require.Contains(t, orderBody, `"base":`, "the base source rides in the diff payload (server contract)")
+	require.Contains(t, orderBody, `"fix":`, "the fix source rides too")
+	require.Contains(t, orderBody, "func adult(n int) bool", "the actual edited source is the diff payload, not a fake")
 
 	// An order with no captured findings → calm empty per-order state, not the session's.
 	emptyBody := bodyOf(vt.NewClient(t, server, "/review?key=woq&wo=999").HTML())

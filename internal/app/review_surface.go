@@ -10,6 +10,7 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
 
+	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/mutation"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
@@ -78,6 +79,66 @@ func orderOpenThreads(key string, orderID int) []review.Thread {
 	return review.QuestionThreadsFromMutations(e.orderFindingsFor(orderID))
 }
 
+// orderTarget finds a funded work-order's Target (its base/fix revs + anchored path)
+// by ID from the session's recent dispatches — the revs whose diff IS the edits.
+func orderTarget(log *ledger.Log, orderID int) (ledger.Target, bool) {
+	if log == nil {
+		return ledger.Target{}, false
+	}
+	views, err := log.RecentDispatches(50)
+	if err != nil {
+		return ledger.Target{}, false
+	}
+	for _, v := range views {
+		if v.ID == orderID {
+			return v.Target, true
+		}
+	}
+	return ledger.Target{}, false
+}
+
+// orderDiffIsland renders a Monaco DIFF editor of the order's base→fix edits on its
+// anchored file. The diff DATA (base + fix source) is the server contract; the diff
+// editor's rendering is the client island (browser-verified). Source unreadable at a
+// rev degrades to an empty side rather than breaking the surface.
+func orderDiffIsland(cfg LiveConfig, tgt ledger.Target) h.H {
+	base, _ := reviewFileReader(context.Background(), cfg.RepoDir, tgt.BaseRev, tgt.Path)
+	fix, _ := reviewFileReader(context.Background(), cfg.RepoDir, tgt.FixRev, tgt.Path)
+	payload, _ := json.Marshal(struct {
+		Path string `json:"path"`
+		Base string `json:"base"`
+		Fix  string `json:"fix"`
+	}{Path: tgt.Path, Base: base, Fix: fix})
+	return h.Div(
+		h.Class("order-diff-island"),
+		h.DataIgnoreMorph(),
+		h.Script(h.Type("application/json"), h.ID("order-diff-data"), h.Raw(string(payload))),
+		h.Div(h.ID("order-diff-editor"), h.Class("order-diff-editor")),
+		h.Script(h.Src(monacoLoaderURL)),
+		h.Script(h.Raw(orderDiffBootstrapJS)),
+	)
+}
+
+// orderDiffBootstrapJS mounts a read-only Monaco diff editor over the base/fix
+// payload — the edits the order made, side by side. Defensive (guards + try/catch);
+// require is loaded by this island's loader.
+const orderDiffBootstrapJS = `(function(){
+  if (typeof require === 'undefined') return;
+  require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@` + monacoVersion + `/min/vs' } });
+  require(['vs/editor/editor.main'], function(){
+    var el = document.getElementById('order-diff-editor');
+    var dataEl = document.getElementById('order-diff-data');
+    if (!el || !dataEl || el.dataset.mounted) return;
+    el.dataset.mounted = '1';
+    var d;
+    try { d = JSON.parse(dataEl.textContent); } catch (e) { return; }
+    var orig = monaco.editor.createModel(d.base || '', 'go', monaco.Uri.file('base/' + (d.path || 'file.go')));
+    var mod = monaco.editor.createModel(d.fix || '', 'go', monaco.Uri.file('fix/' + (d.path || 'file.go')));
+    var de = monaco.editor.createDiffEditor(el, { readOnly: true, automaticLayout: true, theme: 'vs-dark', renderSideBySide: true, minimap: { enabled: false }, scrollBeyondLastLine: false });
+    de.setModel({ original: orig, modified: mod });
+  });
+})();`
+
 // AnswerQuestion re-runs the oracle for the answered line with the reviewer's test
 // injected into a throwaway worktree, and replaces the session's cached findings
 // with the result: a test that KILLS the mutant leaves no finding (the question
@@ -142,14 +203,22 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 	if navKey == "" {
 		navKey = defaultSessionKey
 	}
-	cfg, _ := readLiveState(navKey)
+	cfg, log := readLiveState(navKey)
 	parts := []h.H{h.Class("review"), h.Data("state", "review"), navHeader(navKey)}
 
 	// Per-order review (/review?wo=<id>): the filled work-order's OWN review questions
 	// — the test-debt the funded work left — read from the per-order findings cache,
-	// not the session's connect cycle. Read-only here; order-scoped answering + the
-	// diff are later slices. (The editable answer flow below is session-scoped.)
+	// not the session's connect cycle. Read-only here; order-scoped answering is a
+	// later slice. (The editable answer flow below is session-scoped.)
 	if woID, err := strconv.Atoi(c.WO); err == nil && woID > 0 {
+		// "See the edits this order made": the order's base→fix diff, in a Monaco diff
+		// editor. The diff is STATIC and pre-funded (the fix revision the order ran) —
+		// honest framing, never a faked "live agent typing".
+		if tgt, ok := orderTarget(log, woID); ok {
+			parts = append(parts, h.P(h.Class("review__lead"),
+				h.Text("The edits WO#"+strconv.Itoa(woID)+" made — "+tgt.Path+":")))
+			parts = append(parts, orderDiffIsland(cfg, tgt))
+		}
 		orderThreads := orderOpenThreads(navKey, woID)
 		parts = append(parts, h.P(h.Class("review__lead"),
 			h.Text("Reviewing WO#"+strconv.Itoa(woID)+" — the work order's surviving mutants:")))
