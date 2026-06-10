@@ -51,6 +51,9 @@ type ReviewCard struct {
 	AnswerFile via.SignalStr `via:"answerfile"`
 	AnswerLine via.SignalStr `via:"answerline"`
 	AnswerTest via.SignalStr `via:"answertest"`
+	// AnswerWO scopes an answer to a work-order (>0): the re-run uses the ORDER's revs
+	// and updates the order's findings, not the session's. 0/unset = session answer.
+	AnswerWO via.SignalStr `via:"answerwo"`
 }
 
 // renderQuestionThreads renders anchored "question:" threads (File:Line + body) —
@@ -166,7 +169,26 @@ func (c *ReviewCard) AnswerQuestion(ctx *via.Ctx) {
 		return
 	}
 	defer e.endAnswer()
-	cfg, _ := readLiveState(key)
+	cfg, log := readLiveState(key)
+
+	// Order-scoped answer (/review?wo=<id>): re-run against the ORDER's fix revision
+	// (the work it did), and update that order's findings cache — not the session's.
+	// The order cache isn't re-populated by a connect cycle, so a kill sticks without
+	// a resolved-set.
+	if woID, err := strconv.Atoi(c.AnswerWO.Read(ctx)); err == nil && woID > 0 {
+		tgt, ok := orderTarget(log, woID)
+		if !ok {
+			return
+		}
+		overlay := map[string]string{filepath.Join(filepath.Dir(file), answerTestFilename): test}
+		newFindings, rerr := rerunWithOverlay(context.Background(), cfg.RepoDir, tgt.FixRev, file, line, cfg.TestCmd, overlay)
+		if rerr != nil {
+			return // transient — leave the order's question open (flaky-truth fence)
+		}
+		e.setOrderFindings(woID, newFindings) // off-ledger; a kill empties → question vanishes
+		return
+	}
+
 	overlay := map[string]string{filepath.Join(filepath.Dir(file), answerTestFilename): test}
 	newFindings, err := rerunWithOverlay(context.Background(), cfg.RepoDir, cfg.FixRev, file, line, cfg.TestCmd, overlay)
 	if err != nil {
@@ -228,6 +250,9 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 			return h.Div(parts...)
 		}
 		parts = append(parts, renderQuestionThreads(orderThreads)...)
+		// Answer the order's questions in-place: the editable pane, scoped to THIS
+		// order ($answerwo) so the re-run uses the order's revs, not the session's.
+		parts = append(parts, renderAnswerForm(orderThreads[0], woID))
 		return h.Div(parts...)
 	}
 
@@ -255,8 +280,20 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 	// is what makes the signal reliably present at post time. AnswerQuestion re-runs
 	// the oracle with the test injected — a kill makes the question vanish
 	// (diagnostic, off-economy).
-	anchor := threads[0]
-	parts = append(parts, h.Div(
+	parts = append(parts, renderAnswerForm(threads[0], 0))
+	return h.Div(parts...)
+}
+
+// renderAnswerForm renders the editable Monaco answer pane + submit, wired to
+// AnswerQuestion via the maplibre-style data-on bridge. woID>0 scopes the answer to
+// a work-order (the re-run uses the order's revs) by setting $answerwo inline; woID
+// 0 is the session review.
+func renderAnswerForm(anchor review.Thread, woID int) h.H {
+	expr := "$answerfile=evt.detail.file;$answerline=evt.detail.line;$answertest=evt.detail.test;@post('/_action/AnswerQuestion')"
+	if woID > 0 {
+		expr = "$answerwo=" + strconv.Itoa(woID) + ";" + expr
+	}
+	return h.Div(
 		h.Class("review-answer"),
 		h.P(h.Class("review-answer__label"),
 			h.Text("Answer: write a test that kills the mutant on "+anchor.File+":"+strconv.Itoa(anchor.StartLine)+" (⌘/Ctrl+Enter to submit)")),
@@ -265,7 +302,7 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 			h.DataIgnoreMorph(),
 			// datastar catches the editor's submit CustomEvent, lifts its detail into
 			// the answer signals, and posts the action — the maplibre-proven bridge.
-			h.Data("on:viaanswer", "$answerfile=evt.detail.file;$answerline=evt.detail.line;$answertest=evt.detail.test;@post('/_action/AnswerQuestion')"),
+			h.Data("on:viaanswer", expr),
 			// while that post is in flight (the oracle re-run takes seconds), the
 			// "answering" signal is true so the running line below reveals itself.
 			h.Attr("data-indicator", "answering"),
@@ -281,8 +318,7 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 			h.Class("review-answer__running"),
 			h.Text("re-running the oracle — checking if your test kills the mutant…"),
 		),
-	))
-	return h.Div(parts...)
+	)
 }
 
 // answerEditorJS mounts an EDITABLE Monaco editor (Go, vs-dark) into #answer-editor
