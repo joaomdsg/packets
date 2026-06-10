@@ -238,7 +238,7 @@ type LiveCard struct {
 // another. The stock is read-only: a ledger read failure degrades to an empty
 // stock, never breaks the card.
 func (c *LiveCard) View(ctx *via.CtxR) h.H {
-	_, log := readLiveState(c.Key)
+	cfg, log := readLiveState(c.Key)
 	var stock ledger.Stock
 	balance := 0
 	var dispatch ledger.DispatchCounts
@@ -280,7 +280,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 		parts = append(parts, h.Button(
 			on.Click(c.Spend),
 			h.Class("spend-action"),
-			h.Text("Spend a catch → fund a work-order"),
+			h.Text(spendButtonLabel(cfg, log)),
 		))
 	}
 	parts = append(parts, surface.RenderDispatch(dispatch))

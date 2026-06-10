@@ -1,6 +1,10 @@
 package app
 
-import "github.com/joaomdsg/packets/internal/ledger"
+import (
+	"strconv"
+
+	"github.com/joaomdsg/packets/internal/ledger"
+)
 
 // nextUnconsumedTarget returns the first backlog target a Spend can still fund —
 // head-first (FIFO), skipping targets already CONSUMED (carried by a funded
@@ -68,6 +72,21 @@ func candidatesFromCatches(log *ledger.Log) []ledger.Target {
 		})
 	}
 	return out
+}
+
+// spendButtonLabel names what the NEXT Spend will fund — the actual target
+// nextUnconsumedTarget would pick — so the Lead knows what they are buying before
+// clicking, not a blind verb. It falls back to a generic label when there is no
+// fundable target; that case is near-unreachable in practice (supply refills from
+// the session's own catches, so a session with balance almost always has work),
+// but the fallback keeps the control honest if it ever is reached.
+func spendButtonLabel(cfg LiveConfig, log *ledger.Log) string {
+	if log != nil {
+		if t, ok := nextUnconsumedTarget(cfg, log); ok {
+			return "Spend a catch → fund " + t.Path + ":" + strconv.Itoa(t.Line)
+		}
+	}
+	return "Spend a catch → fund a work-order"
 }
 
 // ownTargetOf is the card's OWN caught cycle as a Target — what a dispatch must

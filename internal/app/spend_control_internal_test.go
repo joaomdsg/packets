@@ -50,9 +50,11 @@ func TestLiveCard_rendersASpendControlWhenThereIsBalanceToSpend(t *testing.T) {
 		"the card must render a control bound to the Spend action so the Lead can fund work from the UI")
 	require.Contains(t, body, "spend-action",
 		"the spend control carries its class hook so the stylesheet can style it")
-	// The control names the honest move it makes — spend a catch to fund a
-	// work-order — so the Lead knows what the click does, not a bare verb.
-	require.Contains(t, body, "fund a work-order",
+	// The control names the honest move it makes — spend a catch to fund work — so
+	// the Lead knows what the click does, not a bare verb. (The exact target named
+	// is locked by the spend-preview tests; here we only assert the spend-and-fund
+	// framing is present.)
+	require.Contains(t, body, "Spend a catch → fund ",
 		"the spend control names the real outcome of the click")
 }
 
