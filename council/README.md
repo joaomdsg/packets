@@ -139,6 +139,13 @@ Layout of this directory:
   funds). REJECTED the "nothing-to-fund" affordance as near-unreachable (supply
   refills from own catches). Lesson: verify a slice's target state is reachable
   before building. keyboard nav deferred to R50+
+- [Round 50](round-50.md) — color the dispatch round-trip outcome: caught→confirmed
+  hue, missed→loss hue (a data-outcome hook on renderDispatches, shared card+board),
+  extending R45's per-state honest color to the round-trip; queued/running stays
+  neutral. Closes the card/board VISUAL+FLOW thread opened at R43 — the survey found
+  remaining work is marginal polish OR a bigger thread (menus, order diagnostics,
+  fleet actions) needing a maintainer steer; loop will surface that, not manufacture
+  marginal slices.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
