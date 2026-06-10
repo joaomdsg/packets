@@ -219,57 +219,102 @@ func targetAlreadyMinted(records []CatchRecord, t Target) bool {
 // the claims, so the projection demuxes by subject kind — a verdict is never
 // itself counted as a claim.
 func (l *Log) ClaimsInFlight() (int, error) {
-	filter := fabric.EventSubject(l.session, l.instance, fabric.StatusClaim, ">")
-	events, err := l.f.ReplaySubject(context.Background(), filter)
+	events, records, err := l.replayClaimSubtree()
 	if err != nil {
 		return 0, err
 	}
-	records, err := l.Records()
-	if err != nil {
-		return 0, err
-	}
+	return claimsInFlightFrom(events, records), nil
+}
 
-	// Dedupe by the catch IDENTITY (BaseRev,FixRev,Path,Line) — the same tuple
-	// targetAlreadyMinted and Append key on — so a replay (or a tip-only variation)
-	// of one unit of work counts once, not twice.
-	type identity struct {
-		base, fix, path string
-		line            int
-	}
-	idOf := func(t Target) identity { return identity{t.BaseRev, t.FixRev, t.Path, t.Line} }
+// claimIdentity is the catch identity a claim/verdict dedupes on: {BaseRev,
+// FixRev,Path,Line}, the same tuple targetAlreadyMinted and Append key on. TipRev
+// is deliberately excluded — a tip-only variation of one unit of work is one bet.
+type claimIdentity struct {
+	base, fix, path string
+	line            int
+}
 
-	// First pass: collect the identities the host has terminally rejected. A
-	// malformed verdict is skipped like a malformed claim.
-	rejected := make(map[identity]bool)
+func identityOf(t Target) claimIdentity {
+	return claimIdentity{t.BaseRev, t.FixRev, t.Path, t.Line}
+}
+
+// rejectedIdentities collects the catch identities terminally rejected on a claim
+// subtree's events. A malformed or non-rejecting verdict is skipped; non-verdict
+// (work-claim) events are not losses.
+func rejectedIdentities(events []fabric.Event) map[claimIdentity]bool {
+	rejected := make(map[claimIdentity]bool)
 	for _, e := range events {
 		if !isVerdictKind(e.Subject) {
 			continue
 		}
-		v, derr := DecodeClaimVerdict(e.Data)
-		if derr != nil || !v.Rejected {
+		v, err := DecodeClaimVerdict(e.Data)
+		if err != nil || !v.Rejected {
 			continue
 		}
-		rejected[idOf(v.Target)] = true
+		rejected[identityOf(v.Target)] = true
 	}
+	return rejected
+}
 
-	// Second pass: a work claim is in flight unless it is already minted or
-	// rejected. Verdict (and any non-claim) events are not claims and never count.
-	seen := make(map[identity]bool)
+// claimsInFlightFrom is the pure projection behind ClaimsInFlight (and the fleet
+// board): the count of DISTINCT work-claim targets on these events that are
+// neither minted nor rejected — producers' pending bets. Verdict (and any
+// non-claim) events are never counted as claims; a malformed claim is skipped.
+func claimsInFlightFrom(events []fabric.Event, minted []CatchRecord) int {
+	rejected := rejectedIdentities(events)
+	seen := make(map[claimIdentity]bool)
 	for _, e := range events {
 		if !isClaimKind(e.Subject) {
 			continue
 		}
-		claim, derr := DecodeClaim(e.Data)
-		if derr != nil {
-			continue // a malformed claim event is not a claim in flight
+		claim, err := DecodeClaim(e.Data)
+		if err != nil {
+			continue
 		}
-		id := idOf(claim.Target)
-		if rejected[id] || targetAlreadyMinted(records, claim.Target) {
+		id := identityOf(claim.Target)
+		if rejected[id] || targetAlreadyMinted(minted, claim.Target) {
 			continue
 		}
 		seen[id] = true
 	}
-	return len(seen), nil
+	return len(seen)
+}
+
+// claimsRejectedFrom is the pure projection behind ClaimsRejected (and the fleet
+// board): the count of DISTINCT terminally-rejected target identities that are
+// not also minted — a confirmed catch is never also a loss, so the catch wins.
+func claimsRejectedFrom(events []fabric.Event, minted []CatchRecord) int {
+	lost := make(map[claimIdentity]bool)
+	for _, e := range events {
+		if !isVerdictKind(e.Subject) {
+			continue // only a verdict marker can be a loss; a work claim is not
+		}
+		v, err := DecodeClaimVerdict(e.Data)
+		if err != nil || !v.Rejected {
+			continue // a malformed or non-rejecting verdict is not a loss
+		}
+		if targetAlreadyMinted(minted, v.Target) {
+			continue // a confirmed catch is never also a loss — the catch wins
+		}
+		lost[identityOf(v.Target)] = true
+	}
+	return len(lost)
+}
+
+// replayClaimSubtree replays this log's whole claim subtree (work claims AND
+// verdict markers) and reads its minted records — the two inputs every claim
+// projection folds. Either read error degrades the caller to (0, err).
+func (l *Log) replayClaimSubtree() ([]fabric.Event, []CatchRecord, error) {
+	filter := fabric.EventSubject(l.session, l.instance, fabric.StatusClaim, ">")
+	events, err := l.f.ReplaySubject(context.Background(), filter)
+	if err != nil {
+		return nil, nil, err
+	}
+	records, err := l.Records()
+	if err != nil {
+		return nil, nil, err
+	}
+	return events, records, nil
 }
 
 // ClaimsRejected counts the DISTINCT claim target identities this log has
@@ -280,36 +325,11 @@ func (l *Log) ClaimsInFlight() (int, error) {
 // loss (two-scores), so the catch wins. Dedupe is by the catch identity
 // {BaseRev,FixRev,Path,Line} (TipRev excluded), matching Append/ClaimsInFlight.
 func (l *Log) ClaimsRejected() (int, error) {
-	filter := fabric.EventSubject(l.session, l.instance, fabric.StatusClaim, ">")
-	events, err := l.f.ReplaySubject(context.Background(), filter)
+	events, records, err := l.replayClaimSubtree()
 	if err != nil {
 		return 0, err
 	}
-	records, err := l.Records()
-	if err != nil {
-		return 0, err
-	}
-
-	type identity struct {
-		base, fix, path string
-		line            int
-	}
-	lost := make(map[identity]bool)
-	for _, e := range events {
-		if !isVerdictKind(e.Subject) {
-			continue // only a verdict marker can be a loss; a work claim is not
-		}
-		v, derr := DecodeClaimVerdict(e.Data)
-		if derr != nil || !v.Rejected {
-			continue // a malformed or non-rejecting verdict is not a loss
-		}
-		if targetAlreadyMinted(records, v.Target) {
-			continue // a confirmed catch is never also a loss — the catch wins
-		}
-		t := v.Target
-		lost[identity{t.BaseRev, t.FixRev, t.Path, t.Line}] = true
-	}
-	return len(lost), nil
+	return claimsRejectedFrom(events, records), nil
 }
 
 // claimDurable is the stable durable-consumer name for a log's claim subtree,
