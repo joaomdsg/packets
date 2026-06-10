@@ -97,6 +97,34 @@ full open questions. Remaining (optional polish): reviewer intent tags
 (question→blocking/suggestion), and ledger PERSISTENCE if cross-restart history is
 wanted (deferred — the open-questions view needs only the latest cycle).
 
+## Slice 4 (built, commit 776ddeb) — settled a completion clash
+
+After slice 3 the full six-member council judged completion and SPLIT 3-3: TDD,
+CI/CD, Refactoring called the core feature-complete; UX, Systems, Game Designer
+wanted one more slice. The NO votes converged — UX + Systems both championed a
+per-session open-question COUNT on the fleet board (reachable on existing plumbing,
+off-economy, real fleet-manager value: see which sessions carry test debt at a
+glance); the Game Designer wanted the harder DELTA-ONLY refinement (only
+newly-survived mutants, to avoid a standing-backlog nag). Settled on the BOARD
+COUNT — the convergent, cheapest, most-supported pick; the YES votes didn't oppose
+it (CI/CD: "cheap/free").
+
+BUILT: CardRow.OpenQuestions = len(e.openFindings()) (read from the in-memory
+findings cache, not the log); BoardCard.View renders a gated `board-row__questions`
+link ("N open questions" → /review?key=) only when > 0, so a clean fleet stays calm
+and a debt-carrying session stands out. A pure diagnostic projection (like
+misses/hit-rate), never scored, off the economy. Blue: gating both branches tested,
+no lock-ordering hazard (openFindings takes only findingsMu, no nesting), no
+bet-lifecycle structural regression, honest degradation (unmeasured → omitted, not a
+false 0). Full-repo -race green.
+
+The review-thread surface thread is now feature-complete for V1: findings plumbed →
+gated card badge → /review full threads → fleet-board debt count. DEFERRED as
+optional, re-judge only if wanted: the Game Designer's delta-only surfacing,
+reviewer intent tags, ledger persistence (cross-restart history). None blocks; the
+honest mastery loop (answer → mutant dies → thread/count vanishes next cycle) works.
+
 ## New clashes opened / resolved
 
-Clashes 1 (base vs fix) + 2 (where to render) resolved above. None left open.
+Clashes 1 (base vs fix) + 2 (where to render) resolved earlier. Completion clash
+(slice-4 3-3 split) settled on the board count above. None left open.

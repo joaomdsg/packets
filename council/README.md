@@ -191,8 +191,11 @@ Layout of this directory:
   Slice 3 (commit 7b471ff): the /review surface — full anchored "question:" threads
   from a per-session in-memory findings cache (off the economy; the mastery loop =
   answer → mutant dies → thread vanishes next cycle); the badge links to it. The
-  thread is now FEATURE-USABLE. Remaining optional polish: reviewer intent tags;
-  ledger persistence only if cross-restart history is wanted (deferred).
+  thread is now FEATURE-USABLE. Slice 4 (commit 776ddeb): settled a 3-3
+  complete-vs-continue council split → a per-session open-question count on the fleet
+  board (gated, links to /review), so test debt is visible across the fleet. Thread
+  FEATURE-COMPLETE for V1 (findings → card badge → /review → board count). Deferred
+  optional: delta-only surfacing, reviewer intent tags, ledger persistence.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
