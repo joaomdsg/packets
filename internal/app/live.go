@@ -242,6 +242,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	var stock ledger.Stock
 	balance := 0
 	var dispatch ledger.DispatchCounts
+	var dispatches []ledger.DispatchView
 	if log != nil {
 		if recs, err := log.Records(); err == nil {
 			stock = ledger.ConfirmedCatches(recs)
@@ -251,6 +252,11 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 		}
 		if c, err := log.DispatchStatusCounts(); err == nil {
 			dispatch = c
+		}
+		// This session's recent funded work-orders + their caught/missed outcome —
+		// the round-trip the Lead watches after a Spend, on the same card they act on.
+		if ds, err := log.RecentDispatches(5); err == nil {
+			dispatches = ds
 		}
 	}
 	// The "/" card with no ?key IS the default session — name it honestly in the
@@ -277,8 +283,14 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 			h.Text("Spend a catch → fund a work-order"),
 		))
 	}
+	parts = append(parts, surface.RenderDispatch(dispatch))
+	// Below the aggregate counts, the per-order round-trip: each recent work-order
+	// with its caught/missed outcome, so the Lead watches the order they funded
+	// resolve in place (omitted when there are none — same helper the board uses).
+	if d := renderDispatches(dispatches); d != nil {
+		parts = append(parts, d)
+	}
 	parts = append(parts,
-		surface.RenderDispatch(dispatch),
 		surface.RenderBeats(c.Beats.Read(ctx)),
 		surface.RenderVerdict(c.Verdict.Read(ctx)),
 		surface.RenderLand(pipe.LandState(c.Land.Read(ctx))),
