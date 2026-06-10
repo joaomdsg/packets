@@ -258,8 +258,13 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	if navKey == "" {
 		navKey = defaultSessionKey
 	}
-	return h.Div(
-		navHeader(navKey),
+	parts := []h.H{navHeader(navKey)}
+	// A brand-new session gets a calm onboarding affordance ahead of the (all-zero)
+	// economy rows, so a first-run Lead sees the next action, not a dead screen.
+	if hint := onboardingHint(stock); hint != nil {
+		parts = append(parts, hint)
+	}
+	parts = append(parts,
 		surface.RenderStock(stock),
 		surface.RenderBalance(balance),
 		surface.RenderDispatch(dispatch),
@@ -267,6 +272,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 		surface.RenderVerdict(c.Verdict.Read(ctx)),
 		surface.RenderLand(pipe.LandState(c.Land.Read(ctx))),
 	)
+	return h.Div(parts...)
 }
 
 // Spend funds one unit of dispatched work against the balance — the Lead's first

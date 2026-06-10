@@ -108,7 +108,7 @@ body {
 .board-row__dispatch { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; }
 
 /* ---- the single review card ---- */
-.stock-row, .balance-row, .dispatch-row, .beat-row, .review-card, .land-row {
+.stock-row, .balance-row, .dispatch-row, .beat-row, .review-card, .land-row, .onboarding {
   padding: var(--pk-sm) var(--pk-md);
   background: var(--pk-surface);
   border: 1px solid var(--pk-line);
@@ -147,4 +147,13 @@ body {
 .land-row[data-state="land-conflict"] .land-row__headline { color: var(--pk-inflight); }
 .land-row[data-state="land-checks-red"] .land-row__headline { color: var(--pk-lost); }
 .land-row[data-state="land-pending"] .land-row__headline { color: var(--pk-ink-dim); }
+
+/* ---- first-run onboarding affordance: shown only on a truly-fresh session
+   (data-state="empty"). A calm guide to the core loop, not an alarm — a quiet
+   accent rule, dim supporting text, no animation/gauge (guardrails). ---- */
+.onboarding[data-state="empty"] {
+  border-left: 2px solid var(--pk-accent);
+}
+.onboarding__lead { margin: 0 0 var(--pk-xs) 0; font-weight: 600; color: var(--pk-ink); }
+.onboarding__step { margin: 0 0 var(--pk-xs) 0; color: var(--pk-ink-dim); font-size: 0.95em; }
 `
