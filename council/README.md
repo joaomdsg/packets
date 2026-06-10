@@ -178,6 +178,14 @@ Layout of this directory:
   nil-deref); benign documented consumer-goroutine leak. Council DEFERRED the bigger
   prep-bench thread as under-specified — surfaced as needing a maintainer product
   decision, not a council guess.
+- [Round 56](round-56.md) — REVIEW-THREAD SURFACE thread, RATIFIED by the FULL
+  six-member council (re-summoned from §1 seeds; corrects an under-convening). Surface
+  the oracle's surviving mutants as "question:" threads (the TDD Expert's bold swing).
+  Settled clashes: findings come from the FIX revision (not base); questions render
+  GATED on a server-rendered /review surface (not the dense card, not Monaco).
+  Guards: diagnostic-only/non-gating (CI-CD), off the two-scores economy (Systems),
+  suppress on a lost anchor (Refactoring). Slice 1 (commit 7fb1ec9): plumb the fix
+  oracle's findings out of the cycle into CycleResult.Findings (nil on lost anchor).
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
