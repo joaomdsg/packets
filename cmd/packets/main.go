@@ -21,6 +21,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joaomdsg/packets/internal/app"
 	"github.com/joaomdsg/packets/internal/fabric"
@@ -33,6 +34,10 @@ import (
 // host-controlled (never supplied by an agent), so a producer cannot choose what
 // executes on its behalf.
 var verifyTestCmd = []string{"go", "test", "./..."}
+
+// producerGCInterval is how often the server sweeps idle producers' ingested git
+// objects (council R39 housekeeping). Generous — disk hygiene, not a hot path.
+const producerGCInterval = 10 * time.Minute
 
 // runVerifyCatch is the `verify-catch` subcommand: it runs the SAME catch oracle
 // (pipe.RunCatchCycle) over the given revisions and writes the deterministic
@@ -244,6 +249,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	app.StartCageClaimConsumers(ctx, *cageImage, sandbox.DockerRunner{})
+
+	// Background housekeeping: periodically reclaim idle producers' ingested git
+	// objects (never a session with a claim in flight). Generous interval — this
+	// is disk hygiene, not a hot path. Stops with ctx on SIGINT.
+	app.StartProducerGC(ctx, producerGCInterval)
 
 	log.Printf("packets: serving the review card on %s — open it and watch %s:%d resolve", *addr, *file, *line)
 	log.Fatal(http.ListenAndServe(*addr, application))
