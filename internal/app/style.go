@@ -115,6 +115,12 @@ body {
    there are any. Never an alarm. */
 .board-row__questions { color: var(--pk-ink-dim); text-decoration: none; border-bottom: 1px dotted var(--pk-accent); }
 .board-row__questions:hover { color: var(--pk-ink); }
+/* a session's integration verdict, surfaced on the board only when it BLOCKS a
+   merge — honest color (R45 palette): conflict = muted warn, checks-red = muted
+   loss. Never an alarm. */
+.board-row__land { font-size: 0.92em; }
+.board-row__land[data-state="land-conflict"] { color: var(--pk-inflight); }
+.board-row__land[data-state="land-checks-red"] { color: var(--pk-lost); }
 /* retire a session from the fleet view — a quiet, low-emphasis control (dim until
    hover), never an alarm; only on non-default rows. */
 .board-row__retire {

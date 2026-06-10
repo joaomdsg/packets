@@ -78,6 +78,11 @@ type liveEntry struct {
 	// /review surface reads it; OnConnect writes it when the cycle resolves.
 	findingsMu sync.Mutex
 	findings   []mutation.Finding
+	// land is the latest connect cycle's integration verdict (clean/conflict/
+	// checks_red), cached so the fleet board can show which sessions are blocked from
+	// merging — ephemeral, recomputed each connect, off the economy ledger. Guarded
+	// by findingsMu (written together with findings in OnConnect).
+	land string
 }
 
 // setFindings caches the latest cycle's open review questions for the /review
@@ -93,6 +98,20 @@ func (e *liveEntry) openFindings() []mutation.Finding {
 	e.findingsMu.Lock()
 	defer e.findingsMu.Unlock()
 	return e.findings
+}
+
+// setLand caches the latest cycle's integration verdict for the fleet board.
+func (e *liveEntry) setLand(land string) {
+	e.findingsMu.Lock()
+	e.land = land
+	e.findingsMu.Unlock()
+}
+
+// landState returns the session's latest cached integration verdict ("" if none).
+func (e *liveEntry) landState() string {
+	e.findingsMu.Lock()
+	defer e.findingsMu.Unlock()
+	return e.land
 }
 
 // sessionOpenThreads converts a session's cached open findings into review threads
@@ -625,6 +644,7 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 		// the /review surface — ephemeral diagnostic state, off the economy ledger.
 		if e := lookupLiveEntry(c.Key); e != nil {
 			e.setFindings(res.Findings)
+			e.setLand(string(res.Land)) // cache the integration verdict for the fleet board
 		}
 		result <- resolved{verdict: res.Verdict, land: string(res.Land), questions: strconv.Itoa(len(res.Findings))}
 	}()

@@ -12,6 +12,7 @@ import (
 
 	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/ledger"
+	"github.com/joaomdsg/packets/internal/pipe"
 )
 
 // CardRow is one session's line on the fleet board — a calm cross-card tally
@@ -31,8 +32,9 @@ type CardRow struct {
 	Done             int
 	Misses           int // done orders that minted NOTHING (Done − Reinvested) — honest losses made visible, not silently discarded
 	BacklogRemaining int
-	OpenQuestions    int // the session's latest-cycle open review questions (surviving mutants) — test debt the green verdict hides, made visible across the fleet; a diagnostic, never scored (off the economy)
-	seq              int // registration ordinal — the deterministic tie-break, not rendered
+	OpenQuestions    int    // the session's latest-cycle open review questions (surviving mutants) — test debt the green verdict hides, made visible across the fleet; a diagnostic, never scored (off the economy)
+	Land             string // the session's latest-cycle integration verdict (clean/conflict/checks_red) — surfaced on the board only when BLOCKED, so "Landed ≠ Merged" is visible across the fleet
+	seq              int    // registration ordinal — the deterministic tie-break, not rendered
 }
 
 // BoardRows projects one row per registered session by ranging liveReg, reading
@@ -86,6 +88,9 @@ func BoardRows() []CardRow {
 		// from the in-memory findings cache (not the log) — test debt the green verdict
 		// hides, surfaced across the fleet. A diagnostic count, never scored.
 		row.OpenQuestions = len(e.openFindings())
+		// The latest integration verdict, read from the in-memory cache (not the log)
+		// — surfaced on the board only when it blocks a merge (see View).
+		row.Land = e.landState()
 		rows = append(rows, row)
 		return true
 	})
@@ -223,6 +228,17 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 				h.Text(strconv.Itoa(r.OpenQuestions)+" open questions"),
 			))
 		}
+		// Integration verdict — surfaced ONLY when it BLOCKS a merge (conflict /
+		// checks-red), so a session that can't land stands out across the fleet
+		// ("Landed ≠ Merged"). A clean or not-yet-resolved verdict shows nothing
+		// (the board stays calm). Honest color via the data-state hook (R45 palette).
+		if state, label, blocked := boardLand(r.Land); blocked {
+			row = append(row, h.Span(
+				h.Class("board-row__land"),
+				h.Data("state", state),
+				h.Text(label),
+			))
+		}
 		// The funded work-order round-trip made legible: recent dispatches with their
 		// caught/missed outcome, in their own cluster (omitted when there are none).
 		// Honest per-order outcomes, never a fabricated rank.
@@ -241,6 +257,21 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 		parts = append(parts, h.Div(row...))
 	}
 	return h.Div(parts...)
+}
+
+// boardLand maps a session's raw integration verdict to the board's (data-state,
+// label, blocked) — blocked is true only for verdicts that STOP a merge (conflict /
+// checks-red), so the board surfaces them and stays silent on clean/pending. The
+// data-state mirrors the surface land-states so R45's honest palette colors it.
+func boardLand(land string) (state, label string, blocked bool) {
+	switch pipe.LandState(land) {
+	case pipe.LandConflict:
+		return "land-conflict", "merge blocked: rebase", true
+	case pipe.LandChecksRed:
+		return "land-checks-red", "merge blocked: checks red", true
+	default: // clean / pending / unknown — nothing blocking to surface
+		return "", "", false
+	}
 }
 
 // renderDispatches renders a session's recent work-orders as a calm cluster —
