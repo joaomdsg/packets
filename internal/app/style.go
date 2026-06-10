@@ -251,4 +251,18 @@ body {
   cursor: pointer;
 }
 .spend-action:hover { border-color: var(--pk-balance); }
+
+/* ---- the prep bench: the fundable work on deck, so the Lead curates what a Spend
+   funds instead of a blind auto-pick. A calm mono list, no alarm. ---- */
+.bench {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--pk-xs) var(--pk-sm);
+  padding: var(--pk-xs) var(--pk-md);
+  margin-bottom: var(--pk-sm);
+  border-left: 2px solid var(--pk-line);
+}
+.bench__label { color: var(--pk-ink-dim); font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.04em; }
+.bench__item { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; }
 `

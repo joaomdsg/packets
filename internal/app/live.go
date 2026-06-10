@@ -395,6 +395,14 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 			h.Text(spendButtonLabel(cfg, log)),
 		))
 	}
+	// The prep bench: the fundable work on deck, so the Lead sees (and, in a later
+	// slice, curates) what a Spend funds rather than a blind auto-pick. Omitted when
+	// there is no fundable work; guarded on log (fundableBacklog reads it).
+	if log != nil {
+		if bench := renderBench(fundableBacklog(cfg, log)); bench != nil {
+			parts = append(parts, bench)
+		}
+	}
 	parts = append(parts, surface.RenderDispatch(dispatch))
 	// Below the aggregate counts, the per-order round-trip: each recent work-order
 	// with its caught/missed outcome, so the Lead watches the order they funded
