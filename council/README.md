@@ -115,6 +115,9 @@ Layout of this directory:
 - [Round 44](round-44.md) — first nav / drill-and-return flow: a shared nav
   header (packets home + fleet breadcrumb) + clickable board rows → /?key=<key>
   → back; honest raw keys, no menus/JS/keyboard yet (keyboard nav = R45+)
+- [Round 45](round-45.md) — per-state visual polish: color the verdict + land
+  states in the calm honest palette (pure CSS on existing data-state hooks,
+  selector-coverage tested); keyboard nav deferred to R46
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
