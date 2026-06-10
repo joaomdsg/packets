@@ -21,8 +21,10 @@ import (
 	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/ingest"
 	"github.com/joaomdsg/packets/internal/ledger"
+	"github.com/joaomdsg/packets/internal/mutation"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
+	"github.com/joaomdsg/packets/internal/review"
 	"github.com/joaomdsg/packets/internal/surface"
 )
 
@@ -69,6 +71,39 @@ type liveEntry struct {
 	// sync.Map.Range is nondeterministic and a CatchRecord carries no timestamp to
 	// order by; registration order is the only stable, honest ordinal.
 	seq int
+	// findingsMu guards findings — the latest connect cycle's open review questions
+	// (the fix oracle's surviving/undetermined mutants). It is EPHEMERAL session
+	// state, recomputed every connect, deliberately OFF the append-only economy
+	// ledger (a diagnostic, never a catch/balance — the two-scores guard). The
+	// /review surface reads it; OnConnect writes it when the cycle resolves.
+	findingsMu sync.Mutex
+	findings   []mutation.Finding
+}
+
+// setFindings caches the latest cycle's open review questions for the /review
+// surface to read. Concurrency-safe vs a concurrent /review read.
+func (e *liveEntry) setFindings(fs []mutation.Finding) {
+	e.findingsMu.Lock()
+	e.findings = fs
+	e.findingsMu.Unlock()
+}
+
+// openFindings returns the session's latest cached open review questions.
+func (e *liveEntry) openFindings() []mutation.Finding {
+	e.findingsMu.Lock()
+	defer e.findingsMu.Unlock()
+	return e.findings
+}
+
+// sessionOpenThreads converts a session's cached open findings into review threads
+// (anchored "question:" comments). Empty when the session is unknown or its last
+// cycle left no surviving mutants.
+func sessionOpenThreads(key string) []review.Thread {
+	e := lookupLiveEntry(key)
+	if e == nil {
+		return nil
+	}
+	return review.QuestionThreadsFromMutations(e.openFindings())
 }
 
 // regSeq is the monotonic source of liveEntry.seq — incremented once per session
@@ -374,7 +409,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	// A gated, calm badge: when the oracle left surviving mutants, the verdict's
 	// green hides honest test gaps — show the open-question count (the full anchored
 	// threads live on /review). Omitted when there are none.
-	if b := reviewQuestionsBadge(c.Questions.Read(ctx)); b != nil {
+	if b := reviewQuestionsBadge(c.Questions.Read(ctx), navKey); b != nil {
 		parts = append(parts, b)
 	}
 	parts = append(parts, surface.RenderLand(pipe.LandState(c.Land.Read(ctx))))
@@ -530,6 +565,11 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 			res.Record.Producer = "connect" // provenance: the connect-cycle producer, demuxed from a dispatched run's "wo:<id>"
 			_ = log.Append(*res.Record)     // best-effort; a logging failure must not hang the card
 		}
+		// Cache this cycle's open questions (the fix oracle's surviving mutants) for
+		// the /review surface — ephemeral diagnostic state, off the economy ledger.
+		if e := lookupLiveEntry(c.Key); e != nil {
+			e.setFindings(res.Findings)
+		}
 		result <- resolved{verdict: res.Verdict, land: string(res.Land), questions: strconv.Itoa(len(res.Findings))}
 	}()
 	var accrued []string
@@ -592,7 +632,8 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 	// class hooks the card/board markup already emit; no markup changes here.
 	app.AppendToHead(styleHead())
 	via.Mount[LiveCard](app, "/")
-	via.Mount[BoardCard](app, "/board") // the cross-card fleet view (read-only projection of liveReg)
+	via.Mount[BoardCard](app, "/board")   // the cross-card fleet view (read-only projection of liveReg)
+	via.Mount[ReviewCard](app, "/review") // the per-session review surface: the oracle's open "question:" threads
 	// The raw SSE bridge over the authoritative stream: a plain text/event-stream
 	// endpoint a browser (or any cross-process consumer) tails, distinct from the
 	// in-process Via reactivity above. ?key=<session> selects which session's

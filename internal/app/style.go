@@ -172,12 +172,32 @@ body {
    unkilled mutants — dim secondary text with a quiet accent edge, never an alarm.
    The full anchored threads live on the /review surface. */
 .review-questions {
+  display: block;
   padding: var(--pk-xs) var(--pk-md);
   margin-bottom: var(--pk-sm);
   border-left: 2px solid var(--pk-accent);
   color: var(--pk-ink-dim);
   font-size: 0.95em;
+  text-decoration: none;
 }
+.review-questions:hover { color: var(--pk-ink); }
+
+/* ---- the /review surface: the oracle's open "question:" threads ---- */
+.review { display: flex; flex-direction: column; gap: var(--pk-sm); }
+.review__lead { margin: 0 0 var(--pk-sm) 0; color: var(--pk-ink); font-weight: 600; }
+.review__empty { color: var(--pk-ink-dim); padding: var(--pk-sm) var(--pk-md); }
+.review-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pk-xs);
+  padding: var(--pk-sm) var(--pk-md);
+  background: var(--pk-surface);
+  border: 1px solid var(--pk-line);
+  border-left: 2px solid var(--pk-accent);
+  border-radius: 6px;
+}
+.review-thread__anchor { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; }
+.review-thread__body { color: var(--pk-ink); }
 .land-row__headline { margin: 0 0 var(--pk-xs) 0; font-weight: 600; }
 .land-row__detail { margin: 0; color: var(--pk-ink-dim); }
 
