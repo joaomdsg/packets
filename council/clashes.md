@@ -196,3 +196,27 @@ resolution, **the experiment that settles it**, and the verdict trail
   with no server change; only `/` and `/board` are HTML anyway (`/fleet`,
   `/stream` are machine SSE/JSON APIs). Color DEFERRED to a real stylesheet
   driver (dark mode / design system), where it's a no-cost addition on the hooks.
+
+## Clash K — How a cross-process producer's commits reach the host (SHA transport)
+
+- **Context (R38):** `cage.Materialize` does `git clone --local -- hostRepo`, so
+  the host must already HOLD a producer's commits; nothing transports them. Slice
+  A needs a mechanism — and it is a new untrusted-object-ingestion surface.
+- **Options:** (i) producer-PUSH to a host git receive endpoint; (ii) HOST-PULL —
+  the claim carries (url, ref) and the host `git fetch`es it at verify time;
+  (iii) BUNDLE-OVER-CHANNEL — the producer ships a `git bundle` over the existing
+  authenticated channel and the host unbundles + validates offline.
+- **Experiment:** which gives object-injection safety (recompute-SHA, per-producer
+  namespacing, no cross-tenant read) at the smallest attack surface + ops cost?
+- **Verdict (R38 — RESOLVED):** (iii) bundle-over-authenticated-channel, into one
+  shared store with per-producer ref namespacing (`refs/producers/<id>/*`).
+  HOST-PULL (ii) REJECTED: the trusted host `git fetch`-ing a producer-controlled
+  URL is SSRF (metadata/internal endpoints) and reintroduces the host-side egress
+  #6c eliminated (R34: the only network is the trusted-side prefetcher; the cage
+  is `--network=none`). PUSH-daemon (i) rejected as too heavy for v1. MUST enforce:
+  git recompute-hash + `fsck --strict`, namespace-only unbundle, byte/object/time
+  caps, no cross-tenant read, host refs immutable to producers; a bad bundle is a
+  PERMANENT reject (reuses `ledger.ErrClaimUnverifiable`). Ingestion stays
+  orthogonal to the claim/minted subtrees (two-scores + single-minter untouched).
+  Per-producer object-store isolation noted as a defense-in-depth upgrade. Next
+  build = `internal/ingest.IngestProducerObjects` (offline-TDD over real bundles).

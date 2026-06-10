@@ -92,6 +92,9 @@ Layout of this directory:
 - [Round 37](round-37.md) — sequencing the next #6 slice: CONVERGED 4/4 on
   permanent-vs-transient verify failure first (reject an unverifiable claim
   instead of lingering), then SHA transport, then governor hardening
+- [Round 38](round-38.md) — slice A (SHA transport) threat model: CONVERGED on
+  bundle-over-authenticated-channel + per-producer ref namespacing; host-pull
+  rejected on SSRF/egress (Clash K resolved)
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
