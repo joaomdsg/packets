@@ -118,6 +118,11 @@ Layout of this directory:
 - [Round 45](round-45.md) — per-state visual polish: color the verdict + land
   states in the calm honest palette (pure CSS on existing data-state hooks,
   selector-coverage tested); keyboard nav deferred to R46
+- [Round 46](round-46.md) — first-run onboarding affordance: a fresh session
+  (stock.Count==0) renders a calm guide to the core loop instead of a dead screen
+  of zeros; chosen OVER keyboard nav because the latter is browser-side behavior
+  our server-render tests can't verify ("prove it for real"). Server-rendered +
+  fully vt-testable; keyboard nav deferred to R47+
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
