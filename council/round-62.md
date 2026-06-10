@@ -137,13 +137,18 @@ WiringOverThePayload): the loader CDN URL + the editor mount call + the payload-
 are emitted, and the text-thread fallback remains. Per the R62 testability boundary
 the editor's actual RENDER is the client island — NOT vt-unit-tested.
 
-VERIFICATION NOTE: I attempted to browser-verify the live render (a faithful
-standalone-HTML mirror of the island, served on localhost) via Chrome automation,
-but the navigation was declined, so the client render is UNVERIFIED-BY-ME. It is
-shipped because (a) the wiring is server-tested, (b) it is standard Monaco AMD-loader
-usage, and (c) it is contained progressive enhancement (text-thread fallback, can't
-break the page). The maintainer can confirm the visual at /review?key=<session with
-open questions>. If the render needs adjustment, that's a thin follow-up.
+VERIFICATION (done): the maintainer unblocked browser nav on :3000, so the live
+render was confirmed END-TO-END. Built a temp repo with a real surviving mutant (an
+unrelated-file fix keeps the anchored line SAME; the under-constrained `>=` on
+main.go:6 survives the fix oracle), ran the real packets server on :3000, loaded /
+(connect cycle populates the findings cache) then /review: Monaco mounts read-only
+showing main.go's source, line 6 carries the whole-line accent + glyph-margin marker,
+and the "question:" body anchors it — with the text-thread fallback above. One real
+defect the verification caught (a green bar would have hidden it): the editor used
+Monaco's default LIGHT theme, clashing with the dark --pk-* control-room palette.
+Fixed by theme:'vs-dark' (commit 29af0ea) — re-verified the whole surface is now a
+cohesive dark control room. This is exactly why the render needed real eyes, not just
+the server-contract test.
 
 ## New clashes opened / resolved
 
