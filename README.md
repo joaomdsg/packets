@@ -184,6 +184,7 @@ What's proven today:
 - ✅ Uncapped fan-out (multicast) *and* its measured cost — see benchmarks below
 - ✅ Embedded NATS/JetStream spine — the economy streams to the browser off one authoritative log (`GET /stream`), and the cross-session fleet board off the same log (`GET /fleet`)
 - ✅ Cross-process producer boundary (#6): an untrusted producer submits a CLAIM (immutable SHAs) via `POST /claim`; only the trusted host mints
+- ✅ Producer SHA transport (#6, slice A): a producer uploads a git bundle of its commits via `POST /bundle` — the host validates and namespace-confines it offline into `refs/producers/<session>/*` (no host egress / SSRF), so a later claim's SHAs resolve in the cage without the host ever fetching a producer-controlled URL
 - ✅ Hardened verification cage (#6c): the host re-runs the oracle on a producer's claim in a one-shot Docker container (`--network=none`, cap-drop, seccomp, read-only rootfs, non-root, pids/mem/cpu caps), proven by real syscall/pids denials and a differential equivalence lock (in-process ≡ caged → byte-identical catch record)
 - ✅ Host-derived verdict + lie-green trap: the cage emits a transcript, never a PASS; the host re-derives the catch from the survivor-set delta and refuses an incomplete/disagreeing transcript
 - ✅ Per-claim governor: verify deadline (120s) < durable AckWait (240s), per-producer token bucket, process-wide concurrency cap

@@ -119,9 +119,20 @@ store, survive `git clone --local` (the object DB is copied wholesale even with 
 branch pointing at them), are worktree-checkout-able by SHA, and mint a catch via
 the faked cage. (Note: the cage clones the WHOLE shared store; council blessed
 shared-store as economy-safe — per-producer-namespace clone is a future
-hardening.) REMAINING for slice A: only A.2 — the ProducerGrant-authed wire upload
-that receives the bundle bytes and calls IngestProducerObjects (behind an
-ObjectIngestor seam) — after which #6 SHA transport is end-to-end.
+hardening.)
+
+A.2 also DONE (commit cf6829c) — SLICE A COMPLETE, SHA transport END-TO-END.
+Grounding corrected the channel: the live server uses an EMBEDDED fabric, not
+StartListening, so the NATS ProducerGrant path is NOT the live producer surface —
+HTTP POST /claim is. A.2 is therefore a POST /bundle HTTP endpoint mirroring
+/claim's session-key gate + body cap (no separate council needed; the
+architecture settled it). The Audit caught a real confinement bug — an empty
+cfg.RepoDir made git run in the server's CWD, writing producer refs into the
+launch repo — now refused (400). producerID = the session key; namespace
+placement, keyed-session, and the empty-RepoDir guard are all tested. Full flow:
+POST /bundle (objects → refs/producers/<key>/*) → POST /claim (SHAs) → cage
+Materialize resolves → host-derived mint or durable reject. NEXT per R37: slice B
+(governor hardening) — or a council to decide B is already sufficient and close #6c.
 
 ## New clashes opened / resolved
 

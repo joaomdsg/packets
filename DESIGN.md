@@ -101,6 +101,13 @@ Built since (council rounds 28–35, `internal/fabric`, `internal/bridge`,
   submits a CLAIM of immutable SHAs (`POST /claim`); producers may write only
   their own claim subtree; only the trusted host mints (single-minter via
   `ledger.NewCatchRecord`).
+- **Producer SHA transport (#6, slice A):** a producer uploads a `git bundle`
+  of its commits (`POST /bundle`); the host validates and unbundles it OFFLINE
+  (`internal/ingest`) into a per-producer ref namespace
+  (`refs/producers/<session>/*`) of the session's repo — so a claim's SHAs
+  resolve in the cage WITHOUT the host ever fetching a producer-controlled URL
+  (council R38 rejected host-pull as SSRF/egress). Bundle-validity, a byte cap,
+  and a safe-id check are fail-closed; an unverifiable claim is durably rejected.
 - **The hardened verification cage (#6c):** the host re-runs the SAME oracle
   binary on a claim in a one-shot Docker container (`--network=none`,
   cap-drop, seccomp, read-only rootfs, non-root, pids/mem/cpu caps), proven by
