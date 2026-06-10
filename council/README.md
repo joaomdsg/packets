@@ -108,6 +108,10 @@ Layout of this directory:
 - [Round 42](round-42.md) — maintainer re-delegated direction to the council:
   build the per-session RECENT-DISPATCHES legibility surface (honest caught/missed
   per work-order; no fabricated rank/treasury, CSS-free, non-gated)
+- [Round 43](round-43.md) — UX/UI VISUAL-DESIGN direction opens (maintainer-
+  authorized): CSS now in scope; converged on a calm control-room visual language
+  + flows/nav (deferred) + guardrails; first slice = base stylesheet on existing
+  hooks via AppendToHead, no markup change
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
