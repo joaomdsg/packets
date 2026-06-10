@@ -16,10 +16,11 @@ import (
 // file. Its methods mirror Log's read methods minus the error: the events are
 // already in memory, so there is no I/O to fail.
 type Projection struct {
-	catches []CatchRecord
-	balance int
-	orders  []WorkOrderRecord
-	status  map[int]string
+	catches  []CatchRecord
+	balance  int
+	orders   []WorkOrderRecord
+	status   map[int]string
+	verdicts map[int]string // per-order oracle verdict (last-writer-wins), diagnostic only
 }
 
 // Balance is credits (confirmed catches) minus debits (positive spends), folded
@@ -71,10 +72,11 @@ func (p Projection) RecentDispatches(n int) []DispatchView {
 			status = "queued"
 		}
 		views = append(views, DispatchView{
-			ID:     o.ID,
-			Target: o.Target,
-			Status: status,
-			Caught: caughtIDs["wo:"+strconv.Itoa(o.ID)],
+			ID:      o.ID,
+			Target:  o.Target,
+			Status:  status,
+			Caught:  caughtIDs["wo:"+strconv.Itoa(o.ID)],
+			Verdict: p.verdicts[o.ID], // "" when none persisted yet
 		})
 		if n > 0 && len(views) == n {
 			break
@@ -189,7 +191,7 @@ func FleetBoard(ctx context.Context, f *fabric.Fabric) (map[string]FleetView, er
 }
 
 func foldEvents(events []fabric.Event) (Projection, error) {
-	p := Projection{status: map[int]string{}}
+	p := Projection{status: map[int]string{}, verdicts: map[int]string{}}
 	for _, e := range events {
 		switch kind := e.Subject[strings.LastIndex(e.Subject, ".")+1:]; kind {
 		case subjectKindCatch:
@@ -222,6 +224,12 @@ func foldEvents(events []fabric.Event) (Projection, error) {
 				return Projection{}, err
 			}
 			p.status[st.ID] = st.Status
+		case kindWOVerdict:
+			v, err := DecodeWorkOrderVerdict(e.Data)
+			if err != nil {
+				return Projection{}, err
+			}
+			p.verdicts[v.ID] = v.Verdict // last-writer-wins, like status
 		default:
 			return Projection{}, fmt.Errorf("ledger: replay encountered unknown event kind %q", kind)
 		}

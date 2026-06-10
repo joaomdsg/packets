@@ -81,6 +81,7 @@ const (
 	kindSpend     = "spend"
 	kindWorkOrder = "workorder"
 	kindWOStatus  = "wostatus"
+	kindWOVerdict = "woverdict"
 )
 
 // Target is the work a funded order will run: the rev/anchor triple a dispatched
@@ -131,6 +132,19 @@ type StatusRecord struct {
 	Kind   string `json:"kind"`
 	ID     int    `json:"id"`
 	Status string `json:"status"`
+}
+
+// WorkOrderVerdictRecord persists the oracle's honest verdict for one run of a
+// work-order, keyed by id and distinguished by Kind=="woverdict". It is DIAGNOSTIC
+// metadata — the WHY behind a caught/missed order (no-catch, no-oracle-signal,
+// lost-via-rename, tested, …) — and is NEVER an economic event: it shares the
+// append-only stream with the work-order/status lines but mints no balance and is
+// not a confirmed catch (the two-scores invariant). An order's current verdict
+// replays as the last verdict line for its id (last-writer-wins, like status).
+type WorkOrderVerdictRecord struct {
+	Kind    string `json:"kind"`
+	ID      int    `json:"id"`
+	Verdict string `json:"verdict"`
 }
 
 // SpendRecord is a debit against the confirmed-catch balance — the economy's
@@ -337,15 +351,18 @@ func (l *Log) AppendDispatch(reason string, target, own Target) error {
 }
 
 // DispatchView is one funded work-order's round-trip, made legible: its id, the
-// target it runs, its current status (queued→running→done), and whether its run
-// minted a catch (Caught) or not (a missed bet). Honest per-order outcome — never
-// a fabricated rank. Caught keys on the order's own "wo:<id>" mint provenance, so
-// an unrelated connect-cycle catch never falsely credits it.
+// target it runs, its current status (queued→running→done), whether its run minted
+// a catch (Caught) or not (a missed bet), and the oracle's honest Verdict for that
+// run (the WHY: no-catch, no-oracle-signal, lost-via-rename, tested, … — empty when
+// none persisted). Honest per-order outcome — never a fabricated rank. Caught keys
+// on the order's own "wo:<id>" mint provenance, so an unrelated connect-cycle catch
+// never falsely credits it.
 type DispatchView struct {
-	ID     int
-	Target Target
-	Status string
-	Caught bool
+	ID      int
+	Target  Target
+	Status  string
+	Caught  bool
+	Verdict string
 }
 
 // RecentDispatches projects this log's funded work-orders into the most-recent n
@@ -390,6 +407,20 @@ func (l *Log) AppendStatus(id int, status string) error {
 	defer l.mu.Unlock()
 	if _, err := PublishStatus(context.Background(), l.f, l.session, l.instance, StatusRecord{Kind: kindWOStatus, ID: id, Status: status}); err != nil {
 		return fmt.Errorf("ledger: append status: %w", err)
+	}
+	return nil
+}
+
+// AppendWorkOrderVerdict records the oracle's verdict for one run of a work-order
+// as a NEW append-only line keyed by id — never mutating the order or its status,
+// so the log stays a pure append-only substrate and an order's current verdict
+// replays as its last verdict line. Diagnostic only: it mints no balance and is not
+// a confirmed catch.
+func (l *Log) AppendWorkOrderVerdict(id int, verdict string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, err := PublishWorkOrderVerdict(context.Background(), l.f, l.session, l.instance, WorkOrderVerdictRecord{Kind: kindWOVerdict, ID: id, Verdict: verdict}); err != nil {
+		return fmt.Errorf("ledger: append work-order verdict: %w", err)
 	}
 	return nil
 }

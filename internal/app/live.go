@@ -401,6 +401,12 @@ func runOneOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 		res.Record.Producer = "wo:" + strconv.Itoa(order.ID)
 		_ = e.log.Append(*res.Record) // deduped: a re-run of a seen identity mints nothing
 	}
+	if err == nil {
+		// Persist the oracle's honest verdict for THIS order — the WHY behind a
+		// catch or miss — so a missed order is diagnosable, not just "done, not
+		// caught". Diagnostic only: never a catch/balance (two-scores).
+		_ = e.log.AppendWorkOrderVerdict(order.ID, res.Verdict)
+	}
 	_ = e.log.AppendStatus(order.ID, "done")
 }
 

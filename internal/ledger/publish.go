@@ -45,6 +45,14 @@ func PublishStatus(ctx context.Context, f *fabric.Fabric, session, instance stri
 	return publish(ctx, f, session, instance, kindWOStatus, s)
 }
 
+// PublishWorkOrderVerdict emits a per-order oracle-verdict record on the canonical
+// minted-woverdict subject and returns its stream sequence. It targets StatusMinted
+// like the work-order/status lines (the dispatch subtree), NOT a catch — it is
+// diagnostic metadata, never an economic event.
+func PublishWorkOrderVerdict(ctx context.Context, f *fabric.Fabric, session, instance string, v WorkOrderVerdictRecord) (uint64, error) {
+	return publish(ctx, f, session, instance, kindWOVerdict, v)
+}
+
 func publish(ctx context.Context, f *fabric.Fabric, session, instance, kind string, rec any) (uint64, error) {
 	data, err := json.Marshal(rec)
 	if err != nil {
@@ -87,4 +95,13 @@ func DecodeStatus(data []byte) (StatusRecord, error) {
 		return StatusRecord{}, fmt.Errorf("ledger: decode status: %v", err)
 	}
 	return s, nil
+}
+
+// DecodeWorkOrderVerdict decodes a per-order oracle-verdict event payload from the bus.
+func DecodeWorkOrderVerdict(data []byte) (WorkOrderVerdictRecord, error) {
+	var v WorkOrderVerdictRecord
+	if err := json.Unmarshal(data, &v); err != nil {
+		return WorkOrderVerdictRecord{}, fmt.Errorf("ledger: decode work-order verdict: %v", err)
+	}
+	return v, nil
 }
