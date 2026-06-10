@@ -63,25 +63,21 @@ jobs:
       - name: Vet
         working-directory: packets
         run: go vet ./...
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
       # Build the cage image so the #6c sandbox tests run for REAL instead of
       # skipping: requireCageImage / requireDocker gate the break-out proofs and
-      # the in-proc≡cage equivalence lock on this image being present.
+      # the in-proc≡cage equivalence lock on this image being present. ubuntu-latest
+      # ships a running Docker daemon.
       #
-      # Buildx + a persistent GitHub Actions layer cache (type=gha) keeps the slow
-      # layers — the golang:1.26 base and `go mod download` — warm across runs; only
-      # the COPY + go build layer re-runs when source changes. load: true makes the
-      # built image available to the local docker daemon for the test step.
+      # NOTE: a plain `docker build`, NOT buildx with a gha layer cache. Buildx
+      # spins up a persistent BuildKit builder container + heavy cache-export I/O
+      # that runs alongside the daemon during the test step, which destabilised the
+      # timing-sensitive sandbox orphan/reap proofs (their sub-second cancel-window
+      # + 15s-Eventually reap assertions flaked under the extra daemon load). Plain
+      # build keeps the daemon clean for those tests. A cross-run layer cache could
+      # be reintroduced later IF the builder is torn down before the test step.
       - name: Build cage image
-        uses: docker/build-push-action@v6
-        with:
-          context: packets
-          file: packets/internal/cage/Dockerfile
-          tags: packets-cage:dev
-          load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        working-directory: packets
+        run: docker build -f internal/cage/Dockerfile -t packets-cage:dev .
       - name: Test
         working-directory: packets
         # The catch oracle and mutation tests shell out to `go test` and git in
