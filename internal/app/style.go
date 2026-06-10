@@ -125,4 +125,26 @@ body {
 .review-card__detail { margin: 0; color: var(--pk-ink-dim); }
 .land-row__headline { margin: 0 0 var(--pk-xs) 0; font-weight: 600; }
 .land-row__detail { margin: 0; color: var(--pk-ink-dim); }
+
+/* ---- per-state color: the verdict + integration the Lead reads, legible at a
+   glance in the honest-state palette. Color REINFORCES the state the headline
+   text already names (strip the CSS and the text still reads it); never an alarm
+   red/green, never a gauge. ---- */
+/* a real catch / a fully-tested ship-ready line — a thing that happened (calm confirmed) */
+.review-card[data-state="catch"] .review-card__headline,
+.review-card[data-state="tested"] .review-card__headline { color: var(--pk-confirmed); }
+/* partial progress / oracle still running — pending, not done (working amber) */
+.review-card[data-state="partial-catch"] .review-card__headline,
+.review-card[data-state="in-flight"] .review-card__headline { color: var(--pk-inflight); }
+/* the oracle ran and said nothing to catch / no mutable signal — neutral, not a loss */
+.review-card[data-state="no-catch"] .review-card__headline,
+.review-card[data-state="no-oracle-signal"] .review-card__headline { color: var(--pk-ink-dim); }
+/* the anchor was lost (rename / edited) — the oracle couldn't follow (muted lost) */
+.review-card[data-state="lost-via-rename"] .review-card__headline,
+.review-card[data-state="anchor-edited"] .review-card__headline { color: var(--pk-lost); }
+/* integration: clean (calm), conflict (muted warn, NOT alarm), checks-red (muted loss), pending (neutral) */
+.land-row[data-state="land-clean"] .land-row__headline { color: var(--pk-confirmed); }
+.land-row[data-state="land-conflict"] .land-row__headline { color: var(--pk-inflight); }
+.land-row[data-state="land-checks-red"] .land-row__headline { color: var(--pk-lost); }
+.land-row[data-state="land-pending"] .land-row__headline { color: var(--pk-ink-dim); }
 `
