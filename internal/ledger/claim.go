@@ -15,6 +15,48 @@ import (
 // never be confused on the bus.
 const subjectKindClaim = "work"
 
+// subjectKindVerdict is the claim-subtree token for a TERMINAL rejection of a
+// submitted target — the host verified it and found no catch. It rides the same
+// StatusClaim subtree as the claims (so the SSE bridge tailing StatusClaim,">"
+// surfaces it per committed event), but is a distinct kind so a verdict is never
+// confused with a fresh claim. Only a rejection is marked; a confirmed claim is
+// already represented by its mint on the minted subtree.
+const subjectKindVerdict = "verdict"
+
+// ClaimVerdict is the host's terminal ruling on a submitted target: Rejected
+// means the oracle ran and found no catch, so the bet resolves OUT of flight
+// while minting nothing (two-scores: a rejected bet is never a confirmed score,
+// and is no longer a pending one either). It carries no test command and credits
+// nothing — it only retires a target from the in-flight set.
+type ClaimVerdict struct {
+	Target   Target `json:"target"`
+	Rejected bool   `json:"rejected"`
+}
+
+// PublishClaimVerdict emits a terminal verdict for a target on the claim subtree
+// for session+instance and returns its stream sequence. Like PublishClaim it
+// targets StatusClaim (never StatusMinted), so it never enters the economy
+// projection — it is consumed by the in-flight projection to retire a resolved
+// target, not by the balance.
+func PublishClaimVerdict(ctx context.Context, f *fabric.Fabric, session, instance string, v ClaimVerdict) (uint64, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return 0, fmt.Errorf("ledger: encode claim verdict: %v", err)
+	}
+	return f.Publish(ctx, fabric.EventSubject(session, instance, fabric.StatusClaim, subjectKindVerdict), data)
+}
+
+// DecodeClaimVerdict decodes a terminal claim verdict payload from the bus. A
+// payload that omits the rejected flag (e.g. a plain claim) decodes with
+// Rejected=false, so a reader keys on the flag, not on decode success alone.
+func DecodeClaimVerdict(data []byte) (ClaimVerdict, error) {
+	var v ClaimVerdict
+	if err := json.Unmarshal(data, &v); err != nil {
+		return ClaimVerdict{}, fmt.Errorf("ledger: decode claim verdict: %v", err)
+	}
+	return v, nil
+}
+
 // ClaimRecord is an untrusted producer's work-submission: the revs and anchored
 // line (a Target) the host must VERIFY before it mints anything. It deliberately
 // carries NO test command — the host fixes what it runs, so a producer cannot
@@ -80,6 +122,14 @@ func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.D
 	}
 
 	return l.f.ConsumeDurable(ctx, claimDurable(l.session, l.instance), filter, ackWait, func(e fabric.Event) error {
+		// The filter is the whole StatusClaim subtree, which also carries the
+		// verdict markers this consumer itself publishes. Verify ONLY work claims:
+		// a verdict payload would DecodeClaim-succeed (it has a Target) and be
+		// re-verified, re-emitting a verdict on no-catch — a self-feeding loop of
+		// (expensive) cage runs. Skip-and-ack anything that isn't a work claim.
+		if !isClaimKind(e.Subject) {
+			return nil
+		}
 		claim, err := DecodeClaim(e.Data)
 		if err != nil {
 			return nil // a malformed claim is skipped (acked), not redelivered forever
@@ -111,12 +161,36 @@ func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.D
 			}
 		}
 		rec, err := verify(claim)
-		if err != nil || rec == nil {
-			return nil // verifier error or no-catch verdict: nothing to mint, ack and move on
+		if err != nil {
+			// A verifier ERROR is transient (the cage blew up / timed out): ack and
+			// move on, but write NO verdict — branding a valid claim "rejected" on a
+			// flake would silently discard recoverable work. It stays in flight,
+			// resubmittable.
+			return nil
+		}
+		if rec == nil {
+			// A clean no-catch: the oracle ran and the bet lost. Write a durable
+			// rejection marker so the target leaves the in-flight set instead of
+			// lingering forever — mints nothing (two-scores). Best-effort, like the
+			// mint: a publish failure leaves it in flight to be re-verified later.
+			_, _ = PublishClaimVerdict(ctx, l.f, l.session, l.instance, ClaimVerdict{Target: claim.Target, Rejected: true})
+			return nil
 		}
 		_ = l.Append(*rec) // a gate-refused (duplicate/non-catch) mint is best-effort, matching the in-process path
 		return nil
 	})
+}
+
+// isClaimKind reports whether an event subject is a work-claim submission (vs a
+// verdict marker or any other kind) on the StatusClaim subtree. EventSubject
+// places the kind as the final token, so the kind suffix is the demux.
+func isClaimKind(subject string) bool {
+	return strings.HasSuffix(subject, "."+subjectKindClaim)
+}
+
+// isVerdictKind reports whether an event subject is a terminal verdict marker.
+func isVerdictKind(subject string) bool {
+	return strings.HasSuffix(subject, "."+subjectKindVerdict)
 }
 
 // targetAlreadyMinted reports whether the committed economy already holds a catch
@@ -138,8 +212,12 @@ func targetAlreadyMinted(records []CatchRecord, t Target) bool {
 // is never a confirmed catch (the two-scores invariant), and a target moves out
 // of "in flight" the moment it mints. Duplicate replays of one target count once.
 //
-// A rejected claim has no terminal marker yet, so a rejected target lingers as
-// in-flight until slice C3 adds explicit rejection — accepted C1 behavior.
+// A target leaves the in-flight set the moment it resolves: either it mints (a
+// confirmed catch) OR it carries a terminal rejection marker (the host verified
+// it and found no catch). So a target is in flight iff it was submitted AND is
+// not minted AND is not rejected. The verdict markers ride the SAME subtree as
+// the claims, so the projection demuxes by subject kind — a verdict is never
+// itself counted as a claim.
 func (l *Log) ClaimsInFlight() (int, error) {
 	filter := fabric.EventSubject(l.session, l.instance, fabric.StatusClaim, ">")
 	events, err := l.f.ReplaySubject(context.Background(), filter)
@@ -158,16 +236,38 @@ func (l *Log) ClaimsInFlight() (int, error) {
 		base, fix, path string
 		line            int
 	}
+	idOf := func(t Target) identity { return identity{t.BaseRev, t.FixRev, t.Path, t.Line} }
+
+	// First pass: collect the identities the host has terminally rejected. A
+	// malformed verdict is skipped like a malformed claim.
+	rejected := make(map[identity]bool)
+	for _, e := range events {
+		if !isVerdictKind(e.Subject) {
+			continue
+		}
+		v, derr := DecodeClaimVerdict(e.Data)
+		if derr != nil || !v.Rejected {
+			continue
+		}
+		rejected[idOf(v.Target)] = true
+	}
+
+	// Second pass: a work claim is in flight unless it is already minted or
+	// rejected. Verdict (and any non-claim) events are not claims and never count.
 	seen := make(map[identity]bool)
 	for _, e := range events {
+		if !isClaimKind(e.Subject) {
+			continue
+		}
 		claim, derr := DecodeClaim(e.Data)
 		if derr != nil {
 			continue // a malformed claim event is not a claim in flight
 		}
-		if !targetAlreadyMinted(records, claim.Target) {
-			t := claim.Target
-			seen[identity{t.BaseRev, t.FixRev, t.Path, t.Line}] = true
+		id := idOf(claim.Target)
+		if rejected[id] || targetAlreadyMinted(records, claim.Target) {
+			continue
 		}
+		seen[id] = true
 	}
 	return len(seen), nil
 }

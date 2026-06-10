@@ -67,8 +67,10 @@ func TestStartClaimConsumers_drainsAPostedClaimThroughTheServerVerifierToAMint(t
 }
 
 // A claim the verifier does NOT confirm never becomes a confirmed score: it
-// mints nothing and stays a pending bet in flight (the two-scores invariant at
-// runtime). A rejecting verdict must not move the confirmed economy.
+// mints nothing (the two-scores invariant at runtime). A rejecting verdict must
+// not move the confirmed economy. Post-C3a it also writes a durable rejection
+// marker, so the resolved target leaves the in-flight set rather than lingering
+// forever — rejected is "resolved, not confirmed", not "still pending".
 func TestStartClaimConsumers_aRejectedClaimNeverBecomesAConfirmedScore(t *testing.T) {
 	server, log := claimConsumerServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -95,7 +97,10 @@ func TestStartClaimConsumers_aRejectedClaimNeverBecomesAConfirmedScore(t *testin
 		b, err := log.Balance()
 		return err == nil && b > 0
 	}, 1*time.Second, 50*time.Millisecond, "a verifier that does not confirm must mint nothing — a pending bet is never a confirmed score")
-	inflight, err := log.ClaimsInFlight()
-	require.NoError(t, err)
-	require.Equal(t, 1, inflight, "the unconfirmed claim remains a bet in flight")
+	// Post-C3a: the no-catch verdict writes a durable rejection marker, so the
+	// resolved target leaves the in-flight set (it is not pending — it lost).
+	require.Eventually(t, func() bool {
+		inflight, err := log.ClaimsInFlight()
+		return err == nil && inflight == 0
+	}, 3*time.Second, 20*time.Millisecond, "a rejected claim resolves OUT of flight via its durable rejection marker")
 }
