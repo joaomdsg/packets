@@ -109,10 +109,19 @@ unbundles it via the forced refspec `refs/*:refs/producers/<id>/*` into the host
 store — namespace confinement verified empirically (funny/traversal/HEAD/tag
 refs + a leading-dash id all stay inside the namespace). Offline TDD, no
 network/Docker. The Audit fixed an honest-errors gap (a `..`-containing id is now
-ErrBadProducerID up front, not a misleading ErrBundleInvalid). REMAINING for
-slice A: A.2 the ProducerGrant-authed wire upload (behind an ObjectIngestor
-seam), and A.3 pointing `cage.Materialize` at the producer-namespaced refs so a
-claim resolves against the ingested objects.
+ErrBadProducerID up front, not a misleading ErrBundleInvalid).
+
+A.3 also BUILT (commit d072db0): proved — by an empirical probe + a cross-package
+characterization lock (`internal/cage/ingest_integration_test.go`) — that ingest
+→ Materialize → CageVerifier COMPOSE with NO production change. A producer's
+bundled commits, ingested only into `refs/producers/<id>/*`, resolve by SHA in the
+store, survive `git clone --local` (the object DB is copied wholesale even with no
+branch pointing at them), are worktree-checkout-able by SHA, and mint a catch via
+the faked cage. (Note: the cage clones the WHOLE shared store; council blessed
+shared-store as economy-safe — per-producer-namespace clone is a future
+hardening.) REMAINING for slice A: only A.2 — the ProducerGrant-authed wire upload
+that receives the bundle bytes and calls IngestProducerObjects (behind an
+ObjectIngestor seam) — after which #6 SHA transport is end-to-end.
 
 ## New clashes opened / resolved
 
