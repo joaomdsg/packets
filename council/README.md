@@ -252,6 +252,21 @@ Layout of this directory:
   + a JSON thread payload {file,line,tag,body} from sessionOpenThreads. Slice 2 = load
   Monaco read-only + decorations (CDN-vs-vendor decided then, lean vendor); slice 3 =
   editable (gated).
+- [Round 63](round-63.md) — Monaco review UI built out: read-only editor island with
+  decorations on the session findings (slice 2), CDN loader.
+- [Round 64](round-64.md) — editable-in-browser answer flow (the gated slice 3): edit
+  in Monaco → ⌘/Ctrl+Enter dispatches a `viaanswer` CustomEvent → AnswerQuestion
+  re-runs on an overlay; the maplibre data-on/CustomEvent bridge (not data-bind).
+- [Round 65](round-65.md) — dispatch→edits→review thread (maintainer steer "fill a
+  work order, see the edits, tie in the review flow"): per-order findings capture +
+  "N open questions" drill (slice 1), per-order /review?wo= (slice 2), the base→fix
+  Monaco DIFF as "the edits" — honestly static, no fake live agent (slice 3),
+  answer-in-place on the order (slice 2b), and "WATCH IT FILL" — live cycle beats on
+  the card as the order fills (slice 4). Thread fully complete.
+- [Round 66](round-66.md) — make the loop CLI-reachable: a `-backlog` flag seeds
+  `LiveConfig.DispatchBacklog` on the primary session (it was test-only, so Spend
+  no-op'd via the shipped binary). Pure `parseBacklogSpec` unit-tested; LineHash
+  computed vs base so the supply dedup against the primary target holds.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
