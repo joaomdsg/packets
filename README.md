@@ -182,6 +182,12 @@ What's proven today:
 - ✅ Append-only catch ledger with identity-dedup (no double-minting)
 - ✅ Live SSE packet inspector + multi-flow fabric with honest hit-rate
 - ✅ Uncapped fan-out (multicast) *and* its measured cost — see benchmarks below
+- ✅ Embedded NATS/JetStream spine — the economy streams to the browser off one authoritative log (`GET /stream`), and the cross-session fleet board off the same log (`GET /fleet`)
+- ✅ Cross-process producer boundary (#6): an untrusted producer submits a CLAIM (immutable SHAs) via `POST /claim`; only the trusted host mints
+- ✅ Hardened verification cage (#6c): the host re-runs the oracle on a producer's claim in a one-shot Docker container (`--network=none`, cap-drop, seccomp, read-only rootfs, non-root, pids/mem/cpu caps), proven by real syscall/pids denials and a differential equivalence lock (in-process ≡ caged → byte-identical catch record)
+- ✅ Host-derived verdict + lie-green trap: the cage emits a transcript, never a PASS; the host re-derives the catch from the survivor-set delta and refuses an incomplete/disagreeing transcript
+- ✅ Per-claim governor: verify deadline (120s) < durable AckWait (240s), per-producer token bucket, process-wide concurrency cap
+- ✅ The producer claim lifecycle is honest and two-scored: a pending bet (in-flight) and a verified-loss (rejected) are each their own count on `/board` and the live `/fleet` stream, never folded into the confirmed catch economy
 
 Known risks and open design tensions are tracked candidly in
 [RISKS.md](RISKS.md).
@@ -214,7 +220,7 @@ pathology). Run them on your own hardware for the actual numbers.
 ## Documents
 
 - **[VISION.md](VISION.md)** — the *what* and *why*: the management-sim reframe, the economy, the trust ledger.
-- **[DESIGN.md](DESIGN.md)** — the *how*: the pipe, event spine, re-anchoring, sandboxing.
+- **[DESIGN.md](DESIGN.md)** — the *how*: the pipe, event spine, re-anchoring, the hardened verification cage, the cross-process claim/mint trust model.
 - **[council/](council/README.md)** — the adversarial design council's hardening rounds (one file per round).
 - **[CONVENTIONS.md](CONVENTIONS.md)** — coding conventions fed to the agents.
 - **[RISKS.md](RISKS.md)** — the honest risk register.

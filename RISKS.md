@@ -74,18 +74,24 @@ anchor anywhere in the trust stack.**
   container. A fresh-clone reopen can't find the branch — *verified: `git checkout`
   fails, all unpushed revisions lost.* "Lossless" / "keep 20 sessions open ~free"
   (§24.1) is false. *Fix:* push the branch to durable storage before any teardown.
-- **Sandbox egress allowlist breaks all builds (§19.1).** Allowlist
-  (npm/proxy.golang.org/PyPI) misses `sum.golang.org` (Go checksum DB, *verified via
-  `go env`*), `files.pythonhosted.org` (pip wheels), and VCS hosts — so default-deny
-  fails `go build`/`pip`/`npm` on any dep fetch → the agent can't test → the live
-  RED→GREEN flow breaks day one. *Fix:* front all package traffic with one internal
-  mirror, not enumerated upstream hosts.
-- **The shim can't enforce the sandbox (§15.3/§19.1).** Enforcement (egress, fs
-  confinement, permission gating) is credited to an in-container shim that is a peer
-  process to the hijackable harness + repo RCE surface (§26.1). Hostile in-container
-  code bypasses it. *Fix:* enforce below/outside — kernel seccomp/LSM, netns + host
-  egress proxy, out-of-container permission broker. §26.2's "primary defense" is, as
-  specified, bypassable by its own threat model.
+- ~~**Sandbox egress allowlist breaks all builds (§19.1).**~~ **[SUPERSEDED 2026-06-09 — council R34, built]**
+  The egress allowlist was DROPPED entirely. The verification cage (#6c) runs
+  `--network=none`: no socket exists, so there is nothing to allowlist and no dep
+  fetch to break. The host provides everything offline — a read-only module cache
+  populated by a TRUSTED-SIDE prefetch (`go mod download` + `go.sum`/policy verify,
+  `GOPROXY=off`, `GOTOOLCHAIN=local`). The allowlist "boundary" moved to that
+  trusted-side prefetcher (the only network in the system), so the original
+  break-all-builds failure mode cannot occur. See `internal/cage`, `council/round-34.md`.
+- ~~**The shim can't enforce the sandbox (§15.3/§19.1).**~~ **[SUPERSEDED 2026-06-09 — council R33/R34, built]**
+  There is no in-container shim. Enforcement is the kernel + the container runtime
+  (`internal/sandbox.DockerRunner`): `--network=none`, `--cap-drop=ALL`, a seccomp
+  profile (proven by a real denied syscall), read-only rootfs, non-root uid 65534,
+  pids/memory/cpu caps (pids cap proven by a real fork-bomb denial), one-shot
+  container killed on cancel. Hostile in-container code asserts NOTHING about the
+  verdict: the cage emits only a transcript and the trusted HOST re-derives the
+  catch (lie-green trap) and is the single minter. So "the shim is a bypassable
+  peer process" no longer applies — nothing inside the cage is trusted. See
+  `internal/sandbox`, `internal/cage`, `council/round-33.md`/`round-34.md`.
 
 ## HIGH — correctness / security / trust integrity
 
@@ -380,6 +386,22 @@ design risks above, which are about the spec). Each: where, the finding, the fix
   to a dedicated brick so the fix lands coherently across both. Existing tests use
   ASCII paths, so the current suite stays green; this is a correctness gap for
   non-ASCII repos, not a present test failure.
+
+### Fleet-stream refold amplification (slice: #6c C3b2b live claim lifecycle) — KNOWN, ACCEPTED at prototype scale
+
+- **Symptom/cost:** to carry the claim lifecycle live, `WatchFleet` now wakes on
+  the WHOLE event taxonomy (`FleetEventsSubject`: minted ∪ claim ∪ scratch), up
+  from minted-only. So EVERY committed event — including high-frequency discarded
+  *scratch* fan-out — drives a full refold, and each refold (`ledger.FleetBoard`)
+  is TWO full `ReplaySubject` passes (minted + claim). Net: ~2 full-stream replays
+  per committed event per connected `/fleet` viewer, O(stream)×events×viewers.
+- **Why accepted now:** at prototype scale (few sessions, few viewers, modest
+  stream) this is fine, and it bought the live verifying-pulse with one clean
+  seam. Documented inline in `internal/bridge/fleet.go` (WatchFleet).
+- **Escape hatch when it bites (scratch rate or viewer count grows):** debounce/
+  coalesce wakes, or fold incrementally (apply each event to a cached board)
+  instead of replaying the whole stream per event. This is the same hot-path
+  caution first flagged for the live SSE path in the C1a perf note.
 
 ---
 

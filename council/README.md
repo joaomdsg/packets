@@ -84,6 +84,11 @@ Layout of this directory:
   CONVERGED 5/5 (Security lens added)
 - [Round 34](round-34.md) — #6c verification-flow mechanics: SHA-pinned
   transport, read-only dep cache, host-derived verdict; egress proxy dropped
+- [Round 35](round-35.md) — #6c slice C3b: the producer claim lifecycle
+  (in-flight / verified-lost) surfaces on the board + live fleet stream, not
+  the host card; lie-green fixed; opened Clash J (the gray-bets visual)
+- [Round 36](round-36.md) — #6c slice C4: the gray bets-vs-confirmed visual —
+  settling Clash J (stylesheet vs CSS-free semantic distinction)
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,

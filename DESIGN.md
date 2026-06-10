@@ -61,14 +61,22 @@ superseded. Each row: the original claim → what now holds → where.
   stream is the source of truth; the event schema carries a producer +
   commit-status header to demux fan-out scratch branches. See §13.3,
   §14. *(contradiction #3)*
-- §19.1 / §15.3 "the in-container shim enforces the sandbox" → a peer
-  process to a hijackable harness can't *enforce*; enforcement moves
-  below/outside the container (seccomp/LSM, netns + host egress proxy,
-  out-of-container permission broker). See §19.1. *(CRITICAL)*
-- §19.1 egress allowlist of enumerated upstream hosts → front all
-  package traffic with **one internal mirror**; the enumerated list
-  misses `sum.golang.org`, `files.pythonhosted.org`, VCS hosts and
-  breaks every build day one. See §19.1. *(CRITICAL)*
+- §19.1 / §15.3 "the in-container shim enforces the sandbox" → **BUILT
+  DIFFERENTLY (council R33/R34, `internal/sandbox` + `internal/cage`)**:
+  there is no shim and nothing inside the container is trusted. Enforcement
+  is the kernel + runtime (`--network=none`, `--cap-drop=ALL`, seccomp,
+  read-only rootfs, non-root uid 65534, pids/mem/cpu caps, one-shot,
+  killed-on-cancel — the seccomp and pids caps proven by real denials). The
+  caged oracle emits only a transcript; the trusted HOST re-derives the
+  verdict and is the single minter (lie-green trap). See §19.1, `06-plan` in
+  `council/`, `council/round-33.md`/`round-34.md`. *(CRITICAL — resolved)*
+- §19.1 egress allowlist of enumerated upstream hosts → **DROPPED, not
+  mirrored (council R34, built)**: the cage runs `--network=none`, so there
+  is no egress to allow. The host provides deps offline via a read-only
+  module cache populated by a trusted-side prefetch (`GOPROXY=off`,
+  `GOTOOLCHAIN=local`); the security boundary moved to that prefetcher, the
+  only network in the system. See §19.1, `council/round-34.md`. *(CRITICAL —
+  resolved)*
 
 Contradictions #2, #6, #8, #9, #10 (VISION side), #11, #12 are
 VISION-internal (its economy sections) and are tracked in `RISKS.md`;
@@ -81,9 +89,35 @@ is built and tested end-to-end against the real oracle (`internal/`
 packages: `mutation`, `catch`, `diff`, `reanchor`, `review`, `settle`,
 `orchestrator`, `ledger`, `surface`, `translate`, `refactor`, `pipe`,
 `app`; `cmd/agntpr`). The fleet board, live SSE card, append-only catch
-ledger, and multi-session isolation are real. Everything past that — the
-full trust economy, earned concurrency, merge-queue delivery, the
-management-sim UX — is designed here but not yet built.
+ledger, and multi-session isolation are real.
+
+Built since (council rounds 28–35, `internal/fabric`, `internal/bridge`,
+`internal/sandbox`, `internal/cage`; `cmd/packets`):
+
+- **The NATS/JetStream spine (#4/#5):** one authoritative append-only log;
+  the economy streams to the browser off it (`GET /stream`) and the
+  cross-session fleet board off it (`GET /fleet`).
+- **The cross-process producer boundary (#6):** an untrusted producer
+  submits a CLAIM of immutable SHAs (`POST /claim`); producers may write only
+  their own claim subtree; only the trusted host mints (single-minter via
+  `ledger.NewCatchRecord`).
+- **The hardened verification cage (#6c):** the host re-runs the SAME oracle
+  binary on a claim in a one-shot Docker container (`--network=none`,
+  cap-drop, seccomp, read-only rootfs, non-root, pids/mem/cpu caps), proven by
+  real syscall/pids denials. The cage emits a transcript, never a PASS; the
+  host re-derives the catch from the survivor-set delta (lie-green trap) and
+  refuses an incomplete/disagreeing one. A differential equivalence lock pins
+  in-process ≡ caged → byte-identical catch record. A per-claim governor
+  bounds it (verify deadline 120s < durable AckWait 240s, per-producer token
+  bucket, process-wide concurrency cap).
+- **The honest claim lifecycle (two-scores):** a pending bet (in-flight) and a
+  verified-loss (rejected, a durable `ledger.ClaimVerdict`) are each their own
+  count on `/board` and live on `/fleet`, never folded into the confirmed
+  catch economy.
+
+Everything past that — the full trust economy, earned concurrency,
+merge-queue delivery, the management-sim UX — is designed here but not yet
+built.
 
 ## Contents
 

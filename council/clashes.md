@@ -164,3 +164,26 @@ resolution, **the experiment that settles it**, and the verdict trail
 - **Experiment:** ship it behind the Ledger plugin; measure whether anyone
   uses retroactive forking, and whether it confuses "current."
 - **Verdict (post-build):** _TBD_
+
+## Clash J — The gray "bets vs confirmed" visual without a stylesheet
+
+- **Context (R35):** the producer claim lifecycle data (in_flight, rejected)
+  now renders on both `/board` and the live `/fleet` stream, kept off
+  balance/confirmed (two-scores). C4 is the purely-presentational step: make a
+  pending/lost BET read as visually distinct from a confirmed CATCH. But the
+  repo has NO stylesheet — the UI is server-rendered `h.H` spans with class
+  hooks only.
+- **Position (a) — minimal stylesheet:** introduce a small CSS asset so a bet
+  renders muted/gray and a confirmed catch solid; a real new served-asset
+  decision (where it lives, how it's served alongside the `via` render).
+- **Position (b) — CSS-free semantic distinction:** stay stylesheet-free; carry
+  bet-vs-confirmed in distinct class hooks + label semantics (already the
+  idiom — `board-row__rejected` "verified-lost" vs `board-row__stock`
+  "confirmed"), and defer actual color to whenever a stylesheet first lands for
+  another reason.
+- **Two-scores guardian's standing input:** labels carry the separation, not
+  hue — so (b) may already satisfy the honesty requirement; color is polish.
+- **Experiment:** build C4 both ways on the rendered board; judge which reads as
+  honestly-distinct (a viewer can't mistake a bet for a catch) without a
+  stylesheet, and whether introducing CSS earns its serving complexity now.
+- **Verdict (post-build):** _TBD — Round 36 settles it._
