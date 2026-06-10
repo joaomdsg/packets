@@ -89,7 +89,21 @@ of an unverifiable claim). Then A (SHA transport, thin push/fetch first), then B
 (governor hardening). The transport threat model (per-producer namespacing,
 SHA re-derivation, no cross-tenant read) is recorded for A.
 
+## Verdict (post-build, 2026-06-10)
+
+Slice C (permanent-vs-transient) BUILT and shipped (commit 92b72cf):
+`ledger.ErrClaimUnverifiable` + the ConsumeClaims reject-on-permanent branch;
+`cage.ErrUnresolvableRevision` wrapping Materialize's unresolvable-revision
+failures; `CageVerifier` maps it to the ledger sentinel. An unresolvable/malformed
+claim is now durably rejected (leaves in-flight) instead of lingering forever — the
+unbounded-in-flight hole is closed. The Audit caught a real misclassification: a
+context cancellation/deadline during `rev-parse` was being branded permanent;
+fixed so a `ctx.Err()` surfaces transiently (a valid-but-slow claim, or host
+shutdown, stays retryable). Two-scores intact. Full `-race -p 1` gate green.
+
 ## New clashes opened
 
-NONE. A (SHA transport) will need its own security round on the object-ingestion
-threat model before it is built.
+NONE. A (SHA transport) — the next slice — will need its OWN security round on the
+object-ingestion threat model (per-producer namespacing, recompute-the-SHA
+content-address invariant, no cross-tenant read, reject-on-mismatch) BEFORE it is
+built. Convene that round next tick.

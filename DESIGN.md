@@ -113,7 +113,10 @@ Built since (council rounds 28–35, `internal/fabric`, `internal/bridge`,
 - **The honest claim lifecycle (two-scores):** a pending bet (in-flight) and a
   verified-loss (rejected, a durable `ledger.ClaimVerdict`) are each their own
   count on `/board` and live on `/fleet`, never folded into the confirmed
-  catch economy.
+  catch economy. A clean no-catch and a PERMANENTLY-unverifiable claim (one whose
+  revisions the host can never resolve — `ledger.ErrClaimUnverifiable`) both
+  resolve to a durable rejection, so a bet never lingers in-flight forever; a
+  transient cage flake / ctx-timeout stays in-flight, resubmittable.
 
 Everything past that — the full trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet
