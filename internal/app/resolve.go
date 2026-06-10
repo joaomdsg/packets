@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/joaomdsg/packets/internal/ledger"
+	"github.com/joaomdsg/packets/internal/mutation"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
 	"github.com/joaomdsg/packets/internal/surface"
@@ -27,6 +28,11 @@ type Resolution struct {
 	// additive — it never alters the verdict, Land, or the ledger record.
 	Trace  []pipe.TraceEvent
 	Record *ledger.CatchRecord
+	// Findings are the fix revision's non-killed mutants (the oracle already reports
+	// only survived/undetermined) — the honest test gaps the reviewer sees as
+	// "question:" threads. Diagnostic only: they never alter the verdict, Land, or
+	// the ledger record, and never touch the two-scores economy.
+	Findings []mutation.Finding
 }
 
 // Resolve runs the catch cycle over the two revisions and maps it for the
@@ -54,5 +60,7 @@ func ResolveStreaming(ctx context.Context, repoDir, baseRev, fixRev, tipRev stri
 	verdict := surface.PresentVerdict(false, res.Outcome, res.Reason, len(res.After.Inventory), len(res.After.Survivors))
 
 	record := ledger.NewCatchRecord(res.Outcome, res.Path, res.Line, baseRev, fixRev, res.Before.Inventory, res.After.Inventory, selfFlagged, wouldHaveShipped)
-	return Resolution{Verdict: verdict, Land: res.Land, Trace: res.Trace, Record: record}, nil
+	// Findings is a pass-through of the fix oracle's non-killed mutants (carried up
+	// by the cycle in slice 1) to the surface for the review-question badge/threads.
+	return Resolution{Verdict: verdict, Land: res.Land, Trace: res.Trace, Record: record, Findings: res.Findings}, nil
 }

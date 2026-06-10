@@ -290,6 +290,11 @@ type LiveCard struct {
 	Verdict via.StateTabStr
 	Land    via.StateTabStr
 	Beats   via.StateTabStr
+	// Questions broadcasts the count of open review questions — the fix oracle's
+	// surviving/undetermined mutants — so the card shows a gated "N open questions"
+	// badge when the verdict's green hides unkilled mutants. Written by OnConnect
+	// after the cycle; the full anchored threads live on the /review surface.
+	Questions via.StateTabStr
 	// Balance is the spend broadcast trigger: the balance ROW value is re-read
 	// from the ledger in View (the source of truth), but the ledger is not
 	// reactive — so Spend writes the new balance here to make the live SSE stream
@@ -365,8 +370,14 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	parts = append(parts,
 		surface.RenderBeats(c.Beats.Read(ctx)),
 		surface.RenderVerdict(c.Verdict.Read(ctx)),
-		surface.RenderLand(pipe.LandState(c.Land.Read(ctx))),
 	)
+	// A gated, calm badge: when the oracle left surviving mutants, the verdict's
+	// green hides honest test gaps — show the open-question count (the full anchored
+	// threads live on /review). Omitted when there are none.
+	if b := reviewQuestionsBadge(c.Questions.Read(ctx)); b != nil {
+		parts = append(parts, b)
+	}
+	parts = append(parts, surface.RenderLand(pipe.LandState(c.Land.Read(ctx))))
 	return h.Div(parts...)
 }
 
@@ -497,7 +508,7 @@ func anchorFromTarget(t ledger.Target) reanchor.Anchor {
 func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 	cfg, log := readLiveState(c.Key)
 	sem := cycleSem(c.Key)
-	type resolved struct{ verdict, land string }
+	type resolved struct{ verdict, land, questions string }
 	beats := make(chan pipe.TraceEvent, 16)
 	result := make(chan resolved, 1)
 	go func() {
@@ -519,7 +530,7 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 			res.Record.Producer = "connect" // provenance: the connect-cycle producer, demuxed from a dispatched run's "wo:<id>"
 			_ = log.Append(*res.Record)     // best-effort; a logging failure must not hang the card
 		}
-		result <- resolved{verdict: res.Verdict, land: string(res.Land)}
+		result <- resolved{verdict: res.Verdict, land: string(res.Land), questions: strconv.Itoa(len(res.Findings))}
 	}()
 	var accrued []string
 	lastDispatch := -1
@@ -555,6 +566,7 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 		case r := <-result:
 			c.Verdict.Write(ctx, r.verdict)
 			c.Land.Write(ctx, r.land)
+			c.Questions.Write(ctx, r.questions)
 		default:
 		}
 	})

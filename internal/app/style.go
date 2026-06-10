@@ -168,6 +168,16 @@ body {
 .beat { color: var(--pk-ink-dim); font-family: var(--pk-mono); }
 .review-card__headline { margin: 0 0 var(--pk-xs) 0; font-weight: 600; }
 .review-card__detail { margin: 0; color: var(--pk-ink-dim); }
+/* the gated open-question badge: a calm heads-up that the green verdict hides
+   unkilled mutants — dim secondary text with a quiet accent edge, never an alarm.
+   The full anchored threads live on the /review surface. */
+.review-questions {
+  padding: var(--pk-xs) var(--pk-md);
+  margin-bottom: var(--pk-sm);
+  border-left: 2px solid var(--pk-accent);
+  color: var(--pk-ink-dim);
+  font-size: 0.95em;
+}
 .land-row__headline { margin: 0 0 var(--pk-xs) 0; font-weight: 600; }
 .land-row__detail { margin: 0; color: var(--pk-ink-dim); }
 
