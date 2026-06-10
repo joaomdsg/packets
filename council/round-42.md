@@ -57,6 +57,17 @@ bigger slice (bridge subscription) — deferred.
   status "queued"; ordering/limit. board — the /board HTML shows a session's
   recent dispatch with its caught/missed outcome (vt.NewClient render).
 
+## Verdict (post-build, 2026-06-10)
+
+BUILT (commit 58c6bf1): ledger.DispatchView + (*Log).RecentDispatches(n) (pure
+projection, newest-first; Caught keyed on the order's own "wo:<id>" provenance —
+a connect-cycle catch never falsely credits it, tested) + board.go's calm per-row
+"dispatches:" cluster (WO#id target status caught|missed, omitted when empty,
+CSS-free, no fabricated rank). The funded round-trip is now legible: the Lead
+sees which order ran what and whether it caught or missed. Blue+Audit clean
+(output-identical row refactor, two-scores intact). The /fleet live-stream
+version is the deferred follow-up.
+
 ## New clashes opened / resolved
 
 None. Reaffirms the fabricated-leverage refusal as the reason the board surfaces
