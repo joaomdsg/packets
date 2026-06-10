@@ -461,6 +461,10 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 	log := ledger.BindOwning(f, defaultSessionKey, ledgerInstance)
 	setLiveState(cfg, log)
 	app := via.New(opts...)
+	// Attach the base stylesheet (the calm visual language) to every page's head
+	// before mounting — boot-time, so it never races a render. It targets the
+	// class hooks the card/board markup already emit; no markup changes here.
+	app.AppendToHead(styleHead())
 	via.Mount[LiveCard](app, "/")
 	via.Mount[BoardCard](app, "/board") // the cross-card fleet view (read-only projection of liveReg)
 	// The raw SSE bridge over the authoritative stream: a plain text/event-stream

@@ -147,7 +147,10 @@ func TestBoardCard_sealsTheBetLifecycleIntoOneClusterApartFromConfirmedStock(t *
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = defLog.Close() })
 
-	body := vt.NewClient(t, server, "/board").HTML()
+	// Scope to the rendered BODY: the base stylesheet in <head> legitimately
+	// contains the class names as CSS selectors, which would otherwise fool the
+	// structural index assertions below. This test is about body STRUCTURE.
+	body := bodyOf(vt.NewClient(t, server, "/board").HTML())
 
 	// The grouping cluster + its explicit "bets:" label exist.
 	require.Contains(t, body, "board-row__bets", "the bet lifecycle is sealed in its own grouping container")
@@ -226,4 +229,15 @@ func TestBoardCard_showsRecentDispatchesWithCaughtOrMissedOutcome(t *testing.T) 
 	require.Contains(t, body, "caught", "WO#1 minted → caught")
 	require.Contains(t, body, "WO#2", "the missed order is shown too")
 	require.Contains(t, body, "missed", "WO#2 ran but minted nothing → missed")
+}
+
+// bodyOf returns the <body> portion of a rendered page, dropping the <head>.
+// Structural index assertions must scope to the body: the base stylesheet in the
+// head contains class names as CSS selectors, which would otherwise be matched by
+// a whole-page substring index. (Plain Contains checks are unaffected.)
+func bodyOf(html string) string {
+	if i := strings.Index(html, "</head>"); i >= 0 {
+		return html[i:]
+	}
+	return html
 }
