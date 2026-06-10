@@ -166,6 +166,9 @@ body {
 /* the oracle's verdict for a resolved order — the WHY behind the outcome, shown as
    calm dim secondary detail (the outcome word already carries the color). */
 .board-row__dispatch-why { color: var(--pk-ink-dim); }
+/* a filled order's reviewable test-debt — how many open review questions it left;
+   a quiet accent count (the dispatch→review tie), never an alarm. */
+.board-row__dispatch-questions { color: var(--pk-ink-dim); }
 
 /* ---- the single review card ---- */
 .stock-row, .balance-row, .dispatch-row, .beat-row, .review-card, .land-row, .onboarding {

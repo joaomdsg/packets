@@ -363,6 +363,11 @@ type DispatchView struct {
 	Status  string
 	Caught  bool
 	Verdict string
+	// Questions is how many open review questions (surviving mutants) the filled
+	// order left — the order's reviewable test-debt. NOT projected from the ledger
+	// (the findings are off-ledger diagnostic state); the app layer fills it from the
+	// per-order findings cache before rendering. Zero when none / not yet filled.
+	Questions int
 }
 
 // RecentDispatches projects this log's funded work-orders into the most-recent n

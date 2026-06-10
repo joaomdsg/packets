@@ -90,6 +90,12 @@ type liveEntry struct {
 	// merging — ephemeral, recomputed each connect, off the economy ledger. Guarded
 	// by findingsMu (written together with findings in OnConnect).
 	land string
+	// orderFindings holds a FILLED work-order's review questions (the cycle's
+	// surviving mutants) keyed by order ID — captured when runOneOrder fills the
+	// order, so a funded order's test-debt is reviewable (the dispatch→review tie).
+	// Ephemeral and OFF the economy ledger, like findings (the order's CATCH mints;
+	// its questions are diagnostic). Guarded by findingsMu.
+	orderFindings map[int][]mutation.Finding
 	// answering is true while an answer re-run is in flight for this session. It
 	// serializes answer re-runs (one at a time): a re-run spawns a git worktree +
 	// oracle run, so two concurrent re-runs (a double-clicked submit) would race the
@@ -158,6 +164,28 @@ func (e *liveEntry) markResolved(file string, line int) {
 
 // findingKey is the per-line identity used to match a resolved answer to a finding.
 func findingKey(file string, line int) string { return file + ":" + strconv.Itoa(line) }
+
+// setOrderFindings caches a filled work-order's review questions (off-ledger, like
+// findings) so the order's test-debt is reviewable. Empty findings clear the entry.
+func (e *liveEntry) setOrderFindings(id int, fs []mutation.Finding) {
+	e.findingsMu.Lock()
+	defer e.findingsMu.Unlock()
+	if len(fs) == 0 {
+		delete(e.orderFindings, id)
+		return
+	}
+	if e.orderFindings == nil {
+		e.orderFindings = map[int][]mutation.Finding{}
+	}
+	e.orderFindings[id] = fs
+}
+
+// orderQuestionCount returns how many open review questions a filled order left.
+func (e *liveEntry) orderQuestionCount(id int) int {
+	e.findingsMu.Lock()
+	defer e.findingsMu.Unlock()
+	return len(e.orderFindings[id])
+}
 
 // setLand caches the latest cycle's integration verdict for the fleet board.
 func (e *liveEntry) setLand(land string) {
@@ -451,6 +479,14 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 		// the round-trip the Lead watches after a Spend, on the same card they act on.
 		if ds, err := log.RecentDispatches(5); err == nil {
 			dispatches = ds
+			// Enrich each with its open-question count (the order's reviewable
+			// test-debt) from the per-order findings cache — off-ledger diagnostic,
+			// so it's filled here, not projected.
+			if e := lookupLiveEntry(c.Key); e != nil {
+				for i := range dispatches {
+					dispatches[i].Questions = e.orderQuestionCount(dispatches[i].ID)
+				}
+			}
 		}
 	}
 	// The "/" card with no ?key IS the default session — name it honestly in the
@@ -668,6 +704,10 @@ func runOneOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 		// catch or miss — so a missed order is diagnosable, not just "done, not
 		// caught". Diagnostic only: never a catch/balance (two-scores).
 		_ = e.log.AppendWorkOrderVerdict(order.ID, res.Verdict)
+		// Capture the order's review questions (surviving mutants) so the funded
+		// work is reviewable (dispatch→review tie). Off the economy ledger, like the
+		// connect-cycle findings cache — the order's CATCH mints, its questions don't.
+		e.setOrderFindings(order.ID, res.Findings)
 	}
 	_ = e.log.AppendStatus(order.ID, "done")
 }

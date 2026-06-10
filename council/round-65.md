@@ -1,0 +1,71 @@
+# Round 65 — dispatch → edits → review: tie the work-order loop to the review surface (maintainer steer) — 2026-06-10
+
+Trigger: after the editable review-answer flow shipped, the maintainer steered to a
+new thread: "fill a work order, see the agent making edits, then it ties in the
+review flow." Connect the DISPATCH economy → the EDITS the work produced → the
+REVIEW surface (the Monaco question flow). Full six convened, grounded in the
+work-order/dispatch machinery, the diff package, and the review surface.
+
+## Ground truth
+
+- A work order's Target = {BaseRev, FixRev, TipRev, Path, Line}. "Filling" it
+  (Spend/FundChosen → drainQueuedOrders → runOneOrder) runs the catch cycle on the
+  target. The FIX revision IS "the edits"; there is NO live code-editing agent — the
+  edits are the pre-funded base→fix git diff.
+- internal/diff.Compute(repoDir, from, to) → Diff{FileDiff{Hunk}} exists (tested),
+  but no surface shows the diff.
+- runOneOrder DISCARDS res.Findings — the order's review questions are lost; only the
+  catch Record + AppendWorkOrderVerdict + status are kept. The connect cycle, by
+  contrast, caches res.Findings (setFindings) for /review.
+- /review (ReviewCard) shows the session's findings as Monaco + "question:" threads +
+  the editable answer flow. Orders render as text spans (renderDispatches), no drill.
+
+## Convergence
+
+- "AGENT MAKING EDITS" = the base→fix DIFF (UX + Refactoring + Systems, unanimous),
+  NOT a new editing agent. DATA-HONESTY GUARDRAIL (Systems, binding): the diff is
+  STATIC and pre-funded — do NOT theater a "live agent typing"/fake working
+  animation; frame it honestly as "the edits this work order made" (show the diff).
+- THE LOOP (Game): catch → spend → fund order → watch it fill → REVIEW its questions
+  → answer → compound. The missing connector is that the order's findings vanish, so
+  there's no quality-check payoff for the work you funded. Capturing them closes it.
+  "Watch it fill" beat = the diff revealing / the existing cycle beats (honest), not
+  fabricated agent activity.
+- PLUMBING (Refactoring + TDD): capture the order's findings (off-ledger, mirror the
+  connect-cycle cache) — a per-order findings store; per-order review via
+  /review?wo=<id> REUSING ReviewCard + the islands + the answer flow; the diff via a
+  Monaco DIFF editor island (the diff DATA payload is the server contract; the editor
+  rendering is the client island, browser-verified). diff.Compute already tested.
+- FIREWALL (Systems): the order's catch MINTS (existing, on-economy); the order's
+  findings + diff + review answers stay OFF the ledger (diagnostic), mirroring the
+  connect-cycle findings cache. No new farm/exploit (catch = logged fact, findings =
+  unscored diagnostic; the vanishing question is unscoreable).
+- COMPUTE (CI/CD): marginal — findings already ride in the cycle result; diff.Compute
+  is one git diff, bounded by the existing per-session semaphore. Deterministic
+  signals (same revs → same diff/findings); the flaky-fence carries over.
+
+## Slice plan (build over next ticks; tdd-rygba; commit+push; CI; browser-verify renders)
+
+- SLICE 1 — CAPTURE the order's findings + surface its question count. runOneOrder
+  stores res.Findings in a per-order cache on liveEntry (off-ledger, like the
+  connect-cycle findings); the card's dispatch rows show "N open questions" per
+  filled order (the connector: a funded order now shows its review debt). The most
+  felt value (Game's "closest win") + server-render-testable.
+- SLICE 2 — PER-ORDER REVIEW: /review?wo=<id> reuses ReviewCard to render THAT
+  order's findings as "question:" threads + the editable answer flow (re-run scoped
+  to the order's revs). The WO# span drills in (href, no JS). vt-testable.
+- SLICE 3 — THE EDITS (the diff): diff.Compute(order.Base, order.Fix) → a Monaco DIFF
+  editor island on the per-order review ("see the edits this order made" — honestly,
+  a static diff). Server-testable diff payload; browser-verified render.
+- SLICE 4 (optional, Game) — reveal the diff/beats as the order fills (the "watch it
+  work" beat). Bigger; judge after 1–3.
+
+Guardrails: diagnostic-only/off-economy (firewall), data-honesty (the edits are a
+static pre-funded diff — never fake "live agent" theater), calm/no fabricated reward,
+reachability-grounded, server-tested + client browser-verified. #6 boundary gated.
+
+## New clashes opened / resolved
+
+None — a clean convergence. "Agent making edits" RESOLVED as the work-order diff (not
+a new agent), with a binding honesty caveat against faking live agent activity.
+</content>

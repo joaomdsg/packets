@@ -338,6 +338,13 @@ func renderDispatches(views []ledger.DispatchView) h.H {
 		if v.Status == "done" && v.Verdict != "" {
 			span = append(span, h.Span(h.Class("board-row__dispatch-why"), h.Text(" "+v.Verdict)))
 		}
+		// The order's reviewable test-debt: how many open review questions (surviving
+		// mutants) the filled work left — the dispatch→review tie. Shown only when the
+		// order left some; a calm count, never an alarm.
+		if v.Questions > 0 {
+			span = append(span, h.Span(h.Class("board-row__dispatch-questions"),
+				h.Text(" • "+strconv.Itoa(v.Questions)+" open questions")))
+		}
 		spans = append(spans, h.Span(span...))
 	}
 	return h.Div(spans...)
