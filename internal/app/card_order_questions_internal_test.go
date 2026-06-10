@@ -63,4 +63,17 @@ func TestLiveCard_aFilledOrderShowsItsOpenReviewQuestions(t *testing.T) {
 	body := bodyOf(vt.NewClient(t, server, "/?key=woq").HTML())
 	require.Contains(t, body, "WO#1", "the filled order is shown on the card")
 	require.Contains(t, body, "2 open questions", "with its reviewable test-debt — the dispatch→review tie")
+	require.Contains(t, body, "wo=1", "the count DRILLS into that order's review (/review?...&wo=1)")
+
+	// Drill: /review?wo=<id> reviews THAT order's questions (not the session's).
+	orderBody := bodyOf(vt.NewClient(t, server, "/review?key=woq&wo=1").HTML())
+	require.Contains(t, orderBody, "Reviewing WO#1", "the per-order review names the order")
+	require.Contains(t, orderBody, "review-thread", "the order's questions render as anchored threads")
+	require.Contains(t, orderBody, "alpha.go:7", "anchored to the order's surviving-mutant line")
+	require.Contains(t, orderBody, "question: mutated &gt;= to &gt;", "carrying the order's finding as a question")
+
+	// An order with no captured findings → calm empty per-order state, not the session's.
+	emptyBody := bodyOf(vt.NewClient(t, server, "/review?key=woq&wo=999").HTML())
+	require.Contains(t, emptyBody, "Reviewing WO#999", "the per-order review names the (unfilled) order")
+	require.Contains(t, emptyBody, "No open questions for this order", "a calm empty state for an order with no surviving mutants")
 }

@@ -260,7 +260,7 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 		// The funded work-order round-trip made legible: recent dispatches with their
 		// caught/missed outcome, in their own cluster (omitted when there are none).
 		// Honest per-order outcomes, never a fabricated rank.
-		if d := renderDispatches(r.Dispatches); d != nil {
+		if d := renderDispatches(r.Key, r.Dispatches); d != nil {
 			row = append(row, d)
 		}
 		// A retire control on every NON-default row — the default is the "/" route's
@@ -311,7 +311,7 @@ func blockedLandCount(rows []CardRow) int {
 // one span per order: "WO#<id> <path>:<line> <status>[ caught|missed]". The
 // caught/missed outcome is shown only for a done order (a queued/running order
 // has no outcome yet). Returns nil when there are none, so the cluster is omitted.
-func renderDispatches(views []ledger.DispatchView) h.H {
+func renderDispatches(key string, views []ledger.DispatchView) h.H {
 	if len(views) == 0 {
 		return nil
 	}
@@ -339,11 +339,15 @@ func renderDispatches(views []ledger.DispatchView) h.H {
 			span = append(span, h.Span(h.Class("board-row__dispatch-why"), h.Text(" "+v.Verdict)))
 		}
 		// The order's reviewable test-debt: how many open review questions (surviving
-		// mutants) the filled work left — the dispatch→review tie. Shown only when the
-		// order left some; a calm count, never an alarm.
+		// mutants) the filled work left — a DRILL link into that order's review
+		// (/review?wo=<id>), the dispatch→review tie. Shown only when the order left
+		// some; a calm accent count, never an alarm.
 		if v.Questions > 0 {
-			span = append(span, h.Span(h.Class("board-row__dispatch-questions"),
-				h.Text(" • "+strconv.Itoa(v.Questions)+" open questions")))
+			span = append(span, h.A(
+				h.Href("/review?key="+url.QueryEscape(key)+"&wo="+strconv.Itoa(v.ID)),
+				h.Class("board-row__dispatch-questions"),
+				h.Text(" • "+strconv.Itoa(v.Questions)+" open questions"),
+			))
 		}
 		spans = append(spans, h.Span(span...))
 	}

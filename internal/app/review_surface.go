@@ -42,10 +42,40 @@ const answerTestFilename = "packets_review_answer_test.go"
 // scored transaction.
 type ReviewCard struct {
 	Key string `query:"key"`
+	// WO, when set (/review?wo=<id>), drills into a filled work-order's review: that
+	// order's own surviving mutants (the test-debt the funded work left), not the
+	// session's connect-cycle findings — the dispatch→review tie.
+	WO string `query:"wo"`
 	// The reviewer's answer submission, set by the editor before posting AnswerQuestion.
 	AnswerFile via.SignalStr `via:"answerfile"`
 	AnswerLine via.SignalStr `via:"answerline"`
 	AnswerTest via.SignalStr `via:"answertest"`
+}
+
+// renderQuestionThreads renders anchored "question:" threads (File:Line + body) —
+// the shared read-only rendering for both the session review and a per-order review.
+func renderQuestionThreads(threads []review.Thread) []h.H {
+	out := make([]h.H, 0, len(threads))
+	for _, t := range threads {
+		out = append(out, h.Div(
+			h.Class("review-thread"),
+			h.Data("file", t.File),
+			h.Data("line", strconv.Itoa(t.StartLine)),
+			h.Span(h.Class("review-thread__anchor"), h.Text(t.File+":"+strconv.Itoa(t.StartLine))),
+			h.Span(h.Class("review-thread__body"), h.Text(t.Render())), // "question: <body>"
+		))
+	}
+	return out
+}
+
+// orderOpenThreads converts a filled work-order's cached findings into review
+// threads. Empty when the order is unknown, unfilled, or left no surviving mutants.
+func orderOpenThreads(key string, orderID int) []review.Thread {
+	e := lookupLiveEntry(key)
+	if e == nil {
+		return nil
+	}
+	return review.QuestionThreadsFromMutations(e.orderFindingsFor(orderID))
 }
 
 // AnswerQuestion re-runs the oracle for the answered line with the reviewer's test
@@ -113,8 +143,26 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 		navKey = defaultSessionKey
 	}
 	cfg, _ := readLiveState(navKey)
-	threads := sessionOpenThreads(navKey)
 	parts := []h.H{h.Class("review"), h.Data("state", "review"), navHeader(navKey)}
+
+	// Per-order review (/review?wo=<id>): the filled work-order's OWN review questions
+	// — the test-debt the funded work left — read from the per-order findings cache,
+	// not the session's connect cycle. Read-only here; order-scoped answering + the
+	// diff are later slices. (The editable answer flow below is session-scoped.)
+	if woID, err := strconv.Atoi(c.WO); err == nil && woID > 0 {
+		orderThreads := orderOpenThreads(navKey, woID)
+		parts = append(parts, h.P(h.Class("review__lead"),
+			h.Text("Reviewing WO#"+strconv.Itoa(woID)+" — the work order's surviving mutants:")))
+		if len(orderThreads) == 0 {
+			parts = append(parts, h.Div(h.Class("review__empty"),
+				h.Text("No open questions for this order — the work left no surviving mutants (or it hasn't filled yet).")))
+			return h.Div(parts...)
+		}
+		parts = append(parts, renderQuestionThreads(orderThreads)...)
+		return h.Div(parts...)
+	}
+
+	threads := sessionOpenThreads(navKey)
 	if len(threads) == 0 {
 		parts = append(parts, h.Div(h.Class("review__empty"),
 			h.Text("No open questions — the oracle killed every mutant it tried (or this session hasn't run a cycle yet).")))
@@ -122,15 +170,7 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 	}
 	parts = append(parts, h.P(h.Class("review__lead"),
 		h.Text(strconv.Itoa(len(threads))+" open — surviving mutants the tests didn't catch:")))
-	for _, t := range threads {
-		parts = append(parts, h.Div(
-			h.Class("review-thread"),
-			h.Data("file", t.File),
-			h.Data("line", strconv.Itoa(t.StartLine)),
-			h.Span(h.Class("review-thread__anchor"), h.Text(t.File+":"+strconv.Itoa(t.StartLine))),
-			h.Span(h.Class("review-thread__body"), h.Text(t.Render())), // "question: <body>"
-		))
-	}
+	parts = append(parts, renderQuestionThreads(threads)...)
 	// The editor island: a DOM subtree the client-side Monaco review editor (a later
 	// slice) mounts into, plus the SAME threads as a machine-readable JSON payload so
 	// the editor reads structured data, not the human text above. data-ignore-morph

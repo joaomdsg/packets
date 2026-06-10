@@ -187,6 +187,13 @@ func (e *liveEntry) orderQuestionCount(id int) int {
 	return len(e.orderFindings[id])
 }
 
+// orderFindingsFor returns a filled order's cached review questions (nil if none).
+func (e *liveEntry) orderFindingsFor(id int) []mutation.Finding {
+	e.findingsMu.Lock()
+	defer e.findingsMu.Unlock()
+	return e.orderFindings[id]
+}
+
 // setLand caches the latest cycle's integration verdict for the fleet board.
 func (e *liveEntry) setLand(land string) {
 	e.findingsMu.Lock()
@@ -534,7 +541,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	// Below the aggregate counts, the per-order round-trip: each recent work-order
 	// with its caught/missed outcome, so the Lead watches the order they funded
 	// resolve in place (omitted when there are none — same helper the board uses).
-	if d := renderDispatches(dispatches); d != nil {
+	if d := renderDispatches(navKey, dispatches); d != nil {
 		parts = append(parts, d)
 	}
 	parts = append(parts,
