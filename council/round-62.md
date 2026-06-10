@@ -83,6 +83,37 @@ thread count/field values when questions exist; island + payload omitted when no
 Pure server contract — zero client-JS this slice, so zero test-theater. Blue clean,
 full -race gate green.
 
+## SLICE 2a (built): serve the reviewed file SOURCE into the payload
+
+Reachability checked first (R49 lesson): the reviewed file's source at the fix rev
+is available via `git show FixRev:path` — exported as `reanchor.FileAt` (reusing the
+package's quotepath-correct git, not a re-implementation). Since `git show` is real
+subprocess I/O AND the hermetic /review tests seed findings with a fake rev ("f")
+that no real repo resolves, the read is an INJECTABLE seam: `var reviewFileReader =
+reanchor.FileAt`, stubbed in tests.
+
+ReviewCard.View now reads cfg (readLiveState) and the island payload evolved from a
+flat thread array to `reviewIsland{Files map[string]string, Threads
+[]reviewThreadPayload}` — `reviewIslandData` reads each DISTINCT referenced file ONCE
+at cfg.FixRev; a file whose source can't be read (lost anchor / deleted / transient
+git error) is OMITTED from Files (never an empty-string lie) while the threads still
+ride alongside. So the client editor (slice 2b) gets the real source to render with
+the questions anchored to its lines, degrading gracefully when source is missing.
+encoding/json HTML-escapes <,>,& so arbitrary file source can't break out of the
+<script>. Tests (review_island_internal_test.go): threads shape (hermetic, real
+reader errors on the fake rev → files empty, not asserted); file source served via
+stubbed reader; unreadable file omitted-not-empty. Audit clean (no injection — argv
+git, no shell; dedup reads once, never re-attempts a failure). PERF caveats noted
+(prototype-scale, accepted): N serial `git show` subprocesses per /review GET (no
+memoization); no file-SIZE cap (a huge referenced file embeds full source in the
+HTML). Revisit if findings ever reference large/generated files.
+
+NEXT (slice 2b): the Monaco client island — load the editor (CDN-vs-vendor decided
+then, lean vendor) read-only, read #review-threads-data, render the file source with
+the questions anchored as inline decorations. The editor RENDER is the client island
+(not vt-unit-tested per the R62 testability boundary); flag for maintainer browser-
+verify since the loop can't confirm client rendering headlessly.
+
 ## New clashes opened / resolved
 
 - The R59 "Monaco untestable / no WithPlugins" claim is RESOLVED as a misread — via

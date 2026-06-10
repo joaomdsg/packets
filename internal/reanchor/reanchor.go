@@ -176,6 +176,15 @@ func fileAt(ctx context.Context, repoDir, rev, path string) (string, error) {
 	return git(ctx, repoDir, "show", rev+":"+path)
 }
 
+// FileAt returns the contents of path at rev in the repo at repoDir (a thin
+// `git show rev:path`). Exported so other surfaces — e.g. the review editor, which
+// renders the reviewed file with the oracle's questions anchored to its lines — can
+// read a tracked file's source at a revision through the same quotepath-correct git
+// invocation, without re-implementing it.
+func FileAt(ctx context.Context, repoDir, rev, path string) (string, error) {
+	return fileAt(ctx, repoDir, rev, path)
+}
+
 func git(ctx context.Context, repoDir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = repoDir

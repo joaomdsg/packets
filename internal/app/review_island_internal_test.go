@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -62,17 +64,95 @@ func TestReviewCard_feedsAnchoredThreadsAsAStructuredIslandPayload(t *testing.T)
 
 	// The payload must be VALID JSON the client can parse — extract and unmarshal it.
 	payload := jsonPayloadBetween(t, body, `type="application/json"`)
-	var threads []struct {
-		File string `json:"file"`
-		Line int    `json:"line"`
-		Tag  string `json:"tag"`
-		Body string `json:"body"`
+	island := decodeReviewIsland(t, payload)
+	require.Len(t, island.Threads, 2, "both open questions are in the payload")
+	require.Equal(t, "auth.go", island.Threads[0].File)
+	require.Equal(t, 12, island.Threads[0].Line)
+	require.Equal(t, "question", island.Threads[0].Tag)
+}
+
+// decodeReviewIsland parses the editor payload into the impl's reviewIsland
+// contract (same package), so the test asserts against the real shape the client
+// receives.
+func decodeReviewIsland(t *testing.T, payload string) reviewIsland {
+	t.Helper()
+	var island reviewIsland
+	require.NoError(t, json.Unmarshal([]byte(payload), &island), "the payload is valid JSON")
+	return island
+}
+
+// The editor renders the reviewed FILE with the questions anchored to its lines, so
+// it needs the file's SOURCE, not just the line numbers. The payload carries each
+// referenced file's content at the reviewed (fix) revision, read through an
+// injected git-show seam. Without the source the editor would show line numbers
+// against a blank document. NOT parallel (shared liveReg + the reader seam).
+func TestReviewCard_feedsTheReviewedFileSourceForTheEditorToRender(t *testing.T) {
+	resetConsumersForTest()
+	restore := reviewFileReader
+	t.Cleanup(func() { reviewFileReader = restore })
+	const src = "package auth\n\nfunc ok(n int) bool {\n\treturn n >= 18\n}\n"
+	reviewFileReader = func(_ context.Context, _, _, path string) (string, error) {
+		if path == "auth.go" {
+			return src, nil
+		}
+		return "", errors.New("unexpected path")
 	}
-	require.NoError(t, json.Unmarshal([]byte(payload), &threads), "the payload is valid JSON")
-	require.Len(t, threads, 2, "both open questions are in the payload")
-	require.Equal(t, "auth.go", threads[0].File)
-	require.Equal(t, 12, threads[0].Line)
-	require.Equal(t, "question", threads[0].Tag)
+
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	e := lookupLiveEntry(defaultSessionKey)
+	require.NotNil(t, e)
+	e.setFindings([]mutation.Finding{
+		{File: "auth.go", Line: 4, Outcome: mutation.Survived, Message: "mutated >= to >; tests still pass"},
+	})
+
+	body := bodyOf(vt.NewClient(t, server, "/review").HTML())
+	island := decodeReviewIsland(t, jsonPayloadBetween(t, body, `type="application/json"`))
+	require.Equal(t, src, island.Files["auth.go"], "the editor gets the reviewed file's source to render")
+	require.Len(t, island.Threads, 1, "the threads still ride alongside the file source")
+	require.Equal(t, 4, island.Threads[0].Line)
+}
+
+// If a referenced file's source can't be read at the reviewed revision (a lost
+// anchor, a deleted file, a transient git error), the payload OMITS that file's
+// content rather than emitting an empty-string lie — the editor still gets the
+// threads and degrades to anchoring against no source, and the surface never
+// breaks. NOT parallel (shared liveReg + the reader seam).
+func TestReviewCard_omitsFileSourceItCannotReadRatherThanLie(t *testing.T) {
+	resetConsumersForTest()
+	restore := reviewFileReader
+	t.Cleanup(func() { reviewFileReader = restore })
+	reviewFileReader = func(_ context.Context, _, _, _ string) (string, error) {
+		return "", errors.New("file not found at rev")
+	}
+
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	e := lookupLiveEntry(defaultSessionKey)
+	require.NotNil(t, e)
+	e.setFindings([]mutation.Finding{
+		{File: "gone.go", Line: 7, Outcome: mutation.Survived, Message: "mutated < to <=; tests still pass"},
+	})
+
+	body := bodyOf(vt.NewClient(t, server, "/review").HTML())
+	island := decodeReviewIsland(t, jsonPayloadBetween(t, body, `type="application/json"`))
+	_, present := island.Files["gone.go"]
+	require.False(t, present, "an unreadable file's source is omitted, not emitted as an empty-string lie")
+	require.Len(t, island.Threads, 1, "the threads still render so the question is not lost")
 }
 
 // With no open questions there is nothing for the editor to show, so the island and
