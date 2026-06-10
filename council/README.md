@@ -165,6 +165,12 @@ Layout of this directory:
   flow with no boot edit, no claim consumer (documented V1 limit: no producer claims
   for runtime sessions). Invalid/duplicate keys are honest no-ops. Reachability +
   the via cmpID/tab routing verified before building.
+- [Round 54](round-54.md) — SESSION-MANAGEMENT thread (slice 2): spawn a claim
+  consumer PER SESSION, including runtime-created ones (a claimConsumerSpawner +
+  registerSession hook), closing R53's V1 gap — producer claims for a runtime session
+  now verify + mint. Adversarial audit caught two real defects a green bar hid: a
+  closure-capture race (fixed via locals-under-lock) and cross-test global
+  contamination (fixed via a test reset). Full -race gate (incl. -count) green.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
