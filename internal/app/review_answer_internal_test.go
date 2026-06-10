@@ -176,6 +176,45 @@ func TestReviewCard_offersAnEditableMonacoAnswerPane(t *testing.T) {
 	require.Contains(t, body, "monaco.editor.create", "a bootstrap mounts the editable editor")
 }
 
+// R63 settled that a killing answer makes the question VANISH. But the live card's
+// connect cycle ALSO writes the findings cache, and the reviewer's test isn't
+// committed to the repo — so a cycle re-running after an answer would re-surface the
+// survivor and visually undo the answer. An answered (killed) question must STAY
+// resolved for the session, even when a later cycle re-finds it. NOT parallel.
+func TestReviewCard_anAnsweredQuestionStaysResolvedWhenTheCycleReRuns(t *testing.T) {
+	resetConsumersForTest()
+	restore := rerunWithOverlay
+	t.Cleanup(func() { rerunWithOverlay = restore })
+	rerunWithOverlay = func(_ context.Context, _, _, _ string, _ int, _ []string, _ map[string]string) ([]mutation.Finding, error) {
+		return nil, nil // the reviewer's test killed the mutant
+	}
+
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	survivor := []mutation.Finding{{File: "main.go", Line: 6, Outcome: mutation.Survived, Message: "mutated >= to >"}}
+	e := lookupLiveEntry(defaultSessionKey)
+	require.NotNil(t, e)
+	e.setFindings(survivor)
+
+	tc := vt.NewClient(t, server, "/review")
+	require.Equal(t, 200, tc.Action((&ReviewCard{}).AnswerQuestion).
+		WithSignal("answerfile", "main.go").WithSignal("answerline", "6").
+		WithSignal("answertest", "package main\nfunc x(){}\n").Fire())
+	require.Empty(t, lookupLiveEntry(defaultSessionKey).openFindings(), "a killing answer resolves the question")
+
+	// a subsequent connect cycle re-finds the (uncommitted) survivor — the answer must STICK
+	lookupLiveEntry(defaultSessionKey).setFindings(survivor)
+	require.Empty(t, lookupLiveEntry(defaultSessionKey).openFindings(),
+		"an answered question stays resolved for the session even when the cycle re-surfaces it")
+}
+
 // Submitting an answer re-runs the oracle (seconds of real work), so the form must
 // show a calm in-flight "running…" affordance rather than dead-air: the submit
 // carries a datastar indicator signal, and a sibling reveals a "re-running the

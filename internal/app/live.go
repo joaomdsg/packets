@@ -78,6 +78,13 @@ type liveEntry struct {
 	// /review surface reads it; OnConnect writes it when the cycle resolves.
 	findingsMu sync.Mutex
 	findings   []mutation.Finding
+	// resolved holds the "file:line" of questions a reviewer ANSWERED (their test
+	// killed the mutant) this session. R63 settled that a killing answer makes the
+	// question vanish; since the reviewer's test isn't committed, a later connect
+	// cycle would re-find the survivor, so openFindings filters resolved lines out —
+	// the answer sticks for the session. Ephemeral, off the economy ledger (a
+	// diagnostic, like findings); guarded by findingsMu.
+	resolved map[string]bool
 	// land is the latest connect cycle's integration verdict (clean/conflict/
 	// checks_red), cached so the fleet board can show which sessions are blocked from
 	// merging — ephemeral, recomputed each connect, off the economy ledger. Guarded
@@ -93,12 +100,39 @@ func (e *liveEntry) setFindings(fs []mutation.Finding) {
 	e.findingsMu.Unlock()
 }
 
-// openFindings returns the session's latest cached open review questions.
+// openFindings returns the session's latest cached open review questions, with any
+// the reviewer has ANSWERED (markResolved) this session filtered out — so a killing
+// answer stays vanished even when a later connect cycle re-finds the uncommitted
+// survivor (R63's "the question vanishes").
 func (e *liveEntry) openFindings() []mutation.Finding {
 	e.findingsMu.Lock()
 	defer e.findingsMu.Unlock()
-	return e.findings
+	if len(e.resolved) == 0 {
+		return e.findings
+	}
+	out := make([]mutation.Finding, 0, len(e.findings))
+	for _, f := range e.findings {
+		if e.resolved[findingKey(f.File, f.Line)] {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }
+
+// markResolved records that the question at file:line was answered (its mutant
+// killed), so openFindings filters it out for the rest of the session.
+func (e *liveEntry) markResolved(file string, line int) {
+	e.findingsMu.Lock()
+	defer e.findingsMu.Unlock()
+	if e.resolved == nil {
+		e.resolved = map[string]bool{}
+	}
+	e.resolved[findingKey(file, line)] = true
+}
+
+// findingKey is the per-line identity used to match a resolved answer to a finding.
+func findingKey(file string, line int) string { return file + ":" + strconv.Itoa(line) }
 
 // setLand caches the latest cycle's integration verdict for the fleet board.
 func (e *liveEntry) setLand(land string) {

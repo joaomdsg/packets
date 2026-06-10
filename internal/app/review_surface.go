@@ -10,6 +10,7 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
 
+	"github.com/joaomdsg/packets/internal/mutation"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
 	"github.com/joaomdsg/packets/internal/review"
@@ -73,10 +74,28 @@ func (c *ReviewCard) AnswerQuestion(ctx *via.Ctx) {
 	if err != nil {
 		return // transient — leave the question open, retryable (flaky-truth fence)
 	}
+	// If the answered line is GONE from the re-run findings, the reviewer's test
+	// killed the mutant — mark it resolved so it stays vanished for the session even
+	// when a later connect cycle re-finds the (uncommitted) survivor (R63's "the
+	// question vanishes"). A still-surviving line is NOT resolved (honest: try again).
+	if !findingsHaveLine(newFindings, file, line) {
+		e.markResolved(file, line)
+	}
 	// Wholesale replace is correct because the live card anchors ONE line and
 	// mutation.Run is scoped to it, so the cache only ever holds that line's findings.
 	// (If multi-line answering is ever added, replace only the answered line's entries.)
 	e.setFindings(newFindings) // diagnostic cache only; no ledger touch — FIREWALL
+}
+
+// findingsHaveLine reports whether any finding sits on file:line — used to tell a
+// killing answer (the line is gone) from a weak one (it remains).
+func findingsHaveLine(fs []mutation.Finding, file string, line int) bool {
+	for _, f := range fs {
+		if f.File == file && f.Line == line {
+			return true
+		}
+	}
+	return false
 }
 
 // View renders the session's open question-threads, anchored File:Line with their
