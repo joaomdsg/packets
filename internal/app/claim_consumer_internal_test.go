@@ -28,6 +28,7 @@ func confirmingVerifier(c ledger.ClaimRecord) (*ledger.CatchRecord, error) {
 
 func claimConsumerServer(t *testing.T) (*httptest.Server, *ledger.Log) {
 	t.Helper()
+	resetConsumersForTest() // isolate from any prior test's stale registry + active spawner
 	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{

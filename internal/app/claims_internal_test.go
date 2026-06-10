@@ -66,6 +66,7 @@ func TestStartCageClaimConsumers_wiresAWorkingCageVerifierThatMints(t *testing.T
 	})
 	require.NoError(t, err)
 
+	resetConsumersForTest() // isolate from any prior test's stale registry + active spawner
 	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{

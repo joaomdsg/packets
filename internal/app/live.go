@@ -98,30 +98,102 @@ func registerSession(key string, cfg LiveConfig, log *ledger.Log) {
 	if cfg.MaxConcurrent > 0 {
 		sem = make(chan struct{}, cfg.MaxConcurrent)
 	}
-	liveReg.Store(key, &liveEntry{cfg: cfg, log: log, sem: sem, seq: int(atomic.AddInt64(&regSeq, 1))})
+	e := &liveEntry{cfg: cfg, log: log, sem: sem, seq: int(atomic.AddInt64(&regSeq, 1))}
+	liveReg.Store(key, e)
+	// If claim consumers are already running, a session registered now (e.g. an R53
+	// runtime-created session) gets its consumer immediately, not only those present
+	// at boot.
+	consumerSpawner.onRegister(key, e)
 }
 
 func setLiveState(cfg LiveConfig, log *ledger.Log) {
 	registerSession(defaultSessionKey, cfg, log)
 }
 
-// StartClaimConsumers drains every registered session's claim subtree through the
-// host verifier, minting confirmed catches — the server-side half of the producer
-// loop (producers POST claims via /claim; this verifies and mints them). It spawns
-// one consumer goroutine per session (one session per producer), each running the
-// verifier verifierFor builds from that session's config — the seam where the live
-// server wires the sandboxed CageVerifier (cmd) or a stub (tests). The caller owns
-// ctx: cancelling it stops every consumer. ackWait/adm are the durable-consumer
-// redelivery window and the admission limits (nil adm = no rate/concurrency cap).
-//
-// Caller contract: call this EXACTLY ONCE, AFTER all sessions are registered
-// (NewServer + every AddSession). It snapshots the registry, so a session
-// registered later gets no consumer; and a second call would bind a second
-// subscriber to each session's durable consumer (splitting its claim delivery).
+// claimConsumerSpawner gives each session EXACTLY ONE durable claim consumer — for
+// the sessions present when consumers start AND for any session registered later
+// (R53 runtime-created sessions), so the create flow is not a dead end for the
+// producer path. Birth is guarded by `started` so a session is never double-
+// consumed. Once active, registerSession spawns a consumer for each new session
+// using the latest StartClaimConsumers parameters.
+type claimConsumerSpawner struct {
+	mu          sync.Mutex
+	active      bool
+	ctx         context.Context
+	verifierFor func(LiveConfig) ledger.Verifier
+	ackWait     time.Duration
+	adm         *ledger.Admission
+	started     map[string]bool
+}
+
+var consumerSpawner claimConsumerSpawner
+
+// resetConsumersForTest clears the package-global claim-consumer state: the
+// session registry and the spawner. The live server's wiring lives in process
+// globals (liveReg + consumerSpawner) that are never torn down in production
+// (one server per process). Tests, however, drive NewServer serially in one
+// process, so a prior test's stale registry entries (bound to a now-closed
+// fabric) and a still-`active` spawner leak forward: a later test's
+// StartClaimConsumers would Range over a stale key and mark it `started`,
+// starving the same key's fresh entry of a consumer (a real flaky failure).
+// Call this at the start of each consumer test's setup to isolate it.
+func resetConsumersForTest() {
+	consumerSpawner.mu.Lock()
+	defer consumerSpawner.mu.Unlock()
+	liveReg.Range(func(k, _ any) bool {
+		liveReg.Delete(k)
+		return true
+	})
+	// Reset the fields in place — never reassign the struct, which would swap out
+	// the mutex this call holds (the deferred Unlock would hit a fresh, unlocked
+	// one). Zero everything the spawner carries forward between StartClaimConsumers.
+	consumerSpawner.active = false
+	consumerSpawner.ctx = nil
+	consumerSpawner.verifierFor = nil
+	consumerSpawner.ackWait = 0
+	consumerSpawner.adm = nil
+	consumerSpawner.started = nil
+}
+
+// spawnLocked starts a consumer for key/e unless one is already running. mu held.
+// The spawner fields are copied into locals UNDER the lock and the goroutine closes
+// over those locals — never the shared struct fields — so a later StartClaimConsumers
+// call writing s.ctx/s.verifierFor/etc. can't race the running goroutine's reads.
+func (s *claimConsumerSpawner) spawnLocked(key string, e *liveEntry) {
+	if s.started[key] {
+		return
+	}
+	s.started[key] = true
+	ctx, verifierFor, ackWait, adm := s.ctx, s.verifierFor, s.ackWait, s.adm
+	go func() { _ = e.log.ConsumeClaims(ctx, verifierFor(e.cfg), ackWait, adm) }()
+}
+
+// onRegister is called after a session is stored in liveReg. If consumers are
+// active, the new session gets one immediately — the R53 runtime-create path.
+func (s *claimConsumerSpawner) onRegister(key string, e *liveEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.active {
+		s.spawnLocked(key, e)
+	}
+}
+
+// StartClaimConsumers activates per-session claim consumers: it spawns one for
+// every currently-registered session and arms registerSession to spawn one for
+// each session created later (so a runtime-created session is never left without a
+// consumer). Idempotent-friendly: each call refreshes the verifier/ackWait/adm and
+// re-spawns for any session that does not yet have a consumer under this call.
 func StartClaimConsumers(ctx context.Context, verifierFor func(LiveConfig) ledger.Verifier, ackWait time.Duration, adm *ledger.Admission) {
-	liveReg.Range(func(_, v any) bool {
-		e := v.(*liveEntry)
-		go func() { _ = e.log.ConsumeClaims(ctx, verifierFor(e.cfg), ackWait, adm) }()
+	consumerSpawner.mu.Lock()
+	defer consumerSpawner.mu.Unlock()
+	consumerSpawner.active = true
+	consumerSpawner.ctx = ctx
+	consumerSpawner.verifierFor = verifierFor
+	consumerSpawner.ackWait = ackWait
+	consumerSpawner.adm = adm
+	consumerSpawner.started = map[string]bool{} // this call owns a fresh consumer set
+	liveReg.Range(func(k, v any) bool {
+		consumerSpawner.spawnLocked(k.(string), v.(*liveEntry))
 		return true
 	})
 }

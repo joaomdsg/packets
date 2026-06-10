@@ -34,8 +34,9 @@ func claimConcurrency() int { return max(1, min(4, runtime.NumCPU()/2)) }
 // session, each verifying claims in the hardened Docker cage via the injected
 // runner (production passes sandbox.DockerRunner{}; tests fake it at this seam).
 // It applies the shared governor: a per-producer token bucket plus a process-wide
-// concurrency semaphore. Per the StartClaimConsumers contract, call this EXACTLY
-// ONCE, AFTER every session is registered.
+// concurrency semaphore. Call this once after the boot sessions are registered; it
+// also arms registerSession so any session created later (an R53 runtime-created
+// session) gets its own cage consumer immediately.
 func StartCageClaimConsumers(ctx context.Context, image string, runner sandbox.Runner) {
 	adm := &ledger.Admission{
 		Burst:       claimBurst,
