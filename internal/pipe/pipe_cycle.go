@@ -225,29 +225,44 @@ func integrateOnTip(ctx context.Context, repoDir, fixRev, tipRev string, testCmd
 	return LandClean, nil
 }
 
+// buildWorktreeAt materializes rev in a throwaway detached git worktree and returns
+// the worktree path plus a cleanup func the caller MUST defer. Extracted so both the
+// catch-cycle oracle (runOracleAt) and the review re-run (RerunWithTestOverlay) share
+// one worktree lifecycle instead of duplicating the create/cleanup discipline.
+//
+// cleanup removes the worktree and prunes its admin entry against
+// context.Background(), NOT ctx: a cancelled/timed-out parent ctx would otherwise
+// kill the cleanup git itself, leaving the working dir removed but a stale
+// .git/worktrees/<id> entry in the PRODUCTION repo. prune reaps that entry if remove
+// couldn't (its gitdir now points at the deleted dir), so leaked admin metadata
+// can't accumulate across cycles.
+func buildWorktreeAt(ctx context.Context, repoDir, rev string) (wt string, cleanup func(), err error) {
+	parent, err := os.MkdirTemp("", "packets-pipe-*")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("pipe: temp worktree dir: %w", err)
+	}
+	wt = filepath.Join(parent, "wt")
+	if _, err := git(ctx, repoDir, "worktree", "add", "--detach", wt, rev); err != nil {
+		os.RemoveAll(parent)
+		return "", func() {}, err
+	}
+	cleanup = func() {
+		git(context.Background(), repoDir, "worktree", "remove", "--force", wt) //nolint:errcheck // best-effort cleanup
+		git(context.Background(), repoDir, "worktree", "prune")                 //nolint:errcheck // reaps a remove that couldn't run
+		os.RemoveAll(parent)
+	}
+	return wt, cleanup, nil
+}
+
 // runOracleAt materializes rev in a throwaway detached worktree, runs the
 // mutation oracle scoped to the given line, and returns the result plus the
 // file's content at that revision. The worktree is always cleaned up.
 func runOracleAt(ctx context.Context, repoDir, rev, file string, line int, testCmd []string) (mutation.Result, []byte, error) {
-	parent, err := os.MkdirTemp("", "packets-pipe-*")
+	wt, cleanup, err := buildWorktreeAt(ctx, repoDir, rev)
 	if err != nil {
-		return mutation.Result{}, nil, fmt.Errorf("pipe: temp worktree dir: %w", err)
-	}
-	defer os.RemoveAll(parent)
-	wt := filepath.Join(parent, "wt")
-	if _, err := git(ctx, repoDir, "worktree", "add", "--detach", wt, rev); err != nil {
 		return mutation.Result{}, nil, err
 	}
-	// Clean up against context.Background(), not ctx: a cancelled/timed-out
-	// parent ctx would otherwise kill the cleanup git itself, leaving the
-	// working dir removed (by RemoveAll) but a stale .git/worktrees/<id> entry
-	// in the PRODUCTION repo. prune reaps that entry if remove still couldn't
-	// (its gitdir now points at the deleted dir), so leaked admin metadata
-	// can't accumulate across cycles.
-	defer func() {
-		git(context.Background(), repoDir, "worktree", "remove", "--force", wt) //nolint:errcheck // best-effort cleanup
-		git(context.Background(), repoDir, "worktree", "prune")                 //nolint:errcheck // reaps a remove that couldn't run
-	}()
+	defer cleanup()
 
 	res, err := mutation.Run(ctx, mutation.Options{
 		Dir:     wt,
