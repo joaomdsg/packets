@@ -68,6 +68,13 @@ func (c *ReviewCard) AnswerQuestion(ctx *via.Ctx) {
 	if file == "" || test == "" || err != nil || line < 1 {
 		return // nothing to answer
 	}
+	// One re-run at a time per session: a re-run spawns a git worktree + oracle run,
+	// so a double-clicked submit would race the shared repo's worktree ops. Drop the
+	// duplicate (the in-flight one is already answering).
+	if !e.beginAnswer() {
+		return
+	}
+	defer e.endAnswer()
 	cfg, _ := readLiveState(key)
 	overlay := map[string]string{filepath.Join(filepath.Dir(file), answerTestFilename): test}
 	newFindings, err := rerunWithOverlay(context.Background(), cfg.RepoDir, cfg.FixRev, file, line, cfg.TestCmd, overlay)

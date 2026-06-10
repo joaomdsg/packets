@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -213,6 +215,53 @@ func TestReviewCard_anAnsweredQuestionStaysResolvedWhenTheCycleReRuns(t *testing
 	lookupLiveEntry(defaultSessionKey).setFindings(survivor)
 	require.Empty(t, lookupLiveEntry(defaultSessionKey).openFindings(),
 		"an answered question stays resolved for the session even when the cycle re-surfaces it")
+}
+
+// A re-run spawns a git worktree + oracle run, so two concurrent re-runs for one
+// session (a double-clicked submit) would race the shared repo's worktree ops. Only
+// ONE answer re-run runs at a time per session; a second submit while one is in
+// flight is dropped. NOT parallel (shared liveReg + the re-run seam).
+func TestReviewCard_runsOneAnswerAtATimePerSession(t *testing.T) {
+	resetConsumersForTest()
+	restore := rerunWithOverlay
+	t.Cleanup(func() { rerunWithOverlay = restore })
+	var calls int32
+	release := make(chan struct{})
+	rerunWithOverlay = func(_ context.Context, _, _, _ string, _ int, _ []string, _ map[string]string) ([]mutation.Finding, error) {
+		atomic.AddInt32(&calls, 1)
+		<-release // hold the re-run in flight
+		return nil, nil
+	}
+
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	e := lookupLiveEntry(defaultSessionKey)
+	require.NotNil(t, e)
+	e.setFindings([]mutation.Finding{{File: "main.go", Line: 6, Outcome: mutation.Survived, Message: "x"}})
+
+	fire := func(c *vt.Client) {
+		c.Action((&ReviewCard{}).AnswerQuestion).
+			WithSignal("answerfile", "main.go").WithSignal("answerline", "6").
+			WithSignal("answertest", "package main\nfunc x(){}\n").Fire()
+	}
+	go fire(vt.NewClient(t, server, "/review")) // re-run 1 — blocks in the stub
+
+	require.Eventually(t, func() bool { return atomic.LoadInt32(&calls) == 1 }, 2*time.Second, 10*time.Millisecond,
+		"the first answer's re-run is in flight")
+	fire(vt.NewClient(t, server, "/review")) // re-run 2 — must be dropped (one in flight)
+	require.Equal(t, int32(1), atomic.LoadInt32(&calls), "a second answer while one is in flight is dropped — no concurrent re-run")
+
+	close(release) // let the in-flight re-run finish and release the slot
+	fire(vt.NewClient(t, server, "/review")) // re-run 3 — the slot is free now, so it runs
+	require.Eventually(t, func() bool { return atomic.LoadInt32(&calls) == 2 }, 2*time.Second, 10*time.Millisecond,
+		"after the in-flight re-run completes, the slot is released and a new answer runs")
 }
 
 // Submitting an answer re-runs the oracle (seconds of real work), so the form must

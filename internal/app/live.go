@@ -90,6 +90,31 @@ type liveEntry struct {
 	// merging — ephemeral, recomputed each connect, off the economy ledger. Guarded
 	// by findingsMu (written together with findings in OnConnect).
 	land string
+	// answering is true while an answer re-run is in flight for this session. It
+	// serializes answer re-runs (one at a time): a re-run spawns a git worktree +
+	// oracle run, so two concurrent re-runs (a double-clicked submit) would race the
+	// shared repo's worktree operations. Guarded by findingsMu.
+	answering bool
+}
+
+// beginAnswer claims the single in-flight answer slot for the session, returning
+// false if a re-run is already running (so the caller drops the duplicate). Pair
+// every true with endAnswer.
+func (e *liveEntry) beginAnswer() bool {
+	e.findingsMu.Lock()
+	defer e.findingsMu.Unlock()
+	if e.answering {
+		return false
+	}
+	e.answering = true
+	return true
+}
+
+// endAnswer releases the in-flight answer slot.
+func (e *liveEntry) endAnswer() {
+	e.findingsMu.Lock()
+	e.answering = false
+	e.findingsMu.Unlock()
 }
 
 // setFindings caches the latest cycle's open review questions for the /review
