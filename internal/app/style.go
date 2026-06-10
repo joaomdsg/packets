@@ -121,6 +121,10 @@ body {
 .board-row__land { font-size: 0.92em; }
 .board-row__land[data-state="land-conflict"] { color: var(--pk-inflight); }
 .board-row__land[data-state="land-checks-red"] { color: var(--pk-lost); }
+/* fleet-level merge-readiness roll-up: how much of the fleet is blocked from
+   landing. A calm dim summary line, surfaced only when ≥1 session is blocked — a
+   count, never a gauge or alarm. */
+.board__land-summary { display: block; color: var(--pk-ink-dim); font-size: 0.92em; }
 /* retire a session from the fleet view — a quiet, low-emphasis control (dim until
    hover), never an alarm; only on non-default rows. */
 .board-row__retire {

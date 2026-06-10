@@ -191,7 +191,20 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 			h.Button(on.Click(c.CreateSession), h.Class("board-create__btn"), h.Text("Create session")),
 		),
 	}
-	for _, r := range BoardRows() {
+	rows := BoardRows()
+	// A fleet-level merge-readiness roll-up: how many sessions are blocked from
+	// landing, out of the whole fleet — a calm count of the same honest per-session
+	// land verdicts, so a Lead sees fleet-wide merge friction without scanning every
+	// row. Surfaced ONLY when ≥1 session is blocked (mirroring the per-row precedent),
+	// so a fully-mergeable fleet stays calm. A diagnostic projection, off the economy;
+	// never a fabricated rank.
+	if blocked := blockedLandCount(rows); blocked > 0 {
+		parts = append(parts, h.Span(
+			h.Class("board__land-summary"),
+			h.Text(strconv.Itoa(blocked)+" of "+strconv.Itoa(len(rows))+" sessions blocked from landing"),
+		))
+	}
+	for _, r := range rows {
 		row := []h.H{
 			h.Class("board-row"),
 			h.Data("key", r.Key),
@@ -272,6 +285,20 @@ func boardLand(land string) (state, label string, blocked bool) {
 	default: // clean / pending / unknown — nothing blocking to surface
 		return "", "", false
 	}
+}
+
+// blockedLandCount counts how many rows carry a land verdict that blocks a merge
+// (conflict / checks-red) — the numerator of the fleet's merge-readiness summary,
+// using the SAME boardLand classification the per-row spans use so the roll-up and
+// the rows can't disagree.
+func blockedLandCount(rows []CardRow) int {
+	n := 0
+	for _, r := range rows {
+		if _, _, blocked := boardLand(r.Land); blocked {
+			n++
+		}
+	}
+	return n
 }
 
 // renderDispatches renders a session's recent work-orders as a calm cluster —

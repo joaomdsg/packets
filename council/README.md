@@ -218,6 +218,14 @@ Layout of this directory:
   reachable + server-testable space is BUILT OUT (R43–R58); the next move is a
   maintainer product/scope decision — surfaced with a menu rather than manufacture
   marginal polish (skeptic gate).
+- [Round 60](round-60.md) — next-direction: the loop relaunch = "keep going /
+  council picks", so the council picked the STRONGEST MODERATE reachable+testable
+  option from R59's menu. 5 of 6 lenses converged on the fleet merge-readiness
+  SUMMARY (Game Designer dissented to an accessibility pass, ranked it #2 →
+  deferred). Slice: a calm board__land-summary span "N of M sessions blocked from
+  landing", surfaced only when ≥1 blocked (silent when all-clear), a pure projection
+  of the R58 per-session land verdicts, off the economy. Server-render-testable
+  (3 vt tests incl. an honest-count ratio guard). Flagged moderate.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
