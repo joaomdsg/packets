@@ -248,7 +248,12 @@ Built since (council round 75, `internal/harness`):
   `agentSpec` (host uid:gid, the `RouteEnv` writable-HOME routing, the by-name key),
   and runs `docker run --name … <ContainerArgs>` streaming stdout to the unchanged
   `Supervisor.Run`, with a deadlock-safe kill/drain/reap teardown mirroring
-  `RunProcess`. Its end-to-end proof (a fake-`claude`-image run) is slice 5a-iv.
+  `RunProcess`. Its end-to-end proof shipped (slice 5a-iv): a fake-`claude`-image
+  integration test (image built FROM the CI-built cage base, no extra pull) runs a
+  REAL `docker run` — the containerized agent edits the bind-mounted repo, the host
+  settles it into a minted revision, and the activity streams live, all with no API
+  key. So the agent-container path is proven end-to-end (a real harness binary + key
+  is wired via the seam in 5b).
   The profile already carries `RouteEnv` (slice 5a-ii) — host-set non-secret
   `-e NAME=VALUE` routing (HOME/GOCACHE/npm → the writable `/tmp`) so the agent's
   tools don't hit EROFS on the read-only rootfs, kept distinct from the by-name

@@ -134,6 +134,27 @@ confirmed valid argv, deadlock-safe teardown, no orphaned seccomp refs, full sui
 green. RunContainer is wiring (build/vet); its end-to-end proof is the fake-claude-IMAGE
 integration test — SLICE 5a-iv (next).
 
+## Build record — slice 5a-iv SHIPPED (the container path PROVEN end-to-end)
+
+A fake-`claude`-image integration test proves `RunContainer` end-to-end with a REAL
+`docker run`, NO API key. `fakeAgentImage` builds a tiny image FROM the CI-built
+`packets-cage:dev` (no extra base pull — the flake source) whose `claude` edits the
+bind-mounted `/work` repo + emits stream-json; an `export_test.go` `SetAgentImage`
+seam points RunContainer at it. The test: a real container spawns → the agent edits
+`/work/feature.go` → stream-json → the HOST's `SettleTurn` commits (the firewall: only
+the host mints) → a minted revision whose diff includes `feature.go` + the editing
+activity streamed live. Skips when `packets-cage:dev` is absent (local), hard-runs
+under `PACKETS_REQUIRE_CAGE` (CI). Ran for REAL locally (PASS, 0.34s — cached base);
+full suite 20/20 + vet green.
+
+THE AGENT-CONTAINER PATH IS NOW PROVEN: profile (5a-i) → writable-HOME routing (5a-ii)
+→ runner (5a-iii) → a real `docker run` settling a revision (5a-iv). The GOAL's
+north-star ("a real harness instance does the work IN A CONTAINER, you review its
+changeset") is demonstrated end-to-end (modulo the real `claude` + API key, which 5b's
+seam-wiring + real image cover). Remaining: 5b wire the runHarness seam to select
+RunContainer + the real agent Dockerfile; 5c+ egress allowlist / multi-tenant /
+push-to-durable-storage.
+
 ## New clashes opened / resolved
 
 Resolved: the agent container is a trust-isolation boundary (separate hardened
