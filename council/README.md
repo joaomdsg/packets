@@ -295,7 +295,18 @@ Layout of this directory:
   RunProcess timeout. Systems-vs-Refactoring clash (resolveCycle reuse conflates
   catch-vs-agent-ended + no dedup/anchor for a free-form task) → split the slice:
   4a settles live revisions first (no oracle), 4b designs the live-order anchor model
-  + catch, 4c surfaces a single-line "latest activity" indicator, 5+ containerizes. (dead, provenance only): UX
+  + catch, 4c surfaces a single-line "latest activity" indicator, 5+ containerizes.
+- [Round 70](round-70.md) — slice 4a SHIPPED (`Target.Prompt` + `runHarness` seam +
+  `runLiveOrder`, firewall-tested: a live run produces a revision, mints nothing).
+  4b design council (3 lenses): Systems caught that deriving the catch anchor from the
+  AGENT's own diff is the confirmed-catch FARMING exploit (V§13.5) — the agent would
+  name its own denominator. BINDING: a live order's catch anchor must be PRE-SPECIFIED
+  (reuse `Target.Path/Line` — "fix the known weak spot at X"), never agent-derived.
+  This simplifies 4b: reuse `anchorFromTarget` + extract a shared `settleCatch` tail
+  from runOneOrder; runLiveOrder runs resolveCycle on (base, liveHEAD, liveHEAD,
+  anchor) and mints via the seam. Cost-gate = a RunProcess ctx timeout.
+
+Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
 CI/CD `a5b74ebb…`, Refactoring `a172b669…`.
 
