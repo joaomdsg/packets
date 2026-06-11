@@ -118,8 +118,15 @@ anchor anywhere in the trust stack.**
   from-base on read). No incremental `prevRev→curRev` state exists anywhere.
 - **Re-anchor rename cliff (§28).** "Follow `git -M` rename" is similarity-threshold
   based — *verified: a renamed+heavily-edited file becomes delete+add, silently
-  dropping the thread*, indistinguishable from a real deletion. *Fix:* pin the
-  threshold, surface "lost via rename" as a distinct state, content-hash relocation.
+  dropping the thread*, indistinguishable from a real deletion. **[PARTLY FIXED
+  2026-06-11 — council R80, honesty half]** A sub-threshold rename degrades to a
+  deletion, which now resolves to a DISTINCT `reanchor.Deleted` →
+  `pipe.ReasonAnchorDeleted` → `surface.AnchorDeleted` state whose copy admits
+  "deleted — or renamed beyond recognition", instead of the old false
+  `ReasonAnchorEdited` "the line was edited in place". The minimum bar (never assert
+  a false cause) is met. *Residual (maintainer-gated, deferred):* ACTIVE content-hash
+  relocation to follow the rename is a detection heuristic with false-positive risk,
+  not a clearly-correct fix — left to a deliberate future slice.
 - **Fan-out "never a correctness risk" is false (§18).** *Verified:* two disjoint-
   file edits (rename a symbol in A; call it in B) merge clean with no conflict →
   broken build. The conflict-guard can't fire for cross-file semantic breakage.
@@ -353,13 +360,15 @@ design risks above, which are about the spec). Each: where, the finding, the fix
   This also establishes the seam rule (Clash C, elevated to binding): every verdict
   dimension is an orthogonal typed field, never a new meaning on `NoOracleSignal` —
   integrate-on-tip's `Land` (#12) must follow the same pattern.
-- **Residual (deferred, council #11.5):** rename detection is git `--find-renames`
+- ~~**Residual (deferred, council #11.5):** rename detection is git `--find-renames`
   similarity-threshold based — a heavily-edited rename degrades to delete+add →
-  `statusDeleted` → `Outdated` → `ReasonAnchorEdited`. Still honest (no phantom catch;
-  the card says "edited" not "renamed", not actively false), but coarser than the
-  true cause. The fix must at minimum never assert a false cause; tightening detection
-  or admitting threshold-uncertainty in the copy is the fast-follow (tracks the
-  re-anchor rename-similarity-cliff finding above).
+  `statusDeleted` → `Outdated` → `ReasonAnchorEdited`.~~ **[ADDRESSED 2026-06-11 —
+  council R80]** The degraded path now resolves to a DISTINCT `reanchor.Deleted` →
+  `pipe.ReasonAnchorDeleted` → `surface.AnchorDeleted` whose copy admits "deleted —
+  or renamed beyond recognition", so it never asserts the false "edited in place"
+  cause. `Outdated` now means an in-place line edit exclusively. The remaining
+  fast-follow (ACTIVE content-hash relocation to actually follow the rename) is a
+  maintainer-gated detection heuristic, deferred.
 
 ### Integrate-on-tip residuals (slice: #12 integrate-on-tip)
 

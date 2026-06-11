@@ -109,6 +109,24 @@ func TestCatchAcross_refusesCatchWhenEditOverlapsAnchor(t *testing.T) {
 	assert.Equal(t, pipe.ReasonAnchorEdited, reason, "an edited anchor is quiet BECAUSE the line changed, not for lack of operators")
 }
 
+func TestCatchAcross_reportsAnchorDeletedWhenFileRemoved(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "f.go", gte)
+	write(t, dir, "keep.go", "package p\n\nvar Keep = 1\n")
+	base := commitAll(t, dir, "base")
+	require.NoError(t, os.Remove(filepath.Join(dir, "f.go")))
+	head := commitAll(t, dir, "delete the anchored file")
+
+	before := catch.LineState{Inventory: []string{">="}, Survivors: []string{">="}}
+	after := catch.LineState{Inventory: []string{">="}, Survivors: nil}
+
+	got, reason, err := pipe.CatchAcross(context.Background(), dir, anchorLine4("f.go"), base, head, before, after)
+	require.NoError(t, err)
+	assert.Equal(t, catch.NoOracleSignal, got, "a vanished file mints nothing — the after-state is ignored")
+	assert.Equal(t, pipe.ReasonAnchorDeleted, reason, "a deleted file is quiet because it is GONE, not because the line was edited in place")
+}
+
 func TestCatchAcross_delegatesToDetectWhenFileUnchanged(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)

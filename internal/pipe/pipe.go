@@ -24,12 +24,19 @@ const (
 	// ReasonNoMutableOperator: the anchor survived but the line has no mutable
 	// operator, so the oracle genuinely has nothing to say about it.
 	ReasonNoMutableOperator Reason = "no_mutable_operator"
-	// ReasonAnchorEdited: the anchored line was edited between the revisions, so
-	// the oracle can no longer speak to the original line.
+	// ReasonAnchorEdited: the anchored line was edited IN PLACE between the
+	// revisions, so the oracle can no longer speak to the original line.
 	ReasonAnchorEdited Reason = "anchor_edited"
 	// ReasonFileRenamed: the anchored file was renamed and the line was lost, so
 	// the oracle cannot follow it.
 	ReasonFileRenamed Reason = "file_renamed"
+	// ReasonAnchorDeleted: the anchored file is GONE — deleted, or renamed beyond
+	// git's similarity threshold (the rename cliff), which is indistinguishable
+	// from a deletion. Distinct from ReasonAnchorEdited so the surface never
+	// claims the line was "edited in place" for a file that vanished, and never
+	// asserts deletion as the certain cause when a sub-threshold rename is
+	// equally possible.
+	ReasonAnchorDeleted Reason = "anchor_deleted"
 )
 
 // CatchAcross is the only sanctioned way to turn an anchored line plus two
@@ -61,8 +68,13 @@ func CatchAcross(ctx context.Context, repoDir string, anchor reanchor.Anchor, be
 	if ra.State == reanchor.LostViaRename {
 		return catch.NoOracleSignal, ReasonFileRenamed, nil
 	}
-	// Outdated: the anchored line drifted/was edited. (A future "lost"-like
-	// reanchor state would land here too and read as edited until given its own
-	// reason — fail-closed safety is preserved regardless.)
+	if ra.State == reanchor.Deleted {
+		// The file is gone — deleted, or a rename below git's similarity threshold.
+		// Never assert "edited in place" (false) nor "deleted" as the certain cause.
+		return catch.NoOracleSignal, ReasonAnchorDeleted, nil
+	}
+	// Outdated: the anchored line drifted/was edited IN PLACE. (A future
+	// "lost"-like reanchor state would land here too and read as edited until
+	// given its own reason — fail-closed safety is preserved regardless.)
 	return catch.NoOracleSignal, ReasonAnchorEdited, nil
 }

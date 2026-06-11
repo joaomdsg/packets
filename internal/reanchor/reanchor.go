@@ -30,6 +30,13 @@ const (
 	// Outdated: the anchored lines were edited (or drifted) — the comment no
 	// longer reliably points at the same code.
 	Outdated State = "outdated"
+	// Deleted: the anchored file is gone from the new revision — a genuine
+	// deletion, OR a rename git could not follow because the new file fell below
+	// its similarity threshold (the rename-similarity cliff). Distinct from
+	// Outdated so the surface never claims "the line was edited in place" for a
+	// file that actually vanished, and never asserts deletion as the certain
+	// cause when a sub-threshold rename is indistinguishable.
+	Deleted State = "deleted"
 	// LostViaRename: the anchored file was renamed; the line set does not
 	// cleanly carry across, so the anchor is reported lost with the new path.
 	LostViaRename State = "lost_via_rename"
@@ -74,7 +81,7 @@ func Reanchor(ctx context.Context, repoDir string, a Anchor, fromRev, toRev stri
 	case status.kind == statusRenamed:
 		return Result{State: LostViaRename, Path: status.newPath}, nil
 	case status.kind == statusDeleted:
-		return Result{State: Outdated, Path: a.Path}, nil
+		return Result{State: Deleted, Path: a.Path}, nil
 	}
 
 	d, err := diff.Compute(ctx, repoDir, fromRev, toRev)

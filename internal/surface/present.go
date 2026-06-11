@@ -11,9 +11,16 @@ import (
 const LostViaRename = "lost_via_rename"
 
 // AnchorEdited is the surface verdict for a quiet card whose anchored line was
-// edited between revisions, so the oracle can no longer speak to the original
-// line — again distinct from operator-free silence.
+// edited IN PLACE between revisions, so the oracle can no longer speak to the
+// original line — again distinct from operator-free silence.
 const AnchorEdited = "anchor_edited"
+
+// AnchorDeleted is the surface verdict for a quiet card whose anchored FILE is
+// gone — deleted, or renamed beyond git's similarity threshold. Distinct from
+// AnchorEdited so the card never claims a vanished file's line was "edited in
+// place", and distinct from LostViaRename so it never asserts a rename it could
+// not actually detect.
+const AnchorDeleted = "anchor_deleted"
 
 // PresentVerdict maps a catch-cycle's state to the verdict token a ReviewCard
 // renders, keeping the surface's quiet states distinct. A bare catch.Outcome
@@ -43,6 +50,8 @@ func PresentVerdict(running bool, outcome catch.Outcome, reason pipe.Reason, aft
 			return LostViaRename
 		case pipe.ReasonAnchorEdited:
 			return AnchorEdited
+		case pipe.ReasonAnchorDeleted:
+			return AnchorDeleted
 		default: // ReasonNoMutableOperator (or none): the line truly has no operator
 			return string(catch.NoOracleSignal)
 		}

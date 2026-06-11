@@ -138,7 +138,12 @@ func TestReanchor_outdatesWhenMovedContentHashMismatches(t *testing.T) {
 	assert.Equal(t, reanchor.Outdated, got.State)
 }
 
-func TestReanchor_outdatesAnchorWhenFileDeleted(t *testing.T) {
+// A removed file resolves to the distinct Deleted state, NOT Outdated: the
+// anchored content is GONE (a real deletion — or a rename git could not follow
+// because the new file fell below its similarity threshold), which is not the
+// same truth as "the line was edited in place." Collapsing it into Outdated made
+// the surface assert a false "the line was edited" cause for a vanished file.
+func TestReanchor_reportsDeletedWhenFileRemoved(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
 	body := numbered(20)
@@ -151,7 +156,7 @@ func TestReanchor_outdatesAnchorWhenFileDeleted(t *testing.T) {
 	a := reanchor.Anchor{Path: "f.txt", Start: 10, End: 12, LineHash: reanchor.HashLines(linesOf(body, 10, 12))}
 	got, err := reanchor.Reanchor(context.Background(), dir, a, base, head)
 	require.NoError(t, err)
-	assert.Equal(t, reanchor.Outdated, got.State)
+	assert.Equal(t, reanchor.Deleted, got.State)
 	assert.Equal(t, "f.txt", got.Path)
 }
 

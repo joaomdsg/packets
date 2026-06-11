@@ -57,14 +57,16 @@ func TestPresentVerdict_splitsQuietReasonsIntoDistinctHonestTokens(t *testing.T)
 	t.Parallel()
 	renamed := surface.PresentVerdict(false, catch.NoOracleSignal, pipe.ReasonFileRenamed, 0, 0)
 	edited := surface.PresentVerdict(false, catch.NoOracleSignal, pipe.ReasonAnchorEdited, 0, 0)
+	deleted := surface.PresentVerdict(false, catch.NoOracleSignal, pipe.ReasonAnchorDeleted, 0, 0)
 	operatorFree := surface.PresentVerdict(false, catch.NoOracleSignal, pipe.ReasonNoMutableOperator, 0, 0)
 
 	assert.Equal(t, surface.LostViaRename, renamed, "a renamed anchor must carry its own token, not the operator-free one")
 	assert.Equal(t, surface.AnchorEdited, edited, "an edited anchor must carry its own token, not the operator-free one")
+	assert.Equal(t, surface.AnchorDeleted, deleted, "a deleted/vanished file must carry its own token, not the edited-in-place one")
 	assert.Equal(t, string(catch.NoOracleSignal), operatorFree, "only a genuinely operator-free line keeps the no-oracle-signal token")
 
-	tokens := []string{renamed, edited, operatorFree}
-	assert.Len(t, dedupTokens(tokens), 3, "the three quiet causes must map to three distinct tokens")
+	tokens := []string{renamed, edited, deleted, operatorFree}
+	assert.Len(t, dedupTokens(tokens), 4, "the four quiet causes must map to four distinct tokens")
 }
 
 func dedupTokens(xs []string) []string {
@@ -86,6 +88,7 @@ func TestPresentVerdict_onlyProducesTokensTheCardRenders(t *testing.T) {
 		surface.Tested:               true,
 		surface.LostViaRename:        true,
 		surface.AnchorEdited:         true,
+		surface.AnchorDeleted:        true,
 		string(catch.Catch):          true,
 		string(catch.NoCatch):        true,
 		string(catch.NoOracleSignal): true,
@@ -105,6 +108,7 @@ func TestPresentVerdict_onlyProducesTokensTheCardRenders(t *testing.T) {
 		{false, catch.NoOracleSignal, pipe.ReasonNoMutableOperator, 0, 0},
 		{false, catch.NoOracleSignal, pipe.ReasonFileRenamed, 0, 0},
 		{false, catch.NoOracleSignal, pipe.ReasonAnchorEdited, 0, 0},
+		{false, catch.NoOracleSignal, pipe.ReasonAnchorDeleted, 0, 0},
 		{false, catch.PartialCatch, pipe.ReasonNone, 2, 1},
 		{false, catch.Outcome("wat"), pipe.ReasonNone, 9, 9},
 	}

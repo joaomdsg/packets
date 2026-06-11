@@ -117,6 +117,21 @@ func TestReviewCard_rendersAnchorEditedDistinctFromNoOracleSignal(t *testing.T) 
 	assert.Contains(t, blind, "no mutable operator", "a genuinely operator-free line keeps the true 'no mutable operator' copy")
 }
 
+// A vanished file must render as its own honest state: it must NOT claim the
+// line was "edited in place" (false for a gone file), must NOT assert a rename
+// it could not detect, and must admit the deletion-or-rename uncertainty.
+func TestReviewCard_rendersAnchorDeletedWithoutClaimingEditedOrRenamed(t *testing.T) {
+	t.Parallel()
+	deleted := resolveTo(t, surface.AnchorDeleted, `data-state="anchor-deleted"`)
+
+	assert.NotContains(t, deleted, `data-state="anchor-edited"`, "a deleted file is distinct from an in-place edit")
+	assert.NotContains(t, deleted, `data-state="lost-via-rename"`, "a deleted file must not assert a rename it could not detect")
+	assert.NotContains(t, deleted, "no mutable operator", "a deleted file must not claim the line had no operators")
+	low := strings.ToLower(deleted)
+	assert.Contains(t, low, "delet", "the card must say the file was deleted")
+	assert.Contains(t, low, "renamed", "the card must admit a sub-threshold rename is also possible")
+}
+
 func TestReviewCard_carriesNoEconomyMetersOnTheFirstScreen(t *testing.T) {
 	t.Parallel()
 	frame := resolveTo(t, string(catch.Catch), `data-state="catch"`)
