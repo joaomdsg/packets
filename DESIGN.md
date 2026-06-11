@@ -241,7 +241,14 @@ Built since (council round 75, `internal/harness`):
   cage's CONTAINMENT of untrusted oracle code. Pure, unit-tested (each security
   property pinned). The runner that execs it + the agent image (with a writable
   HOME/cache for the read-only rootfs) + wiring the `runHarness` seam to it are the
-  next slices (5a-iii / 5b); `Supervisor` + `runLiveOrder` are unchanged by design.
+  next slices (5a-iv / 5b); `Supervisor` + `runLiveOrder` are unchanged by design.
+  The runner itself (slice 5a-iii) is built: `harness.RunContainer` (same signature
+  as `RunProcess`) materializes the cage's shared seccomp profile
+  (`sandbox.MaterializeSeccompProfile`, now exported), builds the spec via a pure
+  `agentSpec` (host uid:gid, the `RouteEnv` writable-HOME routing, the by-name key),
+  and runs `docker run --name … <ContainerArgs>` streaming stdout to the unchanged
+  `Supervisor.Run`, with a deadlock-safe kill/drain/reap teardown mirroring
+  `RunProcess`. Its end-to-end proof (a fake-`claude`-image run) is slice 5a-iv.
   The profile already carries `RouteEnv` (slice 5a-ii) — host-set non-secret
   `-e NAME=VALUE` routing (HOME/GOCACHE/npm → the writable `/tmp`) so the agent's
   tools don't hit EROFS on the read-only rootfs, kept distinct from the by-name

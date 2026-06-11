@@ -118,6 +118,22 @@ that genuinely catch a leak) → Green → Blue (all 5a-i security tests intact;
 leak is out-of-contract documented) → Audit (clean; full suite 20/20). The secret stays
 by-NAME bare; RouteEnv is non-secret NAME=VALUE — kept distinct + prefix-guarded.
 
+## Build record — slice 5a-iii SHIPPED (the RunContainer runner)
+
+`sandbox.MaterializeSeccompProfile` EXPORTED (rename) so the agent reuses the cage's
+known-good seccomp deny-list. `internal/harness/runcontainer.go`: pure `agentSpec`
+(unit-tested — API key by-name, HOME/GOCACHE/XDG/npm routed to the writable /tmp [the
+EROFS fix], caps, image) + `RunContainer(ctx,repoDir,prompt,onActivity)([]Turn,error)`
+— SAME signature as RunProcess (so the runHarness seam can swap). Wiring: head →
+materialize seccomp (defer cleanup) → agentSpec(user=host uid:gid) → ContainerArgs →
+`docker run --name packets-agent-<hex>` with StdoutPipe → the UNCHANGED Supervisor.Run
+→ deadlock-safe kill(rm -f)+drain+reap on error (mirrors RunProcess) + cmd.Cancel by
+name (mirrors DockerRunner). tdd-rygba: Yellow tightened the HOME/GOCACHE assertions to
+require the writable /tmp prefix (a wrong route to "/" would EROFS); Blue + Audit
+confirmed valid argv, deadlock-safe teardown, no orphaned seccomp refs, full suite
+green. RunContainer is wiring (build/vet); its end-to-end proof is the fake-claude-IMAGE
+integration test — SLICE 5a-iv (next).
+
 ## New clashes opened / resolved
 
 Resolved: the agent container is a trust-isolation boundary (separate hardened

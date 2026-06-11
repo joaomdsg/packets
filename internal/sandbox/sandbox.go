@@ -95,7 +95,7 @@ type DockerRunner struct{}
 // execs), then runs it. A non-zero CONTAINER exit is a Result, not an error
 // (the container ran); only a failure to invoke the runtime is an error.
 func (DockerRunner) Run(ctx context.Context, s Spec) (Result, error) {
-	profPath, cleanup, err := materializeSeccompProfile()
+	profPath, cleanup, err := MaterializeSeccompProfile()
 	if err != nil {
 		return Result{}, err
 	}
@@ -237,10 +237,11 @@ func hardenedArgs(s Spec, seccompProfilePath string) []string {
 	return args
 }
 
-// materializeSeccompProfile writes the embedded profile to a temp file (the
+// MaterializeSeccompProfile writes the embedded profile to a temp file (the
 // docker CLI reads the seccomp profile from a path) and returns the path plus a
-// cleanup. The caller defers cleanup.
-func materializeSeccompProfile() (string, func(), error) {
+// cleanup. The caller defers cleanup. Exported so the agent-container runner
+// (internal/harness) reuses the SAME hardened deny-list as the cage.
+func MaterializeSeccompProfile() (string, func(), error) {
 	f, err := os.CreateTemp("", "packets-seccomp-*.json")
 	if err != nil {
 		return "", nil, fmt.Errorf("sandbox: seccomp tempfile: %v", err)
