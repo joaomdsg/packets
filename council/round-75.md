@@ -185,6 +185,28 @@ from the shipped binary, dispatch a live work order that a real Claude Code harn
 fills IN A HARDENED CONTAINER, reviewed as a changeset — the GOAL's north-star, end to
 end (a real run is just `docker build` + an API key away).
 
+## Thread close-out — CONTAINER THREAD COMPLETE; 5c+ gated (2026-06-11)
+
+CI green on 5b-ii: the container thread (5a-i profile → 5a-ii writable-HOME routing →
+5a-iii runner → 5a-iv real-docker-run proof → 5b-i per-session selection → 5b-ii CLI
+flag + real image) is COMPLETE + verified. The maintainer's steer ("container
+orchestration for the harness instances") is delivered end-to-end + user-invocable.
+
+The deferred 5c+ items were assessed against the skeptic gate and are NOT
+autonomous-safe non-marginal slices:
+- egress allowlist — R34's allowlist-breaks-builds applies (the agent fetches deps
+  live); needs the package mirror first + a maintainer policy call on which hosts.
+- internal package mirror — only needed IF egress is restricted; the agent box is
+  egress-allowed, so it's not needed standalone (interdependent with the allowlist).
+- multi-tenant isolation — untrusted repos; a security thread needing a maintainer
+  product decision.
+- push-to-durable-storage — only matters with a remote/hibernation model that doesn't
+  exist in the local prototype (in-process sessions; no remote to push to).
+
+So the loop returns to MAINTENANCE MODE: the autonomous-safe high-value space across
+the whole GOAL is built out; remaining work is gated on maintainer judgment or unbuilt
+prerequisites. Hold at long cadence, never ping, await a steer.
+
 ## New clashes opened / resolved
 
 Resolved: the agent container is a trust-isolation boundary (separate hardened
