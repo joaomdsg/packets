@@ -179,6 +179,7 @@ func main() {
 	ledgerPath := flag.String("ledger", "catches", "durable economy store base; the JetStream log lives in a <ledger>-fabric directory beside it")
 	addr := flag.String("addr", ":3000", "listen address")
 	cageImage := flag.String("cage-image", "packets-cage:dev", "Docker image the claim verifier runs producer-submitted work in")
+	container := flag.Bool("container", false, "run the primary session's LIVE work orders in the hardened agent container (harness.RunContainer) instead of the host subprocess; needs the packets-agent image + an ANTHROPIC_API_KEY")
 	var sessions sessionFlag
 	flag.Var(&sessions, "session", "additional keyed review target served at /?key=NAME; repeatable: key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA]")
 	var backlog backlogFlag
@@ -241,6 +242,7 @@ func main() {
 		TestCmd:         []string{"go", "test", "./..."},
 		LedgerPath:      *ledgerPath,
 		DispatchBacklog: dispatchBacklog,
+		UseContainer:    *container,
 		// Cap concurrent catch cycles: each is several full-suite runs (#15), and
 		// per-cycle wall-time stays flat through ~2 concurrent on the bench, so 2 is
 		// the honest default ceiling — connects beyond it queue, never pile on.

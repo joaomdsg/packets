@@ -253,7 +253,15 @@ Built since (council round 75, `internal/harness`):
   REAL `docker run` — the containerized agent edits the bind-mounted repo, the host
   settles it into a minted revision, and the activity streams live, all with no API
   key. So the agent-container path is proven end-to-end (a real harness binary + key
-  is wired via the seam in 5b).
+  is wired via the seam in 5b). **Slice 5b complete:** `LiveConfig.UseContainer`
+  (a `-container` CLI flag) routes a session's live orders through `RunContainer`
+  (`runLiveOrder` selects the runner; the default subprocess path is unchanged), and
+  `internal/harness/Dockerfile` is the real agent image (node/go/python + the
+  `claude` CLI). From the shipped binary a user can dispatch a live order a real
+  harness fills in a hardened container — a real run is `docker build -f
+  internal/harness/Dockerfile -t packets-agent .` + an `ANTHROPIC_API_KEY` away.
+  Still deferred (5c+): egress allowlist, multi-tenant isolation,
+  push-to-durable-storage, the internal package mirror.
   The profile already carries `RouteEnv` (slice 5a-ii) — host-set non-secret
   `-e NAME=VALUE` routing (HOME/GOCACHE/npm → the writable `/tmp`) so the agent's
   tools don't hit EROFS on the read-only rootfs, kept distinct from the by-name

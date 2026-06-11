@@ -158,6 +158,19 @@ against; `prompt=` is last (free-text, may contain commas). A live run needs the
 # streams on the card → the catch cycle runs on the produced revision
 ```
 
+By default a live order runs the harness as a host subprocess. To run it **in a
+hardened container** instead (egress-allowed + the repo bind-mounted writable, but
+cap-drop / seccomp / non-root / read-only rootfs / pids+mem caps), build the agent
+image and pass `-container`:
+
+```bash
+docker build -f internal/harness/Dockerfile -t packets-agent .   # bakes node/go/python + the claude CLI
+ANTHROPIC_API_KEY=... ./packets -container -repo . -base <sha> -file a.go -line 4 \
+  -live 'file=pkg/y.go,line=12,base=<sha>,prompt=fix the off-by-one'
+# the harness runs inside `packets-agent`; the host still settles the revision +
+# the cage oracle re-derives the catch (the economy is unchanged by where it ran)
+```
+
 > **Tip:** if `go` errors with a `GOROOT` version mismatch, prefix commands
 > with `env -u GOROOT`.
 

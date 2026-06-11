@@ -169,6 +169,22 @@ produce a revision the host settles). Remaining for 5b: the CLI `-container` fla
 + claude) + a CI build step — slice 5b-ii (wiring/infra; a real live run is
 API-key-gated).
 
+## Build record — slice 5b-ii SHIPPED (the container path is user-invocable + the real image)
+
+`cmd/packets`: a `-container` bool flag sets `LiveConfig.UseContainer` on the primary
+session (CLI wiring — build/vet/-h verified, no unit test). `internal/harness/Dockerfile`:
+the REAL agent image (FROM golang:1.26 + apt node/python3 + `npm i -g
+@anthropic-ai/claude-code` + git safe.directory; no ENTRYPOINT — RunContainer supplies
+the argv; read-only rootfs with HOME/cache routed to tmpfs at run time), mirroring the
+cage Dockerfile's proven patterns. README documents `docker build -f
+internal/harness/Dockerfile -t packets-agent .` + `packets -container ... -live '...'`
+with ANTHROPIC_API_KEY. The image is a production artifact (a real live run builds it +
+needs the key); not CI-gated (no test depends on packets-agent — 5a-iv's integration
+test uses the cage base). THE CONTAINER THREAD (5a-i→5b-ii) IS COMPLETE: a user can now,
+from the shipped binary, dispatch a live work order that a real Claude Code harness
+fills IN A HARDENED CONTAINER, reviewed as a changeset — the GOAL's north-star, end to
+end (a real run is just `docker build` + an API key away).
+
 ## New clashes opened / resolved
 
 Resolved: the agent container is a trust-isolation boundary (separate hardened
