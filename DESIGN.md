@@ -208,6 +208,19 @@ Built since (council round 67, `internal/harness`):
   streams (4c-i) → per-session buffer (4c-ii-a) → the card's live activity line
   (4c-ii-b). **Still deferred:** containerizing the agent run (slice 5+); a `/fleet`
   cross-session activity ticker off the `PublishActivity` bus brick.
+- **The live pipe is CLI-invocable (slice A, council R72):** a repeatable `-live`
+  flag (`cmd/packets`, pure `parseLiveSpec`) seeds a PROMPT-BEARING work-order target
+  on the primary session — `file=F,line=N,base=SHA[,tip=SHA],prompt=<task>` (prompt
+  is trailing free-text, may contain commas; the Lead names the pre-specified anchor,
+  which is firewall-safe per R70 since it's the trusted Lead, not the agent). It funds
+  as a live order (routes to `runLiveOrder`), mirroring `-backlog`. So the whole
+  live-harness pipe is now invocable from the shipped binary: `-live` seeds → Spend
+  dispatches → a real host-subprocess `claude` produces the fix → its activity streams
+  on the card → the catch cycle mints on the pre-specified anchor. **Gating (R72):** a
+  host-subprocess run on a TRUSTED local repo is autonomous-safe; the ISOLATED agent
+  container (egress + writable repo, the opposite of the `--network=none` cage) is a
+  gated round needing maintainer sign-off. A real run needs `claude` on PATH + an
+  `ANTHROPIC_API_KEY`.
 
 Everything past that — the full trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet

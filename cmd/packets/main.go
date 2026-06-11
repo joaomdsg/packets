@@ -183,6 +183,8 @@ func main() {
 	flag.Var(&sessions, "session", "additional keyed review target served at /?key=NAME; repeatable: key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA]")
 	var backlog backlogFlag
 	flag.Var(&backlog, "backlog", "seed a fundable work-order target on the primary session so Spend can dispatch+fill it; repeatable: base=SHA,fix=SHA,file=F,line=N[,tip=SHA]")
+	var live liveFlag
+	flag.Var(&live, "live", "seed a PROMPT-BEARING live work-order on the primary session (a real Claude Code harness produces the fix); repeatable: file=F,line=N,base=SHA[,tip=SHA],prompt=<task>")
 	flag.Parse()
 
 	if *base == "" || *fix == "" || *file == "" || *line == 0 {
@@ -211,6 +213,21 @@ func main() {
 		tgt.LineHash, err = lineHashAt(*repo, tgt.BaseRev, tgt.Path, tgt.Line)
 		if err != nil {
 			log.Fatalf("packets: backlog %q: %v", spec, err)
+		}
+		dispatchBacklog = append(dispatchBacklog, tgt)
+	}
+
+	// Seed any -live specs as PROMPT-BEARING work-order targets — a real Claude Code
+	// harness produces the fix when the order is Spent (vs the pre-funded base→fix
+	// diff a -backlog target replays). Same LineHash anchor identity as -backlog.
+	for _, spec := range live.specs {
+		tgt, err := parseLiveSpec(spec)
+		if err != nil {
+			log.Fatalf("packets: %v", err)
+		}
+		tgt.LineHash, err = lineHashAt(*repo, tgt.BaseRev, tgt.Path, tgt.Line)
+		if err != nil {
+			log.Fatalf("packets: live %q: %v", spec, err)
 		}
 		dispatchBacklog = append(dispatchBacklog, tgt)
 	}

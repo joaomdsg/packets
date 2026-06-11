@@ -316,6 +316,16 @@ Layout of this directory:
   needs a callback seam through the supervisor (slice 4c-i) before the buffer/card
   render (4c-ii).
 
+- [Round 72](round-72.md) — next direction: make the live pipe CLI-invocable. 3-lens
+  council (CI/CD/Systems/TDD) settled the gating boundary: a HOST-SUBPROCESS `claude`
+  run on the user's OWN trusted repo is autonomous-safe (NOT the gated #6 network
+  boundary); the isolated agent CONTAINER is the gated round (maintainer sign-off).
+  Shipped slice A: a `-live` CLI flag (pure `parseLiveSpec`, prompt-as-trailing-free-
+  text via a whitespace-tolerant regexp, prompt-must-be-last fail-closed) seeding a
+  prompt-bearing live order on the primary session — mirrors `-backlog`. The
+  live-harness pipe (R67–R72) is now CLI-invocable end-to-end. Firewall (Systems): the
+  trusted Lead specifying the anchor is safe (R70's farming rule is against the agent).
+
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
 CI/CD `a5b74ebb…`, Refactoring `a172b669…`.

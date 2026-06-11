@@ -145,6 +145,19 @@ review loop is exercisable end-to-end (without one, `Spend` has nothing to fund)
 # Spend dispatches a seeded order → watch it fill → drill into its review questions
 ```
 
+Seed a **live work order** — a real Claude Code harness runs your task to *produce*
+the fix (vs a `-backlog` order's pre-funded base→fix diff). The Lead names the task
+plus the pre-specified anchor (`file:line`, a known weak spot) the catch is checked
+against; `prompt=` is last (free-text, may contain commas). A live run needs the
+`claude` binary on `PATH` + an `ANTHROPIC_API_KEY`:
+
+```bash
+./packets -repo . -base <sha> -fix <sha> -file a.go -line 4 \
+  -live 'file=pkg/y.go,line=12,base=<sha>,prompt=fix the off-by-one in the loop bound'
+# Spend dispatches the live order → a real harness edits the repo → its activity
+# streams on the card → the catch cycle runs on the produced revision
+```
+
 > **Tip:** if `go` errors with a `GOROOT` version mismatch, prefix commands
 > with `env -u GOROOT`.
 
