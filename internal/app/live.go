@@ -158,6 +158,11 @@ type liveEntry struct {
 	// Ephemeral and OFF the economy ledger, like findings (the order's CATCH mints;
 	// its questions are diagnostic). Guarded by findingsMu.
 	orderFindings map[int][]mutation.Finding
+	// analysis is the latest authoring-assist read of a draft order (the producer's
+	// summary/readiness/highlights/questions), cached so the card renders it after the
+	// AnalyzeDraft action. Ephemeral and OFF the economy ledger (a diagnostic, like
+	// findings — analyzing a draft mints nothing). Guarded by findingsMu.
+	analysis *draftAnalysis
 	// answering is true while an answer re-run is in flight for this session. It
 	// serializes answer re-runs (one at a time): a re-run spawns a git worktree +
 	// oracle run, so two concurrent re-runs (a double-clicked submit) would race the
@@ -397,6 +402,21 @@ func sessionOpenThreads(key string) []review.Thread {
 		return nil
 	}
 	return review.QuestionThreadsFromMutations(e.openFindings())
+}
+
+// setAnalysis caches the latest authoring-assist read of a draft (replacing any
+// prior one — one draft analysis per session at a time).
+func (e *liveEntry) setAnalysis(a *draftAnalysis) {
+	e.findingsMu.Lock()
+	e.analysis = a
+	e.findingsMu.Unlock()
+}
+
+// analysisSnapshot returns the cached draft analysis (nil when none yet).
+func (e *liveEntry) analysisSnapshot() *draftAnalysis {
+	e.findingsMu.Lock()
+	defer e.findingsMu.Unlock()
+	return e.analysis
 }
 
 // regSeq is the monotonic source of liveEntry.seq — incremented once per session
@@ -662,6 +682,10 @@ type LiveCard struct {
 	// but the ledger is not reactive — so PlaceOrder writes the new bandwidth here to
 	// fan out a live SSE re-render as the meter drains.
 	BandwidthMeter via.StateTabStr
+	// Analysis is the broadcast trigger for the authoring assist: View re-reads the
+	// cached draft analysis from the session entry, but that cache is not reactive — so
+	// AnalyzeDraft writes here to fan out a re-render once the producer's read lands.
+	Analysis via.StateTabStr
 	// FillBeats is a re-render trigger written by the Stream when the live-fill buffer
 	// (a currently-filling order's accruing beats) changes, so the card shows the
 	// order filling live. View reads the buffer; this cell only nudges the re-render.
@@ -749,7 +773,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	// balance. Below it, a calm note when no API key is configured — the order would
 	// fail without one — linking to the setup surface.
 	if bandwidth > 0 {
-		parts = append(parts, renderCompose(c))
+		parts = append(parts, renderAuthoring(c))
 	}
 	// The prep bench: the fundable work on deck, so the Lead sees (and, in a later
 	// slice, curates) what a Spend funds rather than a blind auto-pick. Omitted when

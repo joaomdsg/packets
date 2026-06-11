@@ -121,6 +121,33 @@ body {
 }
 .settings__save:hover { border-color: var(--pk-balance); }
 
+/* ---- the authoring assist (the producer's draft read) ---- */
+.authoring { display: flex; flex-direction: column; gap: var(--pk-sm); }
+.compose__analyze {
+  padding: var(--pk-xs) var(--pk-md);
+  background: var(--pk-surface-2);
+  color: var(--pk-ink-dim);
+  border: 1px solid var(--pk-line);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+.compose__analyze:hover { border-color: var(--pk-accent); color: var(--pk-ink); }
+.analysis { display: flex; flex-direction: column; gap: var(--pk-xs); padding: var(--pk-sm) var(--pk-md); background: var(--pk-surface); border: 1px solid var(--pk-line); border-radius: 6px; }
+.analysis__summary { color: var(--pk-ink); }
+/* readiness is an honest STATE in the calm palette — never an alarm green/red. A
+   blocked draft reads dim ("not yet"); a ready one reads in the balance hue. */
+.analysis__readiness[data-state="blocked"] { color: var(--pk-ink-dim); }
+.analysis__readiness[data-state="ready"] { color: var(--pk-balance); }
+.analysis__questions-label { color: var(--pk-ink-dim); font-size: 0.92em; }
+.analysis__questions { margin: 0; padding-left: var(--pk-md); color: var(--pk-ink); }
+.analysis__unavailable { color: var(--pk-ink-dim); }
+.authoring-editor { height: 160px; border: 1px solid var(--pk-line); border-radius: 6px; }
+/* the flagged spans, by severity — a calm underline, never a red squiggle. */
+.authoring-flag-question { text-decoration: underline dotted var(--pk-accent); }
+.authoring-flag-gap { text-decoration: underline wavy var(--pk-ink-dim); }
+.authoring-flag-note { text-decoration: underline dotted var(--pk-ink-dim); }
+
 /* ---- author a live order ---- */
 .compose { display: flex; flex-direction: column; gap: var(--pk-sm); margin: var(--pk-sm) 0; }
 .compose__prompt {
