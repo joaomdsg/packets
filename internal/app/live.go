@@ -620,6 +620,16 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 				h.Data("state", "beats"),
 				h.Text("filling WO#"+strconv.Itoa(id)+" — "+strings.Join(fb, " → ")),
 			))
+			// The live agent's LATEST move (a single updating line) while it works —
+			// distinct from the oracle's cycle beats above. Absent on dead-air (no beat
+			// yet) so silence stays honest, no spinner.
+			if act := e.activitySnapshot(); act != "" {
+				parts = append(parts, h.Div(
+					h.Class("order-activity"),
+					h.Data("state", "activity"),
+					h.Text("· "+act),
+				))
+			}
 		}
 	}
 	// Below the aggregate counts, the per-order round-trip: each recent work-order
@@ -984,7 +994,7 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 		// unchanged buffer writes nothing.
 		if e := lookupLiveEntry(c.Key); e != nil {
 			id, fb := e.fillSnapshot()
-			if sig := strconv.Itoa(id) + ":" + strconv.Itoa(len(fb)); sig != lastFill {
+			if sig := strconv.Itoa(id) + ":" + strconv.Itoa(len(fb)) + ":" + e.activitySnapshot(); sig != lastFill {
 				lastFill = sig
 				c.FillBeats.Write(ctx, sig)
 			}

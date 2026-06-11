@@ -94,6 +94,25 @@ MID-RUN from inside the stub (synchronous drain) → ["thinking","editing auth.g
 "running go test ./..."]. Full suite 20/20, vet clean. Remaining: 4c-ii-b renders the
 beat on the card via the Stream poll.
 
+## Build record — slice 4c-ii-b SHIPPED (the card render) — THREAD COMPLETE
+
+The `LiveCard` View renders a distinct dim "· <latest activity>" line inside the
+filling block (h.Text, escaped; `order-activity` data-state) — only while filling
+AND a beat exists (absent on dead-air, no spinner), cleared on endFill. The Stream
+poll's re-render sig gained `activitySnapshot()` so a new beat re-renders live.
+tdd-rygba: Red → Yellow (added a DEAD-AIR assertion — filling but no beat → no
+`order-activity` line — closing a false-green where endFill clears everything) →
+Green → Blue (the id>0 guard is redundant-but-harmless since id==0 ⇒ act=="" by the
+fill lifecycle; render paths covered) → Audit (clean; h.Text-escaped; sig preserves
+the FillBeats trigger, no thrash; -race + full suite 20/20 + vet green).
+
+THE 4c THREAD IS COMPLETE: harness activity streams per-line (4c-i) → per-session
+activity buffer (4c-ii-a) → the card's live "latest activity" line (4c-ii-b). The
+"watch a real worker" loop reads end-to-end at the data+render level (a real claude
+run needs an API key + a prompt-bearing order dispatched via the CLI — the remaining
+integration). Deferred: containerize the agent run (slice 5+); a /fleet cross-session
+activity ticker off the PublishActivity bus brick.
+
 ## New clashes opened / resolved
 
 Resolved: the 4c surfacing mechanism — per-session buffer poll (not the bus) for the

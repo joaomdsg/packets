@@ -198,9 +198,16 @@ Built since (council round 67, `internal/harness`):
   (`formatActivity` → "thinking" / "editing <file>" / "running <cmd>") into the
   buffer, so the session's `activitySnapshot()` updates LIVE as the agent works.
   Tested by observing the snapshot mid-run (the stub streams and reads it back).
-  **Still deferred:** the card's "latest activity" line RENDER off `activitySnapshot`
-  via the Stream poll (4c-ii-b — server-render-tested; the live SSE update is
-  browser-verified); the agent container (5+).
+- **The live-activity card render (slice 4c-ii-b, council R71):** the `LiveCard` View
+  renders a distinct dim "· <latest activity>" line inside the filling block —
+  rendered only while a live order fills AND a beat exists (absent on dead-air, no
+  spinner); it clears on `endFill`. The Stream poll's re-render signature now includes
+  `activitySnapshot()`, so a new beat re-renders live over SSE. Server-render-tested
+  (positive + dead-air + cleared-on-done via vt); the live SSE update is
+  browser-verified. **This completes "watch a real worker"** — harness activity
+  streams (4c-i) → per-session buffer (4c-ii-a) → the card's live activity line
+  (4c-ii-b). **Still deferred:** containerizing the agent run (slice 5+); a `/fleet`
+  cross-session activity ticker off the `PublishActivity` bus brick.
 
 Everything past that — the full trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet
