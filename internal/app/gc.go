@@ -57,6 +57,12 @@ func pruneProducerIfIdle(ctx context.Context, key string, e *liveEntry) {
 		return // never prune on a read error
 	}
 	_, _ = ingest.PruneProducerObjects(ctx, e.cfg.RepoDir, key, inFlight > 0)
+	// When the producer is idle the namespace was pruned, so its retained bytes
+	// are reclaimed — free the quota that backed them (R85). A still-in-flight
+	// producer kept its objects, so its quota is untouched.
+	if inFlight == 0 {
+		resetBundleRetained(key)
+	}
 }
 
 // pruneProducerSession looks the session up in the registry and prunes it if

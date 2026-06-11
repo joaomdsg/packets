@@ -56,6 +56,7 @@ func producerCommitBundle(t *testing.T) (bundle []byte, sha string) {
 
 func bundleServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
+	resetBundleGuardsForTest() // isolate per-producer rate/quota state from prior tests
 	repoDir := freshGitRepo(t)
 	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
 	var server *httptest.Server

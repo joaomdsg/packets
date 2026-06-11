@@ -408,6 +408,12 @@ func resetConsumersForTest() {
 		liveReg.Delete(k)
 		return true
 	})
+	// Per-producer bundle guards are server-lifetime in production but must not
+	// leak rate/quota state across tests (they key off session, which tests reuse).
+	bundleGuards.Range(func(k, _ any) bool {
+		bundleGuards.Delete(k)
+		return true
+	})
 	// Reset the fields in place — never reassign the struct, which would swap out
 	// the mutex this call holds (the deferred Unlock would hit a fresh, unlocked
 	// one). Zero everything the spawner carries forward between StartClaimConsumers.
@@ -1159,16 +1165,34 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 			http.Error(w, "bundle: session has no repository", http.StatusBadRequest)
 			return
 		}
+		// Per-producer flood-defenses (R85): throttle the upload RATE so a producer
+		// can't flood the ingest path, then (after reading) bound the aggregate bytes
+		// it RETAINS so it can't fill the host store. Both key off the authenticated
+		// producer identity (== session key) the boundary now guarantees.
+		guard := bundleGuardFor(key)
+		if !guard.allowUpload() {
+			http.Error(w, "bundle: rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBundleBytes)
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "bundle: too large or unreadable", http.StatusBadRequest)
 			return
 		}
+		// Reserve this upload's bytes against the producer's quota BEFORE ingesting;
+		// an over-quota upload is refused without doing the work. GC-by-resolved (R84)
+		// frees the quota when the producer's objects are reclaimed.
+		if !guard.reserve(int64(len(body))) {
+			http.Error(w, "bundle: producer storage quota exceeded", http.StatusRequestEntityTooLarge)
+			return
+		}
 		// A bad producer id, an invalid bundle, or one past the cap is a client
 		// error; keep the message generic — the typed reasons live in ingest, and
-		// leaking git internals would aid a prober.
+		// leaking git internals would aid a prober. A failed ingest releases the
+		// reserved bytes so a rejected upload never permanently consumes quota.
 		if err := ingest.IngestProducerObjects(r.Context(), cfg.RepoDir, key, body, maxBundleBytes); err != nil {
+			guard.release(int64(len(body)))
 			http.Error(w, "bundle: rejected", http.StatusBadRequest)
 			return
 		}

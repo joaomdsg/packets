@@ -459,7 +459,22 @@ design risks above, which are about the spec). Each: where, the finding, the fix
   between the passes — display-only, self-corrects next event (see WatchFleet's
   perf note).
 
-### Unbounded producer-bundle ingest storage (slice: #6c A.2 POST /bundle) — KNOWN, DEFERRED (gated on producer auth) — council R39
+### Unbounded producer-bundle ingest storage (slice: #6c A.2 POST /bundle) — LARGELY ADDRESSED 2026-06-11 (council R81–R85)
+
+**[UPDATE 2026-06-11 — council R81–R85]** The producer-auth boundary this fix was
+gated on is now built: claims arrive ONLY through the authenticated NATS ingress
+(`fabric.StartListening` + `ProducerGrant`; the unauthenticated HTTP `POST /claim`
+is retired, R81/R82), and `POST /bundle` is authenticated via HTTP Basic against
+the same grant table (R83). On that boundary the deferred fix sequence is built:
+(2) a per-producer `bundleGuard` adds an upload rate-limit (429) + an aggregate
+retained-byte quota (413 before ingest), R85; (3) GC-by-resolved prunes a
+resolved producer's namespace on a post-verdict hook + periodic sweep and frees
+its quota, R84. **Still deferred (4):** a TTL-reap for uploaded-but-never-claimed
+objects + a GLOBAL disk ceiling across producers (a cross-producer policy layer;
+the periodic sweep already bounds the never-claimed case at its cadence). Original
+finding (now mostly historical) follows.
+
+
 
 - **Symptom:** POST /bundle (internal/app/live.go) accepts a producer git bundle
   and unbundles it into refs/producers/<key>/* of the session repo. It has a

@@ -36,6 +36,7 @@ func postBundle(t *testing.T, url, user, pass string, body []byte) int {
 // credentials are refused (401); the granted producer's credentials are accepted
 // and the bundle ingests. Producer == session key. NOT parallel (shared globals).
 func TestPostBundle_requiresGrantCredentialsWhenProducersAreConfigured(t *testing.T) {
+	resetBundleGuardsForTest()
 	repoDir := freshGitRepo(t)
 	var server *httptest.Server
 	_, log, err := NewServer(LiveConfig{
