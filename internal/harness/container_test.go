@@ -1,6 +1,7 @@
 package harness_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -92,10 +93,32 @@ func TestContainerArgs_passesSecretsByNameNeverByValue(t *testing.T) {
 	t.Parallel()
 	args := harness.ContainerArgs(sampleContainerSpec())
 	envs := valuesAfter(args, "-e")
-	require.NotEmpty(t, envs, "an -e env passthrough must be present")
-	assert.Contains(t, envs, "ANTHROPIC_API_KEY", "the API key is passed through by name")
+	require.Contains(t, envs, "ANTHROPIC_API_KEY", "the API key is passed through by bare NAME")
 	for _, e := range envs {
-		assert.NotContains(t, e, "=", "EVERY -e value is a bare NAME, never NAME=VALUE — no secret reaches argv")
+		assert.False(t, strings.HasPrefix(e, "ANTHROPIC_API_KEY="),
+			"the secret must NEVER appear as NAME=VALUE (its value would leak into argv/ps)")
+	}
+	// Structural guarantee: the builder takes EnvPassthrough as NAMES ([]string), so
+	// it never even holds a secret value to leak. (RouteEnv carries NON-secret
+	// NAME=VALUE routing — covered by the read-only-rootfs test.)
+}
+
+// The rootfs is read-only, so the agent's tools (claude/git/go/node) would EROFS
+// writing to $HOME/caches unless those route to the writable /tmp. RouteEnv carries
+// that NON-secret routing as -e NAME=VALUE, kept distinct from the by-name secret
+// passthrough (which stays bare).
+func TestContainerArgs_routesWritableHomeAndCachesForTheReadOnlyRootfs(t *testing.T) {
+	t.Parallel()
+	s := sampleContainerSpec()
+	s.RouteEnv = []harness.EnvVar{{Name: "HOME", Value: "/tmp"}, {Name: "GOCACHE", Value: "/tmp/go"}}
+	args := harness.ContainerArgs(s)
+
+	envs := valuesAfter(args, "-e")
+	assert.Contains(t, envs, "HOME=/tmp", "HOME routes to the writable /tmp despite the read-only rootfs")
+	assert.Contains(t, envs, "GOCACHE=/tmp/go", "the Go cache routes to a writable path")
+	assert.Contains(t, envs, "ANTHROPIC_API_KEY", "the secret stays a bare by-name passthrough, distinct from the routing")
+	for _, e := range envs {
+		assert.False(t, strings.HasPrefix(e, "ANTHROPIC_API_KEY="), "the secret is never NAME=VALUE even alongside RouteEnv")
 	}
 }
 

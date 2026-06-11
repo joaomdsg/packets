@@ -18,8 +18,19 @@ type ContainerSpec struct {
 	// EnvPassthrough names env vars passed through BY NAME (e.g. ANTHROPIC_API_KEY) —
 	// the value comes from the host env at run time, so a secret never enters argv.
 	EnvPassthrough []string
-	PidsLimit      int
-	Memory         string
+	// RouteEnv is host-set NON-secret routing (HOME, GOCACHE, npm cache, …) pointing
+	// the agent's tools at a writable path. Rendered as -e NAME=VALUE — safe because
+	// these are not secrets. Needed because the rootfs is --read-only: without a
+	// writable HOME/cache the tools (claude/git/go/node) fail with EROFS.
+	RouteEnv  []EnvVar
+	PidsLimit int
+	Memory    string
+}
+
+// EnvVar is one host-set NAME=VALUE routing variable for the agent container.
+type EnvVar struct {
+	Name  string
+	Value string
 }
 
 // ContainerArgs builds the `docker run` argv for the AGENT container: hardened like
@@ -47,7 +58,10 @@ func ContainerArgs(s ContainerSpec) []string {
 		"-w", "/work",
 	}
 	for _, name := range s.EnvPassthrough {
-		args = append(args, "-e", name)
+		args = append(args, "-e", name) // by NAME only — the secret value stays out of argv
+	}
+	for _, re := range s.RouteEnv {
+		args = append(args, "-e", re.Name+"="+re.Value) // non-secret routing for the read-only rootfs
 	}
 	args = append(args, s.Image, "claude")
 	return append(args, ClaudeArgs(s.Prompt)...)

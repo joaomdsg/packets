@@ -241,7 +241,11 @@ Built since (council round 75, `internal/harness`):
   cage's CONTAINMENT of untrusted oracle code. Pure, unit-tested (each security
   property pinned). The runner that execs it + the agent image (with a writable
   HOME/cache for the read-only rootfs) + wiring the `runHarness` seam to it are the
-  next slices (5a-ii / 5b); `Supervisor` + `runLiveOrder` are unchanged by design.
+  next slices (5a-iii / 5b); `Supervisor` + `runLiveOrder` are unchanged by design.
+  The profile already carries `RouteEnv` (slice 5a-ii) — host-set non-secret
+  `-e NAME=VALUE` routing (HOME/GOCACHE/npm → the writable `/tmp`) so the agent's
+  tools don't hit EROFS on the read-only rootfs, kept distinct from the by-name
+  secret passthrough.
 
 Built since (council round 73, `internal/ledger`):
 

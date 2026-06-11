@@ -106,6 +106,18 @@ writable, the agent's tools (claude/git/go/node) need a writable $HOME + caches
 add a tmpfs HOME. Deferred to 5a-ii by design (the pure argv builder's job is the
 hardened argv; the env/image is wiring).
 
+## Build record — slice 5a-ii SHIPPED (RouteEnv: writable HOME/cache for the read-only rootfs)
+
+Addresses the 5a-i audit finding (the agent's tools EROFS on a read-only rootfs without
+a writable HOME/cache). `ContainerSpec` gains `RouteEnv []EnvVar{Name,Value}` — host-set
+NON-secret routing (HOME, GOCACHE, npm cache, … → the writable /tmp), rendered by
+`ContainerArgs` as `-e NAME=VALUE` AFTER the by-name secret passthrough. tdd-rygba:
+Red → Yellow (caught TWO real false-greens: the exact-match `==`/`NotContains` secret
+checks missed a `ANTHROPIC_API_KEY=<value>` leak → switched to `HasPrefix` prefix-checks
+that genuinely catch a leak) → Green → Blue (all 5a-i security tests intact; RouteEnv-
+leak is out-of-contract documented) → Audit (clean; full suite 20/20). The secret stays
+by-NAME bare; RouteEnv is non-secret NAME=VALUE — kept distinct + prefix-guarded.
+
 ## New clashes opened / resolved
 
 Resolved: the agent container is a trust-isolation boundary (separate hardened
