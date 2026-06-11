@@ -27,6 +27,7 @@ import (
 	"github.com/joaomdsg/packets/internal/reanchor"
 	"github.com/joaomdsg/packets/internal/review"
 	"github.com/joaomdsg/packets/internal/surface"
+	"github.com/joaomdsg/packets/internal/tokenstore"
 	"github.com/joaomdsg/packets/internal/translate"
 )
 
@@ -1090,14 +1091,20 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 	liveFabric = f
 	log := ledger.BindOwning(f, defaultSessionKey, ledgerInstance)
 	setLiveState(cfg, log)
+	// The Anthropic key lives beside the ledger (one server, one key). Bind the store
+	// and inject any saved key into the env before mounting, so a restart keeps the
+	// harness runnable without a re-entry and the settings card reflects it.
+	tokenStore = tokenstore.New(tokenConfigPath(cfg.LedgerPath))
+	loadStoredTokenIntoEnv()
 	app := via.New(opts...)
 	// Attach the base stylesheet (the calm visual language) to every page's head
 	// before mounting — boot-time, so it never races a render. It targets the
 	// class hooks the card/board markup already emit; no markup changes here.
 	app.AppendToHead(styleHead())
 	via.Mount[LiveCard](app, "/")
-	via.Mount[BoardCard](app, "/board")   // the cross-card fleet view (read-only projection of liveReg)
-	via.Mount[ReviewCard](app, "/review") // the per-session review surface: the oracle's open "question:" threads
+	via.Mount[BoardCard](app, "/board")       // the cross-card fleet view (read-only projection of liveReg)
+	via.Mount[ReviewCard](app, "/review")     // the per-session review surface: the oracle's open "question:" threads
+	via.Mount[SettingsCard](app, "/settings") // the setup surface: configure the Anthropic API key the harness runs with
 	// The raw SSE bridge over the authoritative stream: a plain text/event-stream
 	// endpoint a browser (or any cross-process consumer) tails, distinct from the
 	// in-process Via reactivity above. ?key=<session> selects which session's

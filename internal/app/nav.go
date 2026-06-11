@@ -13,6 +13,8 @@ func navHeader(key string) h.H {
 	crumb := []h.H{
 		h.Class("board-nav__breadcrumb"),
 		h.A(h.Href("/board"), h.Class("board-nav__crumb"), h.Text("fleet")),
+		h.Span(h.Class("board-nav__sep"), h.Text(" · ")),
+		h.A(h.Href("/settings"), h.Class("board-nav__crumb"), h.Text("settings")),
 	}
 	if key != "" {
 		crumb = append(crumb,

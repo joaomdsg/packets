@@ -91,6 +91,35 @@ body {
   cursor: pointer;
 }
 .board-create__btn:hover { border-color: var(--pk-balance); }
+
+/* ---- the setup surface (the Anthropic key) ---- */
+.settings { display: flex; flex-direction: column; gap: var(--pk-md); }
+/* configured/unconfigured are honest STATES, colored in the calm palette — never
+   an alarm red/green. Unconfigured is dim (a calm "not yet"), configured reads in
+   the balance hue (a live capability), mirroring the per-state convention. */
+.settings__status[data-state="unconfigured"] { color: var(--pk-ink-dim); }
+.settings__status[data-state="configured"] { color: var(--pk-balance); }
+.settings__token { display: flex; gap: var(--pk-sm); align-items: baseline; }
+.settings__token-input {
+  padding: var(--pk-xs) var(--pk-sm);
+  background: var(--pk-surface);
+  color: var(--pk-ink);
+  border: 1px solid var(--pk-line);
+  border-radius: 6px;
+  font: inherit;
+  min-width: 22ch;
+}
+.settings__token-input:focus { outline: none; border-color: var(--pk-accent); }
+.settings__save {
+  padding: var(--pk-xs) var(--pk-md);
+  background: var(--pk-surface-2);
+  color: var(--pk-balance);
+  border: 1px solid var(--pk-line);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+.settings__save:hover { border-color: var(--pk-balance); }
 .board-row {
   display: flex;
   flex-wrap: wrap;
