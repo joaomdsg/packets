@@ -77,6 +77,23 @@ Blue (all paths covered; per-line scoping + ordering sound) → Audit (clean; no
 full tmpfs pressuring Docker — and passed on retry; 4c-i touches only
 internal/harness. CI is the gate.)
 
+## Build record — slice 4c-ii-a SHIPPED (the live data path)
+
+`harness.RunProcess` gained an `onActivity func([]translate.UIEvent)` param
+(threads `WithActivity` into the supervisor when non-nil). The `runHarness` seam +
+all 6 existing stubs updated to the 4-arg signature. `liveEntry` gained a per-session
+`activityBeat` (latest activity line, under `fillMu`, reset in startFill / cleared in
+endFill — bracketed to the fill lifecycle); `addActivityBeat`/`activitySnapshot`. A
+pure `formatActivity(UIEvent)` ("thinking" / "editing <file>" / "running <cmd>" /
+detail-or-kind fallback). `runLiveOrder` passes a callback that pushes the LATEST
+event of each streamed batch into the buffer. tdd-rygba: Red → Yellow (added a
+multi-event-batch assertion proving the latest wins) → Green → Blue (all arms +
+branches covered) → Audit (clean; -race green; endFill is defer'd so the harness-error
+path can't leak the beat to a later order). The live test observes `activitySnapshot`
+MID-RUN from inside the stub (synchronous drain) → ["thinking","editing auth.go",
+"running go test ./..."]. Full suite 20/20, vet clean. Remaining: 4c-ii-b renders the
+beat on the card via the Stream poll.
+
 ## New clashes opened / resolved
 
 Resolved: the 4c surfacing mechanism — per-session buffer poll (not the bus) for the

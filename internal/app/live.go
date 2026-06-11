@@ -27,6 +27,7 @@ import (
 	"github.com/joaomdsg/packets/internal/reanchor"
 	"github.com/joaomdsg/packets/internal/review"
 	"github.com/joaomdsg/packets/internal/surface"
+	"github.com/joaomdsg/packets/internal/translate"
 )
 
 // LiveConfig is the single catch cycle the live server drives: the two
@@ -113,6 +114,10 @@ type liveEntry struct {
 	fillMu       sync.Mutex
 	fillingOrder int
 	fillBeats    []string
+	// activityBeat is the live agent's LATEST activity line (e.g. "editing auth.go")
+	// while a live order fills — a single updating beat, not a log. Bracketed to the
+	// fill lifecycle (reset in startFill, cleared in endFill) and guarded by fillMu.
+	activityBeat string
 }
 
 // fillMu guards the live-fill buffer: the work-order currently being filled by the
@@ -122,8 +127,23 @@ type liveEntry struct {
 // tally). Ephemeral, off the economy ledger.
 func (e *liveEntry) startFill(id int) {
 	e.fillMu.Lock()
-	e.fillingOrder, e.fillBeats = id, nil
+	e.fillingOrder, e.fillBeats, e.activityBeat = id, nil, ""
 	e.fillMu.Unlock()
+}
+
+// addActivityBeat sets the live agent's latest activity line (replaces, not
+// appends — the card shows only the most recent move).
+func (e *liveEntry) addActivityBeat(beat string) {
+	e.fillMu.Lock()
+	e.activityBeat = beat
+	e.fillMu.Unlock()
+}
+
+// activitySnapshot returns the live agent's latest activity line ("" when none).
+func (e *liveEntry) activitySnapshot() string {
+	e.fillMu.Lock()
+	defer e.fillMu.Unlock()
+	return e.activityBeat
 }
 
 // addFillBeat appends one cycle beat for the filling order (the live tempo).
@@ -137,7 +157,7 @@ func (e *liveEntry) addFillBeat(kind string) {
 // vanishes and the order's resolved outcome takes over.
 func (e *liveEntry) endFill() {
 	e.fillMu.Lock()
-	e.fillingOrder, e.fillBeats = 0, nil
+	e.fillingOrder, e.fillBeats, e.activityBeat = 0, nil, ""
 	e.fillMu.Unlock()
 }
 
@@ -774,7 +794,11 @@ func runLiveOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 	// Bound the agent run so a runaway harness can't burn the budget without limit
 	// (the cost-gate — the only token cap a live order has; council R69/R70).
 	hctx, cancel := context.WithTimeout(context.Background(), liveHarnessTimeout)
-	turns, err := runHarness(hctx, e.cfg.RepoDir, order.Target.Prompt)
+	turns, err := runHarness(hctx, e.cfg.RepoDir, order.Target.Prompt, func(evs []translate.UIEvent) {
+		if len(evs) > 0 {
+			e.addActivityBeat(formatActivity(evs[len(evs)-1])) // the latest event = the agent's current move
+		}
+	})
 	cancel()
 	if err != nil {
 		_ = e.log.AppendStatus(order.ID, "failed") // the live run failed — terminal, not a completed fill
@@ -801,6 +825,25 @@ func runLiveOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 
 // liveHarnessTimeout bounds one live agent run — the runaway-token cost-gate.
 const liveHarnessTimeout = 10 * time.Minute
+
+// formatActivity renders one agent activity event as a human-legible line for the
+// card's "latest activity" indicator — "thinking", "editing <file>", "running
+// <cmd>" — falling back to the detail (or kind) for an unrecognized beat.
+func formatActivity(e translate.UIEvent) string {
+	switch e.Kind {
+	case "thinking":
+		return "thinking"
+	case "editing":
+		return "editing " + e.Detail
+	case "tool":
+		return "running " + e.Detail
+	default:
+		if e.Detail != "" {
+			return e.Detail
+		}
+		return e.Kind
+	}
+}
 
 func runOneOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 	if err := e.log.AppendStatus(order.ID, "running"); err != nil {

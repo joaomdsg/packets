@@ -16,6 +16,7 @@ import (
 	"github.com/joaomdsg/packets/internal/orchestrator"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
+	"github.com/joaomdsg/packets/internal/translate"
 )
 
 func mintedCatchWithProducer(t *testing.T, f *fabric.Fabric, session, producer string) bool {
@@ -43,7 +44,7 @@ func TestRunLiveOrder_mintsACatchFromTheProducedRevisionAgainstThePreSpecifiedAn
 	restoreHarness := runHarness
 	t.Cleanup(func() { runHarness = restoreHarness })
 	var liveHead string
-	runHarness = func(_ context.Context, repoDir, _ string) ([]harness.Turn, error) {
+	runHarness = func(_ context.Context, repoDir, _ string, _ func([]translate.UIEvent)) ([]harness.Turn, error) {
 		require.NoError(t, os.WriteFile(filepath.Join(repoDir, "feature.go"), []byte("package main\n"), 0o644))
 		gitOrder(t, repoDir, "add", "-A")
 		gitOrder(t, repoDir, "commit", "-qm", "live fix")
@@ -95,7 +96,7 @@ func TestRunLiveOrder_mintsNothingWhenTheLiveRevisionYieldsNoCatch(t *testing.T)
 
 	restoreHarness := runHarness
 	t.Cleanup(func() { runHarness = restoreHarness })
-	runHarness = func(_ context.Context, repoDir, _ string) ([]harness.Turn, error) {
+	runHarness = func(_ context.Context, repoDir, _ string, _ func([]translate.UIEvent)) ([]harness.Turn, error) {
 		require.NoError(t, os.WriteFile(filepath.Join(repoDir, "feature.go"), []byte("package main\n"), 0o644))
 		gitOrder(t, repoDir, "add", "-A")
 		gitOrder(t, repoDir, "commit", "-qm", "live fix")
@@ -139,7 +140,7 @@ func TestRunLiveOrder_skipsTheCatchCycleWhenNoRevisionWasProduced(t *testing.T) 
 
 	restoreHarness := runHarness
 	t.Cleanup(func() { runHarness = restoreHarness })
-	runHarness = func(_ context.Context, _, _ string) ([]harness.Turn, error) {
+	runHarness = func(_ context.Context, _, _ string, _ func([]translate.UIEvent)) ([]harness.Turn, error) {
 		return []harness.Turn{{Outcome: orchestrator.TurnOutcome{Minted: false}}}, nil // the agent changed nothing
 	}
 

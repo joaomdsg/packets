@@ -189,10 +189,18 @@ Built since (council round 67, `internal/harness`):
   per stream line with that line's activity events the moment they are read — before
   the turn settles — so a live agent's thinking/editing/tool beats can be surfaced as
   they stream (the returned `[]Turn` is batch-at-completion; this is the live seam).
-  Purely additive; settle/turns/base-threading unchanged. **Still deferred:** thread
-  the callback through `RunProcess` + a per-session activity buffer the card polls,
-  rendering a distinct "latest activity" line (4c-ii, the buffer-poll mechanism R71
-  chose over the scratch bus); the agent container (5+).
+  Purely additive; settle/turns/base-threading unchanged.
+- **The live-activity data path (slice 4c-ii-a, council R71):** `RunProcess` gained an
+  `onActivity func([]translate.UIEvent)` param (threads `WithActivity` into the
+  supervisor). `liveEntry` gained a per-session `activityBeat` (the agent's latest
+  activity line, under `fillMu`, bracketed to the fill lifecycle); `runLiveOrder`
+  passes a callback that formats the latest event of each streamed batch
+  (`formatActivity` → "thinking" / "editing <file>" / "running <cmd>") into the
+  buffer, so the session's `activitySnapshot()` updates LIVE as the agent works.
+  Tested by observing the snapshot mid-run (the stub streams and reads it back).
+  **Still deferred:** the card's "latest activity" line RENDER off `activitySnapshot`
+  via the Stream poll (4c-ii-b — server-render-tested; the live SSE update is
+  browser-verified); the agent container (5+).
 
 Everything past that — the full trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet

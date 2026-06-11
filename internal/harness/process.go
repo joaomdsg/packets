@@ -6,6 +6,8 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+
+	"github.com/joaomdsg/packets/internal/translate"
 )
 
 // ClaudeArgs builds the argv (after the "claude" binary) that launches the
@@ -32,12 +34,16 @@ func ClaudeArgs(prompt string) []string {
 // This is process/IO wiring: it is verified by build/vet and a manual run, not
 // unit-tested (a live run needs the claude binary and an API key). The reducer
 // it drives (Supervisor.Run) and the arg builder (ClaudeArgs) are tested.
-func RunProcess(ctx context.Context, repoDir, prompt string) ([]Turn, error) {
+func RunProcess(ctx context.Context, repoDir, prompt string, onActivity func([]translate.UIEvent)) ([]Turn, error) {
 	head, err := headRev(ctx, repoDir)
 	if err != nil {
 		return nil, err
 	}
 
+	var opts []Option
+	if onActivity != nil {
+		opts = append(opts, WithActivity(onActivity))
+	}
 	cmd := exec.CommandContext(ctx, "claude", ClaudeArgs(prompt)...)
 	cmd.Dir = repoDir
 	stdout, err := cmd.StdoutPipe()
@@ -48,7 +54,7 @@ func RunProcess(ctx context.Context, repoDir, prompt string) ([]Turn, error) {
 		return nil, fmt.Errorf("harness: start claude: %v", err)
 	}
 
-	turns, runErr := New(repoDir, head).Run(ctx, stdout)
+	turns, runErr := New(repoDir, head, opts...).Run(ctx, stdout)
 	if runErr != nil {
 		// Run aborted mid-stream (malformed line, settle failure) with stdout
 		// only partially read. Claude may still be writing; an unread pipe fills

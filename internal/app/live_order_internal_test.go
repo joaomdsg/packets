@@ -19,6 +19,7 @@ import (
 	"github.com/joaomdsg/packets/internal/orchestrator"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/reanchor"
+	"github.com/joaomdsg/packets/internal/translate"
 )
 
 func gitOrder(t *testing.T, dir string, args ...string) string {
@@ -76,7 +77,7 @@ func TestDrainQueuedOrders_routesAPromptOrderToTheLiveHarnessNotThePrefundedCycl
 	restoreHarness := runHarness
 	t.Cleanup(func() { runHarness = restoreHarness })
 	var gotRepoDir, gotPrompt string
-	runHarness = func(_ context.Context, repoDir, prompt string) ([]harness.Turn, error) {
+	runHarness = func(_ context.Context, repoDir, prompt string, _ func([]translate.UIEvent)) ([]harness.Turn, error) {
 		gotRepoDir, gotPrompt = repoDir, prompt
 		// A faithful stub of the agent: it edits the working tree and commits,
 		// producing a real revision (moving HEAD) just as a live run would.
@@ -125,7 +126,7 @@ func TestDrainQueuedOrders_marksALiveOrderFailedWhenTheHarnessErrors(t *testing.
 
 	restoreHarness := runHarness
 	t.Cleanup(func() { runHarness = restoreHarness })
-	runHarness = func(_ context.Context, _, _ string) ([]harness.Turn, error) {
+	runHarness = func(_ context.Context, _, _ string, _ func([]translate.UIEvent)) ([]harness.Turn, error) {
 		return nil, errors.New("harness crashed")
 	}
 
@@ -162,7 +163,7 @@ func TestDrainQueuedOrders_keepsAPromptlessOrderOnThePrefundedCycle(t *testing.T
 	restoreHarness := runHarness
 	t.Cleanup(func() { runHarness = restoreHarness })
 	harnessCalled := false
-	runHarness = func(_ context.Context, _, _ string) ([]harness.Turn, error) {
+	runHarness = func(_ context.Context, _, _ string, _ func([]translate.UIEvent)) ([]harness.Turn, error) {
 		harnessCalled = true
 		return nil, nil
 	}
