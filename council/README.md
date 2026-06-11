@@ -286,8 +286,16 @@ Layout of this directory:
   the SCRATCH/activity subject (non-authoritative — firewall-verified: no economy
   projection reads scratch; refuses an empty batch). Makes a live run watchable
   without touching the economy.
-
-Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
+- [Round 69](round-69.md) — the work-order LIVE-EXECUTION model fork (deferred from
+  R68) RESOLVES, full six. Converged: an optional `Target.Prompt` (empty = legacy
+  pre-funded fill, set = live), a dispatch branch in `drainQueuedOrders` reusing the
+  fill machinery, and a `runHarness` injection seam so the live path is CI-tested
+  with a scripted supervisor (no API key). Firewall: only settle-minted revisions
+  enter the economy; activity rides the scratch bus; the cost-gate is a deferrable
+  RunProcess timeout. Systems-vs-Refactoring clash (resolveCycle reuse conflates
+  catch-vs-agent-ended + no dedup/anchor for a free-form task) → split the slice:
+  4a settles live revisions first (no oracle), 4b designs the live-order anchor model
+  + catch, 4c surfaces a single-line "latest activity" indicator, 5+ containerizes. (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
 CI/CD `a5b74ebb…`, Refactoring `a172b669…`.
 
