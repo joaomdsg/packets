@@ -326,6 +326,16 @@ Layout of this directory:
   live-harness pipe (R67–R72) is now CLI-invocable end-to-end. Firewall (Systems): the
   trusted Lead specifying the anchor is safe (R70's farming rule is against the agent).
 
+- [Round 73](round-73.md) — next thread: the TRUST LEDGER (VISION's "groundbreaking"
+  trust-economy, per the RISKS meta-finding — now reachable since the pipe P0→P2 is
+  built+proven). 4-lens council found an autonomous-safe FIRST slice: a READ-ONLY
+  per-lane "scouting report" — a first-pass catch-rate computed PURELY from the
+  already-logged CatchRecords + dispatch outcomes (counts-only, retrospective). Outward
+  framing ("this lane ships clean 3/4", never Lead self-grading). DEFERRED (un-grounded
+  / taste-gated): the model catch-WEIGHT, risk-tier partitioning, trust half-life,
+  earned concurrency, force-deep, Delegation Tiers. Slice 1 = the pure projection
+  (per-session caught÷done); slice 2 = the calm /board render (below the queue).
+
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
 CI/CD `a5b74ebb…`, Refactoring `a172b669…`.
