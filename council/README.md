@@ -336,6 +336,16 @@ Layout of this directory:
   earned concurrency, force-deep, Delegation Tiers. Slice 1 = the pure projection
   (per-session caught÷done); slice 2 = the calm /board render (below the queue).
 
+- [Round 74](round-74.md) — thread boundary: HOLD on new trust-ledger features +
+  a consolidation sweep. 3-lens council (skeptic gate) declined the candidates:
+  per-path lanes (grounded but MARGINAL — too few orders/path per session),
+  session-arc Standup/close-out (high felt-value but TASTE-GATED, new IA/policy),
+  and the deep mechanics (un-grounded/gated). Instead ran an adversarial review of
+  R67–R73 — code CLEAN (no real bugs/leaks/RISKS re-introduction); applied one
+  behavior-preserving DRY (`Projection.caughtWorkOrders()` shared by RecentDispatches
+  + ScoutingReport). The autonomous-safe high-value feature space is built out; the
+  deep economy + agent container are gated.
+
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
 CI/CD `a5b74ebb…`, Refactoring `a172b669…`.

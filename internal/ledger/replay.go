@@ -53,17 +53,26 @@ func (p Projection) DispatchStatusCounts() DispatchCounts {
 	return c
 }
 
+// caughtWorkOrders maps "wo:<id>" → true for every dispatched-order catch — the
+// shared catch-provenance lookup behind RecentDispatches and ScoutingReport: a
+// catch tagged Producer "wo:<id>" marks that order CAUGHT, while a "connect" catch
+// never does (the two-scores provenance gate).
+func (p Projection) caughtWorkOrders() map[string]bool {
+	caught := make(map[string]bool)
+	for _, c := range p.catches {
+		if strings.HasPrefix(c.Producer, "wo:") {
+			caught[c.Producer] = true
+		}
+	}
+	return caught
+}
+
 // RecentDispatches projects the funded orders into DispatchViews, NEWEST FIRST,
 // capped at n (n<=0 = all). Per order: its current status (last status line,
 // default queued) and whether its run minted a catch (a catch tagged
 // Producer "wo:<id>"). Pure projection; mirrors Log.RecentDispatches.
 func (p Projection) RecentDispatches(n int) []DispatchView {
-	caughtIDs := make(map[string]bool)
-	for _, c := range p.catches {
-		if strings.HasPrefix(c.Producer, "wo:") {
-			caughtIDs[c.Producer] = true
-		}
-	}
+	caughtIDs := p.caughtWorkOrders()
 	views := make([]DispatchView, 0, len(p.orders))
 	for i := len(p.orders) - 1; i >= 0; i-- { // newest (highest id) first
 		o := p.orders[i]
@@ -109,12 +118,7 @@ func (s ScoutReport) FirstPassRate() float64 {
 // how many minted a confirmed catch (a CatchRecord tagged Producer "wo:<id>"). Pure
 // projection; Caught is gated on completion, so it never exceeds Completed.
 func (p Projection) ScoutingReport() ScoutReport {
-	caughtIDs := make(map[string]bool)
-	for _, c := range p.catches {
-		if strings.HasPrefix(c.Producer, "wo:") {
-			caughtIDs[c.Producer] = true
-		}
-	}
+	caughtIDs := p.caughtWorkOrders()
 	var r ScoutReport
 	for _, o := range p.orders {
 		if p.status[o.ID] != "done" {
