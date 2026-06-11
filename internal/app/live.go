@@ -168,7 +168,16 @@ type liveEntry struct {
 	// while a live order fills — a single updating beat, not a log. Bracketed to the
 	// fill lifecycle (reset in startFill, cleared in endFill) and guarded by fillMu.
 	activityBeat string
+	// activityLog is the accruing TRANSCRIPT of the agent's beats this fill, in stream
+	// order — the run made legible (the card scrolls it) rather than only the latest
+	// move. Capped at maxActivityLog (oldest dropped) so a long run can't grow it
+	// without bound. Bracketed to the fill lifecycle like activityBeat; guarded by fillMu.
+	activityLog []string
 }
+
+// maxActivityLog bounds the in-flight transcript so a long agent run can't grow the
+// per-session buffer without limit; the oldest beats scroll off once it is reached.
+const maxActivityLog = 300
 
 // fillMu guards the live-fill buffer: the work-order currently being filled by the
 // background runner and the cycle beats accrued so far, so the card can show it
@@ -177,15 +186,20 @@ type liveEntry struct {
 // tally). Ephemeral, off the economy ledger.
 func (e *liveEntry) startFill(id int) {
 	e.fillMu.Lock()
-	e.fillingOrder, e.fillBeats, e.activityBeat = id, nil, ""
+	e.fillingOrder, e.fillBeats, e.activityBeat, e.activityLog = id, nil, "", nil
 	e.fillMu.Unlock()
 }
 
-// addActivityBeat sets the live agent's latest activity line (replaces, not
-// appends — the card shows only the most recent move).
+// addActivityBeat records the agent's latest move: it replaces the single
+// latest-line AND appends to the transcript (capped at maxActivityLog, oldest
+// dropped) so the card can show both the current move and the run's history.
 func (e *liveEntry) addActivityBeat(beat string) {
 	e.fillMu.Lock()
 	e.activityBeat = beat
+	e.activityLog = append(e.activityLog, beat)
+	if len(e.activityLog) > maxActivityLog {
+		e.activityLog = e.activityLog[len(e.activityLog)-maxActivityLog:]
+	}
 	e.fillMu.Unlock()
 }
 
@@ -194,6 +208,14 @@ func (e *liveEntry) activitySnapshot() string {
 	e.fillMu.Lock()
 	defer e.fillMu.Unlock()
 	return e.activityBeat
+}
+
+// activityTranscript returns a copy of the accruing beat transcript for this fill
+// (nil when none) — the run history the card scrolls.
+func (e *liveEntry) activityTranscript() []string {
+	e.fillMu.Lock()
+	defer e.fillMu.Unlock()
+	return append([]string(nil), e.activityLog...)
 }
 
 // addFillBeat appends one cycle beat for the filling order (the live tempo).
@@ -207,7 +229,7 @@ func (e *liveEntry) addFillBeat(kind string) {
 // vanishes and the order's resolved outcome takes over.
 func (e *liveEntry) endFill() {
 	e.fillMu.Lock()
-	e.fillingOrder, e.fillBeats, e.activityBeat = 0, nil, ""
+	e.fillingOrder, e.fillBeats, e.activityBeat, e.activityLog = 0, nil, "", nil
 	e.fillMu.Unlock()
 }
 
@@ -706,6 +728,18 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 					h.Data("state", "activity"),
 					h.Text("· "+act),
 				))
+			}
+			// The scrolling TRANSCRIPT: every beat so far, in order, so the Lead watches
+			// the run unfold rather than only its latest move. Re-rendered each Stream
+			// tick (same poll as the latest-line); the CSS bounds its height and scrolls
+			// it. Omitted until there is a beat — no empty pane.
+			if tr := e.activityTranscript(); len(tr) > 0 {
+				lines := []h.H{h.Class("order-transcript"), h.Data("state", "transcript"),
+					h.Attr("aria-label", "agent transcript")}
+				for _, line := range tr {
+					lines = append(lines, h.Div(h.Class("order-transcript__line"), h.Text(line)))
+				}
+				parts = append(parts, h.Div(lines...))
 			}
 		}
 	}

@@ -228,6 +228,21 @@ body {
 /* "watch it fill": a calm live row while the runner fills an order — the cycle beats
    accruing as the oracle works. Dim mono, in the beat idiom; vanishes when done. */
 .order-filling { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; padding: var(--pk-xs) 0; }
+/* the scrolling agent transcript while an order fills: bounded height so a long run
+   scrolls in place rather than pushing the card; the calm mono idiom, no alarm. */
+.order-transcript {
+  margin: var(--pk-xs) 0;
+  max-height: 14em;
+  overflow-y: auto;
+  padding: var(--pk-xs) var(--pk-sm);
+  background: var(--pk-surface);
+  border: 1px solid var(--pk-line);
+  border-radius: 6px;
+  font-family: var(--pk-mono);
+  font-size: 0.88em;
+  color: var(--pk-ink-dim);
+}
+.order-transcript__line { padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
 
 /* ---- the single review card ---- */
 .stock-row, .balance-row, .dispatch-row, .beat-row, .review-card, .land-row, .onboarding {
