@@ -771,12 +771,36 @@ func runLiveOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 	}
 	e.startFill(order.ID)
 	defer e.endFill()
-	if _, err := runHarness(context.Background(), e.cfg.RepoDir, order.Target.Prompt); err != nil {
+	// Bound the agent run so a runaway harness can't burn the budget without limit
+	// (the cost-gate — the only token cap a live order has; council R69/R70).
+	hctx, cancel := context.WithTimeout(context.Background(), liveHarnessTimeout)
+	turns, err := runHarness(hctx, e.cfg.RepoDir, order.Target.Prompt)
+	cancel()
+	if err != nil {
 		_ = e.log.AppendStatus(order.ID, "failed") // the live run failed — terminal, not a completed fill
 		return
 	}
+	// Run the catch cycle on the agent-PRODUCED revision, against the order's
+	// PRE-SPECIFIED anchor (Target.Path/Line) — never an anchor derived from the
+	// agent's own diff, which would let it farm confirmed-catches (council R70).
+	if liveHead, ok := lastMintedSHA(turns); ok {
+		beats := make(chan pipe.TraceEvent, 64)
+		go func() {
+			for ev := range beats {
+				e.addFillBeat(ev.Kind)
+			}
+		}()
+		res, cerr := resolveCycle(context.Background(), e.cfg.RepoDir,
+			order.Target.BaseRev, liveHead, liveHead,
+			anchorFromTarget(order.Target), e.cfg.TestCmd, false, false, beats)
+		close(beats)
+		settleCatch(e, order.ID, res, cerr)
+	}
 	_ = e.log.AppendStatus(order.ID, "done")
 }
+
+// liveHarnessTimeout bounds one live agent run — the runaway-token cost-gate.
+const liveHarnessTimeout = 10 * time.Minute
 
 func runOneOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 	if err := e.log.AppendStatus(order.ID, "running"); err != nil {
@@ -800,22 +824,39 @@ func runOneOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 		order.Target.BaseRev, order.Target.FixRev, order.Target.TipRev,
 		anchorFromTarget(order.Target), e.cfg.TestCmd, false, false, beats)
 	close(beats) // the cycle only SENDS on beats; the caller owns the close, so the accrue goroutine exits (mirrors OnConnect)
-	if err == nil && res.Record != nil {
-		res.Record.Producer = "wo:" + strconv.Itoa(order.ID)
-		_ = e.log.Append(*res.Record) // deduped: a re-run of a seen identity mints nothing
-	}
-	if err == nil {
-		// Persist the oracle's honest verdict for THIS order — the WHY behind a
-		// catch or miss — so a missed order is diagnosable, not just "done, not
-		// caught". Diagnostic only: never a catch/balance (two-scores).
-		_ = e.log.AppendWorkOrderVerdict(order.ID, res.Verdict)
-		// Capture the order's review questions (surviving mutants) so the funded
-		// work is reviewable (dispatch→review tie). Off the economy ledger, like the
-		// connect-cycle findings cache — the order's CATCH mints, its questions don't.
-		e.setOrderFindings(order.ID, res.Findings)
-	}
+	settleCatch(e, order.ID, res, err)
 	_ = e.log.AppendStatus(order.ID, "done")
 	e.endFill() // the order is done — clear the live filling row; its outcome takes over
+}
+
+// settleCatch persists a catch cycle's result for an order: the minted catch (the
+// only economy write — attributed to wo:<id>, deduped on a re-run of a seen
+// identity), the oracle's verdict (diagnostic — the WHY behind a catch or miss),
+// and the surviving-mutant findings (diagnostic — the dispatch→review tie). The
+// verdict and findings are OFF the two-scores economy; only res.Record mints. A
+// cycle error settles nothing.
+func settleCatch(e *liveEntry, orderID int, res Resolution, err error) {
+	if err != nil {
+		return
+	}
+	if res.Record != nil {
+		res.Record.Producer = "wo:" + strconv.Itoa(orderID)
+		_ = e.log.Append(*res.Record)
+	}
+	_ = e.log.AppendWorkOrderVerdict(orderID, res.Verdict)
+	e.setOrderFindings(orderID, res.Findings)
+}
+
+// lastMintedSHA returns the SHA of the last turn that minted a revision — the
+// live order's "fix revision" — or ok=false when the agent committed nothing
+// (so the caller skips the catch cycle: there is no revision to check).
+func lastMintedSHA(turns []harness.Turn) (string, bool) {
+	for i := len(turns) - 1; i >= 0; i-- {
+		if turns[i].Outcome.Minted {
+			return turns[i].Outcome.SHA, true
+		}
+	}
+	return "", false
 }
 
 // anchorFromTarget reconstructs the re-anchor anchor a funded order runs against

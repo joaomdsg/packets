@@ -171,8 +171,21 @@ Built since (council round 67, `internal/harness`):
   NOTHING — the firewall: a live run settles a git revision but the oracle/catch on
   it is **slice 4b** (which must first design the live-order anchor model). The
   `runHarness` seam means the routing + no-catch firewall are CI-tested against a
-  real temp git repo. **Still deferred:** the catch on a live revision (4b), the
-  live-activity surface line (4c), the agent container (5+).
+  real temp git repo.
+- **The catch on a live revision (slice 4b, council R70):** `runLiveOrder` now runs
+  the catch cycle on the agent-PRODUCED revision: it derives the live fix rev from
+  the harness's last minted turn (`lastMintedSHA`), runs `resolveCycle(BaseRev,
+  liveHEAD, liveHEAD, anchorFromTarget(Target), …)`, and mints via a shared
+  `settleCatch` tail (extracted from `runOneOrder` — one mint path, attributed
+  `wo:<id>`). The **anti-farming firewall (R70):** the catch anchor is the order's
+  PRE-SPECIFIED `Target.Path/Line`, NEVER derived from the agent's own diff — so an
+  agent cannot name the denominator it is scored against (V§13.5). A run that
+  produces no revision skips the cycle; the agent run is bounded by a
+  `liveHarnessTimeout` (the runaway-token cost-gate). Tested via the swappable
+  `resolveCycle` seam (no real oracle/agent in CI): a produced revision yielding a
+  catch mints `wo:<id>` and moves the balance; a no-catch mints nothing. **Still
+  deferred:** the live-activity surface line + `PublishActivity` wiring (4c), the
+  agent container (5+).
 
 Everything past that — the full trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet

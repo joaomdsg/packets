@@ -63,11 +63,13 @@ func TestDrainQueuedOrders_routesAPromptOrderToTheLiveHarnessNotThePrefundedCycl
 	repo := initGitRepoForOrder(t)
 	headBefore := gitOrder(t, repo, "rev-parse", "HEAD")
 
+	// The live path runs the catch cycle on the PRODUCED revision (slice 4b); stub
+	// it to a no-catch so this routing test mints nothing and stays fast. (That the
+	// cycle runs on the produced rev against the pre-specified anchor is covered by
+	// TestRunLiveOrder_mintsACatchFromTheProducedRevisionAgainstThePreSpecifiedAnchor.)
 	restoreCycle := resolveCycle
 	t.Cleanup(func() { resolveCycle = restoreCycle })
-	cycleCalled := false
 	resolveCycle = func(_ context.Context, _, _, _, _ string, _ reanchor.Anchor, _ []string, _, _ bool, _ chan<- pipe.TraceEvent) (Resolution, error) {
-		cycleCalled = true
 		return Resolution{}, nil
 	}
 
@@ -107,7 +109,6 @@ func TestDrainQueuedOrders_routesAPromptOrderToTheLiveHarnessNotThePrefundedCycl
 	assert.Equal(t, "add a feature.go file", gotPrompt, "the order's prompt drives the live harness")
 	assert.NotEqual(t, headBefore, gitOrder(t, repo, "rev-parse", "HEAD"), "the live run produced a real revision (HEAD moved)")
 	assert.Equal(t, "done", statusOfOrder(t, log, 1), "the live order runs to done")
-	assert.False(t, cycleCalled, "a prompt order must NOT run the pre-funded catch cycle")
 
 	balAfter, err := log.Balance()
 	require.NoError(t, err)

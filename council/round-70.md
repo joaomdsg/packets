@@ -74,6 +74,25 @@ catch denominator. This *simplifies* 4b: no new anchor-derivation function, just
   fabric-handle question deferred from 4a).
 - SLICE 5+: containerize the agent run.
 
+## Build record — slice 4b SHIPPED
+
+Extracted `settleCatch(e, orderID, res, err)` from runOneOrder's tail (one mint
+path: `res.Record` → Append as `wo:<id>`; verdict + findings off-ledger; a cycle
+error settles nothing) — behavior-preserving, runOneOrder's existing tests stayed
+green. Added pure `lastMintedSHA(turns) (string,bool)` (table-tested). `runLiveOrder`
+now, after the harness run (bounded by `liveHarnessTimeout` — the cost-gate), runs
+`resolveCycle(BaseRev, liveHEAD, liveHEAD, anchorFromTarget(Target), testCmd)` on the
+PRODUCED revision and mints via `settleCatch`; a no-revision run skips the cycle.
+tdd-rygba: Red → Yellow (added the no-revision-skip integration test; kept the pure
+helper test) → Green (updated a now-stale 4a assertion — the live path legitimately
+calls resolveCycle now) → Blue (behavior-preservation of the extraction confirmed;
+all paths covered) → Audit (context cancel reached on both paths — no leak; race-clean;
+firewall confirmed: anchor=Target.Path/Line, settleCatch the sole mint). FIREWALL test
+asserts the resolveCycle args: fix==agent-produced HEAD, anchor.Path/Start==Target's
+pre-specified Path/Line. `-race` green; vet clean. (NB a local cage equivalence
+failure during the run was purely an exhausted `/tmp` tmpfs — confirmed green with
+`TMPDIR=/home`; see the local-tmpfs memory.)
+
 ## New clashes opened / resolved
 
 Resolved: the live-order anchor model — pre-specified (Target.Path/Line), never
