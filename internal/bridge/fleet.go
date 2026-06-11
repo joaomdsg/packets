@@ -13,8 +13,9 @@ import (
 // fleetRow is one session's line in a fleet SSE frame — the board's
 // stream-derivable economy fields tagged with the session key. It omits the
 // in-process-only BacklogRemaining, and carries no hit-rate string: a renderer
-// derives that from reinvested/done. misses is done orders that minted nothing
-// (done − reinvested, clamped at 0), mirroring BoardRows.
+// derives that from caught/done. caught is the exact first-pass-hit count (done
+// orders whose own run minted a wo:<id> catch — ledger.ScoutingReport); misses is
+// the rest of the done orders (done − caught), mirroring BoardRows.
 type fleetRow struct {
 	Key        string `json:"key"`
 	Balance    int    `json:"balance"`
@@ -23,6 +24,7 @@ type fleetRow struct {
 	Queued     int    `json:"queued"`
 	Running    int    `json:"running"`
 	Done       int    `json:"done"`
+	Caught     int    `json:"caught"`
 	Misses     int    `json:"misses"`
 	InFlight   int    `json:"in_flight"` // producers' pending bets — never folded into confirmed (two-scores)
 	Rejected   int    `json:"rejected"`  // verified-losses: bets the host verified and found no catch
@@ -33,10 +35,11 @@ func encodeFleetFrame(fleet map[string]ledger.FleetView) []byte {
 	for key, v := range fleet {
 		stock := ledger.ConfirmedCatches(v.Records())
 		counts := v.DispatchStatusCounts()
-		misses := counts.Done - stock.Reinvested
-		if misses < 0 {
-			misses = 0
-		}
+		// First-pass hits: the EXACT count of done orders whose own run minted a catch
+		// (ScoutingReport gates a hit on the SAME order being done, so a catch on a
+		// still-running order can't be misattributed). Caught ≤ Done by construction,
+		// so misses = done − caught needs no clamp — mirrors BoardRows.
+		sr := v.ScoutingReport()
 		rows = append(rows, fleetRow{
 			Key:        key,
 			Balance:    v.Balance(),
@@ -45,7 +48,8 @@ func encodeFleetFrame(fleet map[string]ledger.FleetView) []byte {
 			Queued:     counts.Queued,
 			Running:    counts.Running,
 			Done:       counts.Done,
-			Misses:     misses,
+			Caught:     sr.Caught,
+			Misses:     counts.Done - sr.Caught,
 			InFlight:   v.InFlight,
 			Rejected:   v.Rejected,
 		})

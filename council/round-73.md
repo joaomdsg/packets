@@ -108,6 +108,21 @@ small — `ledger.FleetView` embeds `Projection`, so `ScoutingReport()` is alrea
 promoted/callable; mirror board.go (`Misses = Done − sr.Caught`). Its own TDD cycle
 (a fleet-stream misattribution test) next tick.
 
+## Build record — slice 3 SHIPPED (the fleet-stream twin of slice 2)
+
+`internal/bridge/fleet.go`: the /fleet SSE frame's `fleetRow` gains a `caught` field
+(the exact first-pass-hit count) and `encodeFleetFrame` now computes
+`Misses = Done − sr.Caught` from `FleetView.ScoutingReport()` (FleetView embeds
+Projection, so it's promoted) — removing the `Done − Reinvested` heuristic + its
+`<0` clamp. So the SAME misattribution bug (a wo:<id> catch on a running order
+crediting a done-but-missed order) is now fixed on BOTH surfaces, and the audit
+confirmed NO third site uses the old heuristic. `Reinvested` stays as the "reinvested"
+stock field. tdd-rygba: Red (a fleet-stream misattribution test → caught:0/misses:1,
+not misses:0; + the 5 golden SSE frames updated to carry "caught") → Yellow (verified
+no false-green; goldens correct) → Green → Blue (heuristic gone; additive schema;
+mirrors slice 2) → Audit (full suite green; consistency grep clean). The board's
+hit-rate (slice 1+2) and the fleet board's (slice 3) now read one exact projection.
+
 ## New clashes opened / resolved
 
 Resolved: the next thread (Trust Ledger) HAS an autonomous-safe first slice (a

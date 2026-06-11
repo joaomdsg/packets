@@ -245,10 +245,12 @@ Built since (council round 73, `internal/ledger`):
   This FIXED a misattribution bug — the old `min(Reinvested, Done)` clamp could
   credit a done-but-missed order for a `wo:<id>` catch minted on a *different*
   still-running order; ScoutingReport gates a hit on the SAME order being done.
-  (`Reinvested` still backs the "N confirmed, M reinvested" stock line.) **Follow-on:**
-  the cross-session `/fleet` stream path (`bridge/fleet.go`) still uses the old
-  heuristic — its own slice, mirroring this (`FleetView` already exposes
-  `ScoutingReport`).
+  (`Reinvested` still backs the "N confirmed, M reinvested" stock line.) The
+  cross-session `/fleet` stream path (`bridge/fleet.go`) was fixed the same way
+  (slice 3): the frame gains a `caught` field and computes `misses = done − caught`
+  from `FleetView.ScoutingReport()`, so the misattribution fix + the exact first-pass
+  count are consistent across both surfaces — no site still uses the
+  `Done − Reinvested` heuristic.
 
 Everything past that — the rest of the trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet
