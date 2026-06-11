@@ -85,6 +85,29 @@ branches covered; error path acceptable parity) → Audit (clean; provenance-lea
 no panic on a stray wo:id; pure/deterministic). `-race` + full suite green. Slice 2
 renders it on /board.
 
+## Build record — slice 2 SHIPPED (board hit-rate ← exact ScoutingReport) + a bug fix
+
+Discovery: the board ALREADY rendered a per-session "hit-rate N/M" + "misses" — but
+via a `Reinvested`-stock heuristic with a `min(Reinvested, Done)` clamp. That clamp
+could MISATTRIBUTE a `wo:<id>` catch minted on a still-RUNNING order to a different
+done-but-missed order (1 done-no-catch + 1 catch-on-running → a WRONG "hit-rate 1/1"
+instead of "0/1"). So slice 2 = source the board's hit-rate/misses from the EXACT
+`ledger.ScoutingReport` (slice 1's consumer), fixing the bug + consolidating to one
+source of truth. `CardRow.Caught` ← `ScoutingReport().Caught`; `Misses = Done −
+Caught` (Caught ≤ Done by construction — no clamp); `hitRateLabel = Caught/Done`.
+`Reinvested` stays for the "N confirmed, M reinvested" stock display. tdd-rygba:
+Red (lead: the misattribution regression guard) → Yellow (added the steady-state
+happy-path test so a broken always-0 integration can't pass) → Green → Blue (heuristic
+fully removed; Reinvested still used; no negative Misses) → Audit (full suite green;
+fixed a stale hitRateLabel doc comment; recon'd the fleet path). `-race` + full suite
+green.
+
+FOLLOW-ON (slice 3): `internal/bridge/fleet.go` `encodeFleetFrame` has the SAME
+`Done − Reinvested` heuristic on the cross-session /fleet STREAM path. The fix is
+small — `ledger.FleetView` embeds `Projection`, so `ScoutingReport()` is already
+promoted/callable; mirror board.go (`Misses = Done − sr.Caught`). Its own TDD cycle
+(a fleet-stream misattribution test) next tick.
+
 ## New clashes opened / resolved
 
 Resolved: the next thread (Trust Ledger) HAS an autonomous-safe first slice (a

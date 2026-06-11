@@ -237,8 +237,18 @@ Built since (council round 73, `internal/ledger`):
   outward "this lane ships clean — N/M first-pass" signal (V§13.2), counts-only and
   retrospective — redeemed against logged facts, never a model judgment. **Deferred
   (un-grounded / taste-gated):** the model catch-WEIGHT, risk-tier partitioning,
-  trust half-life, earned concurrency, force-deep, Delegation Tiers; the calm /board
-  render of this stat is the next slice.
+  trust half-life, earned concurrency, force-deep, Delegation Tiers.
+- **The board's hit-rate is sourced from the exact projection (slice 2):** the
+  per-session "hit-rate N/M" + "misses" on `/board` now come from
+  `ledger.ScoutingReport` (`CardRow.Caught`, `Misses = Done − Caught`,
+  `hitRateLabel = Caught/Done`, no clamp) instead of a `Reinvested`-stock heuristic.
+  This FIXED a misattribution bug — the old `min(Reinvested, Done)` clamp could
+  credit a done-but-missed order for a `wo:<id>` catch minted on a *different*
+  still-running order; ScoutingReport gates a hit on the SAME order being done.
+  (`Reinvested` still backs the "N confirmed, M reinvested" stock line.) **Follow-on:**
+  the cross-session `/fleet` stream path (`bridge/fleet.go`) still uses the old
+  heuristic — its own slice, mirroring this (`FleetView` already exposes
+  `ScoutingReport`).
 
 Everything past that — the rest of the trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet

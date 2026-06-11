@@ -102,7 +102,7 @@ func TestBoardRows_surfacesADoneOrderThatMintedNothingAsAVisibleMiss(t *testing.
 	// The honest loss must be VISIBLE on the board, never a silent discard: a done
 	// order that minted no catch (Done counted it, but no "wo:" catch joined the
 	// stock) shows as a MISS — the spend was a bet that did not pay, and the Lead
-	// can see it. Misses = Done − Reinvested (clamped at 0).
+	// can see it. Misses = Done − Caught (the exact ScoutingReport count).
 	log := boardSession(t, "missK", 1, []ledger.Target{woTargetN(1)})
 	require.NoError(t, log.AppendDispatch("d", woTargetN(1), ownTargetOf(LiveConfig{BaseRev: "own-b-missK", FixRev: "own-f", Anchor: anchorForCap()})))
 	require.NoError(t, log.AppendStatus(1, "done")) // the order ran to done but minted NOTHING
@@ -115,22 +115,21 @@ func TestBoardRows_surfacesADoneOrderThatMintedNothingAsAVisibleMiss(t *testing.
 
 func TestHitRateLabel_isAPureCountRatioOfLoggedBetsNeverAForecast(t *testing.T) {
 	t.Parallel()
-	// The hit-rate is the one honest progression number: Hits (catches a bet
-	// minted, = Reinvested) over Bets (resolved dispatched orders, = Done). A COUNT
-	// ratio of logged events, never an inferred probability — so it redeems against
-	// the mint/miss the Lead actually earned, not a model's forecast.
-	require.Equal(t, "hit-rate 1/4", hitRateLabel(CardRow{Reinvested: 1, Done: 4}))
-	require.Equal(t, "hit-rate 3/3", hitRateLabel(CardRow{Reinvested: 3, Done: 3}), "every bet paid")
-	require.Equal(t, "hit-rate 0/0", hitRateLabel(CardRow{Done: 0, Reinvested: 0}), "no bets resolved yet — a calm 0/0, never NaN or a divide-by-zero")
+	// The hit-rate is the one honest progression number: Caught (orders whose run
+	// minted a confirmed catch, the exact ScoutingReport count) over Done (resolved
+	// dispatched orders). A COUNT ratio of logged events, never an inferred
+	// probability — so it redeems against the mint/miss the Lead actually earned.
+	require.Equal(t, "hit-rate 1/4", hitRateLabel(CardRow{Caught: 1, Done: 4}))
+	require.Equal(t, "hit-rate 3/3", hitRateLabel(CardRow{Caught: 3, Done: 3}), "every bet paid")
+	require.Equal(t, "hit-rate 0/0", hitRateLabel(CardRow{Done: 0, Caught: 0}), "no bets resolved yet — a calm 0/0, never NaN or a divide-by-zero")
 }
 
-func TestHitRateLabel_neverReadsMoreHitsThanResolvedBets(t *testing.T) {
+func TestHitRateLabel_caughtNeverExceedsDoneByConstruction(t *testing.T) {
 	t.Parallel()
-	// A "wo:" catch is Appended before its order's "done" status line (runOneOrder),
-	// so a board read can briefly observe Reinvested > Done. The standing is Hits over
-	// Bets — Hits can never exceed Bets, so the displayed numerator is clamped at the
-	// denominator, mirroring the Misses = max(0, Done−Reinvested) guard in BoardRows.
-	// Without the clamp this leaks a nonsense ratio like "hit-rate 1/0".
-	require.Equal(t, "hit-rate 0/0", hitRateLabel(CardRow{Reinvested: 1, Done: 0}), "a catch logged before its done line must not read Hits > Bets")
-	require.Equal(t, "hit-rate 2/2", hitRateLabel(CardRow{Reinvested: 3, Done: 2}), "the numerator is clamped to the resolved-bet count")
+	// Caught comes from ledger.ScoutingReport, which counts only catches on orders
+	// that are themselves done — so Caught ≤ Done holds by construction and no clamp
+	// is needed (the old Reinvested-stock heuristic needed one because it counted a
+	// catch on a not-yet-done order; see
+	// TestBoardRows_doesNotCreditADoneOrderForACatchOnADifferentRunningOrder).
+	require.Equal(t, "hit-rate 2/2", hitRateLabel(CardRow{Caught: 2, Done: 2}), "all resolved orders caught")
 }

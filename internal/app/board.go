@@ -30,7 +30,8 @@ type CardRow struct {
 	Queued           int
 	Running          int
 	Done             int
-	Misses           int // done orders that minted NOTHING (Done − Reinvested) — honest losses made visible, not silently discarded
+	Caught           int // done orders whose run minted a confirmed catch — the exact ledger.ScoutingReport count (gated on the SAME order being done), the first-pass-hit numerator
+	Misses           int // done orders that minted NOTHING (Done − Caught) — honest losses made visible, not silently discarded
 	BacklogRemaining int
 	OpenQuestions    int    // the session's latest-cycle open review questions (surviving mutants) — test debt the green verdict hides, made visible across the fleet; a diagnostic, never scored (off the economy)
 	Land             string // the session's latest-cycle integration verdict (clean/conflict/checks_red) — surfaced on the board only when BLOCKED, so "Landed ≠ Merged" is visible across the fleet
@@ -76,11 +77,13 @@ func BoardRows() []CardRow {
 			if c, err := e.log.DispatchStatusCounts(); err == nil {
 				row.Queued, row.Running, row.Done = c.Queued, c.Running, c.Done
 			}
-			// Misses = done orders that minted no catch (Done minus the reinvested
-			// catches, which each came from a done order). Clamp at 0 against the brief
-			// window where a "wo:" catch is appended just before its done-status line.
-			if m := row.Done - row.Reinvested; m > 0 {
-				row.Misses = m
+			// First-pass hits: the EXACT count of done orders whose own run minted a
+			// catch (ledger.ScoutingReport gates Caught on the SAME order being done, so
+			// a catch on a still-running order can't be misattributed). Misses are the
+			// rest of the done orders — Caught ≤ Done by construction, so no clamp.
+			if sr, err := e.log.ScoutingReport(); err == nil {
+				row.Caught = sr.Caught
+				row.Misses = row.Done - sr.Caught
 			}
 			row.BacklogRemaining = len(fundableBacklog(e.cfg, e.log))
 		}
@@ -157,23 +160,18 @@ func (c *BoardCard) CreateSession(ctx *via.Ctx) {
 	_, _ = AddSession(key, cfg)                // validated above; a bind error leaves the registry unchanged
 }
 
-// hitRateLabel is the card's standing — the ONE honest progression number: Hits
-// (catches a bet minted, = Reinvested) over Bets (resolved dispatched orders,
-// = Done). A pure COUNT ratio of logged events, never an inferred probability or
-// forecast, so it redeems against the mint/miss the Lead actually earned. Done==0
-// reads a calm "hit-rate 0/0" — a string ratio, never a divide-by-zero.
+// hitRateLabel is the card's standing — the ONE honest progression number: Caught
+// (orders whose own run minted a confirmed catch, the exact ledger.ScoutingReport
+// count) over Done (resolved dispatched orders). A pure COUNT ratio of logged
+// events, never an inferred probability or forecast, so it redeems against the
+// mint/miss the Lead actually earned. Done==0 reads a calm "hit-rate 0/0" — a
+// string ratio, never a divide-by-zero.
 //
-// The numerator is clamped to Done: a "wo:" catch is Appended just before its
-// order's done-status line (runOneOrder), so a board read can briefly observe
-// Reinvested > Done. Hits can never exceed Bets, so the display clamps rather than
-// leak a nonsense "hit-rate 1/0" — mirroring the Misses = max(0, Done−Reinvested)
-// guard in BoardRows against the same transient window.
+// No clamp is needed: ScoutingReport gates a hit on the SAME order being done, so
+// Caught ≤ Done by construction (a "wo:" catch on a still-running order is not
+// counted — the misattribution the old Reinvested-stock heuristic could leak).
 func hitRateLabel(r CardRow) string {
-	hits := r.Reinvested
-	if hits > r.Done {
-		hits = r.Done
-	}
-	return "hit-rate " + strconv.Itoa(hits) + "/" + strconv.Itoa(r.Done)
+	return "hit-rate " + strconv.Itoa(r.Caught) + "/" + strconv.Itoa(r.Done)
 }
 
 // View renders one row per registered session: its confirmed/reinvested stock,
