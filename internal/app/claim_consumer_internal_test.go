@@ -2,10 +2,8 @@ package app
 
 import (
 	"context"
-	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,16 +45,13 @@ func claimConsumerServer(t *testing.T) (*httptest.Server, *ledger.Log) {
 // with a stub verifier — so the only Docker-needing part is the real CageVerifier
 // (locked separately by the equivalence lock), and the server wiring is covered here.
 func TestStartClaimConsumers_drainsAPostedClaimThroughTheServerVerifierToAMint(t *testing.T) {
-	server, log := claimConsumerServer(t)
+	_, log := claimConsumerServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
 	StartClaimConsumers(ctx, func(LiveConfig) ledger.Verifier { return confirmingVerifier }, 30*time.Second, nil)
 
-	resp, err := http.Post(server.URL+"/claim", "application/json", strings.NewReader(validClaimBody))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+	publishClaim(t, defaultSessionKey, validClaimTarget)
 
 	require.Eventually(t, func() bool {
 		b, err := log.Balance()
@@ -73,7 +68,7 @@ func TestStartClaimConsumers_drainsAPostedClaimThroughTheServerVerifierToAMint(t
 // marker, so the resolved target leaves the in-flight set rather than lingering
 // forever — rejected is "resolved, not confirmed", not "still pending".
 func TestStartClaimConsumers_aRejectedClaimNeverBecomesAConfirmedScore(t *testing.T) {
-	server, log := claimConsumerServer(t)
+	_, log := claimConsumerServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -84,10 +79,7 @@ func TestStartClaimConsumers_aRejectedClaimNeverBecomesAConfirmedScore(t *testin
 	}
 	StartClaimConsumers(ctx, func(LiveConfig) ledger.Verifier { return reject }, 30*time.Second, nil)
 
-	resp, err := http.Post(server.URL+"/claim", "application/json", strings.NewReader(validClaimBody))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+	publishClaim(t, defaultSessionKey, validClaimTarget)
 
 	// The consumer must actually RUN the verifier (not a no-op) — and the verdict
 	// being "no catch" must mint nothing. Asserting the verifier was invoked makes

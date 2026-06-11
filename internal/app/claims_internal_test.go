@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -18,6 +17,7 @@ import (
 	"github.com/go-via/via"
 
 	"github.com/joaomdsg/packets/internal/catch"
+	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/pipe"
 	"github.com/joaomdsg/packets/internal/sandbox"
 )
@@ -81,11 +81,7 @@ func TestStartCageClaimConsumers_wiresAWorkingCageVerifierThatMints(t *testing.T
 	t.Cleanup(cancel)
 	StartCageClaimConsumers(ctx, "img", blessingRunner{output: string(output), invoked: &invoked})
 
-	body := `{"base_rev":"` + base + `","fix_rev":"` + fix + `","tip_rev":"` + tip + `","path":"adult.go","line":2}`
-	resp, err := http.Post(server.URL+"/claim", "application/json", strings.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+	publishClaim(t, defaultSessionKey, ledger.Target{BaseRev: base, FixRev: fix, TipRev: tip, Path: "adult.go", Line: 2})
 
 	require.Eventually(t, func() bool {
 		b, err := log.Balance()

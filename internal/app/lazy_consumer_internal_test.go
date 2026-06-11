@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +16,7 @@ import (
 // registered AFTER the consumers start must still get a consumer, so the create
 // flow isn't a dead end for the producer path. NOT parallel (shared globals).
 func TestClaimConsumers_aRuntimeCreatedSessionStillGetsAConsumer(t *testing.T) {
-	server, _ := claimConsumerServer(t)
+	claimConsumerServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -33,10 +31,7 @@ func TestClaimConsumers_aRuntimeCreatedSessionStillGetsAConsumer(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = newLog.Close() })
 
-	resp, err := http.Post(server.URL+"/claim?key=runtimesess", "application/json", strings.NewReader(validClaimBody))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+	publishClaim(t, "runtimesess", validClaimTarget)
 
 	require.Eventually(t, func() bool {
 		b, err := newLog.Balance()

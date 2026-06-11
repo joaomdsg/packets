@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -1093,43 +1092,13 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 		}
 		bridge.Handler(f, key, ledgerInstance)(w, r)
 	})
-	// A cross-process producer submits a unit of work (a Target) to a session's
-	// claim subtree here. The claim lands ONLY on the claim subtree (in flight),
-	// never the minted subtree — it credits nothing until the host verifies it in
-	// the cage and mints (two-scores). ?key selects the producer session (default
-	// when absent); an unregistered key is refused, like /stream. The Target carries
-	// NO test command — the host fixes what runs. This rejects only an obviously
-	// malformed submission; that the revs actually resolve is the cage verifier's
-	// fail-closed job.
-	const maxClaimBodyBytes = 64 << 10 // 64 KiB: ample for a Target, a hard ceiling on producer abuse
-	app.HandleFunc("POST /claim", func(w http.ResponseWriter, r *http.Request) {
-		key := r.URL.Query().Get("key")
-		if key == "" {
-			key = defaultSessionKey
-		}
-		if _, ok := liveReg.Load(key); !ok {
-			http.NotFound(w, r)
-			return
-		}
-		// The Target is tiny (a handful of short strings + an int). Cap the body so
-		// an untrusted producer can't stream an unbounded payload to exhaust memory;
-		// a body past the cap fails the decode below → 400, like any malformed claim.
-		r.Body = http.MaxBytesReader(w, r.Body, maxClaimBodyBytes)
-		var t ledger.Target
-		if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-			http.Error(w, "claim: invalid target JSON", http.StatusBadRequest)
-			return
-		}
-		if t.BaseRev == "" || t.FixRev == "" || t.Path == "" || t.Line < 1 {
-			http.Error(w, "claim: target requires base_rev, fix_rev, path and a positive line", http.StatusBadRequest)
-			return
-		}
-		if _, err := ledger.PublishClaim(r.Context(), f, key, ledgerInstance, ledger.ClaimRecord{Target: t}); err != nil {
-			http.Error(w, "claim: publish failed", http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusAccepted)
-	})
+	// Claim submission is RETIRED from the HTTP surface (council R82): a producer
+	// submits a claim ONLY through the authenticated NATS ingress
+	// (fabric.StartListening + a ProducerGrant), publishing to its own grant-confined
+	// claim subtree. The host's claim consumer drains it there. This removes the
+	// unauthenticated HTTP edge so a claim can no longer be injected by anyone who
+	// can reach the port; the per-message size bound is now NATS's max-payload, and
+	// the cage verifier remains the fail-closed check that the revs resolve.
 	// A cross-process producer uploads a git bundle of its commits here BEFORE
 	// submitting a claim. The host validates + namespace-confines it OFFLINE
 	// (ingest unbundles only into refs/producers/<key>/* of the session's repo),
