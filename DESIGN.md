@@ -149,6 +149,18 @@ Built since (council round 67, `internal/harness`):
   into the work-order fill path (today it fills from a pre-funded base→fix diff),
   and containerizing the agent run (its own gated round — the agent box needs
   egress + a writable repo, the opposite of the `--network=none` verification cage).
+- **The activity bus brick (slice 3):** `orchestrator.PublishActivity` /
+  `DecodeActivity` publish a live turn's `[]translate.UIEvent` on the
+  SCRATCH/activity subject (`EventSubject(session, instance, StatusScratch,
+  "activity")`) — the bus brick the watchable surface needs. Scratch because
+  activity is non-authoritative diagnostic that must never be replayed into
+  source-of-truth state (the economy firewall: every economy/ledger projection
+  filters to `minted`/`claim`; the only scratch reader is the fleet wake-trigger,
+  which still folds minted+claim only). An empty batch is refused (no bus noise).
+  Fabric round-trip tested in CI. **The fork it deliberately sidesteps:** wiring a
+  live run into the work-order *fill* path needs the work-order model to gain a task
+  prompt + a live-vs-prefunded mode (today `runOneOrder` fills a pre-funded
+  base→fix diff target) — deferred to a dedicated council round, not guessed.
 
 Everything past that — the full trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet

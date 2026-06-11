@@ -276,6 +276,16 @@ Layout of this directory:
   Testable with a scripted fixture (no API key). Economy firewall: the harness mints
   NOTHING (host-settle is the only minter). Real subprocess + containerization are
   later slices.
+- [Round 68](round-68.md) — live-harness slices 1+2 built (the turn-reducer
+  `harness.Supervisor`; the real `claude` process adapter `harness.RunProcess` +
+  unit-tested `ClaudeArgs`, audit-fixed a deadlock on the error path). Slice 3
+  scouted a real FORK: the work-order model carries a pre-funded base→fix diff
+  target, not a task prompt, so a live fill needs a model change — DEFERRED to its
+  own council round, not guessed. Shipped the load-bearing bus brick instead:
+  `orchestrator.PublishActivity`/`DecodeActivity` publish a live turn's activity on
+  the SCRATCH/activity subject (non-authoritative — firewall-verified: no economy
+  projection reads scratch; refuses an empty batch). Makes a live run watchable
+  without touching the economy.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
