@@ -17,6 +17,13 @@ type Admission struct {
 	// the SAME channel in every producer's Admission, so the cap is process-wide.
 	// nil → no concurrency cap.
 	Concurrency chan struct{}
+	// OnResolved, when set, is called with the session key AFTER a claim reaches a
+	// durable verdict (minted, or rejected via a no-catch/unverifiable marker) —
+	// NOT on a transient error that leaves the claim in flight. It is the
+	// post-verdict hook the producer-GC uses to reclaim a now-idle producer's
+	// objects the moment its last claim resolves, rather than waiting for the
+	// periodic sweep. nil → no hook.
+	OnResolved func(session string)
 }
 
 // clock returns the admission's injected clock, or time.Now when unset.

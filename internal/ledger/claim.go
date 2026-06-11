@@ -170,6 +170,14 @@ func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.D
 				return ctx.Err()
 			}
 		}
+		// resolved fires the post-verdict hook AFTER a durable verdict (mint or
+		// rejection) is written, so the producer-GC sees the up-to-date in-flight
+		// count. A transient error does NOT resolve the claim, so it does not fire.
+		resolved := func() {
+			if adm != nil && adm.OnResolved != nil {
+				adm.OnResolved(l.session)
+			}
+		}
 		rec, err := verify(claim)
 		if err != nil {
 			if errors.Is(err, ErrClaimUnverifiable) {
@@ -178,6 +186,7 @@ func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.D
 				// like a clean no-catch — rather than lingering in-flight forever as a
 				// doomed transient retry. Best-effort publish, mirroring the no-catch path.
 				_, _ = PublishClaimVerdict(ctx, l.f, l.session, l.instance, ClaimVerdict{Target: claim.Target, Rejected: true})
+				resolved()
 				return nil
 			}
 			// A TRANSIENT error (the cage blew up / timed out): ack and move on, but
@@ -191,9 +200,11 @@ func (l *Log) ConsumeClaims(ctx context.Context, verify Verifier, ackWait time.D
 			// lingering forever — mints nothing (two-scores). Best-effort, like the
 			// mint: a publish failure leaves it in flight to be re-verified later.
 			_, _ = PublishClaimVerdict(ctx, l.f, l.session, l.instance, ClaimVerdict{Target: claim.Target, Rejected: true})
+			resolved()
 			return nil
 		}
 		_ = l.Append(*rec) // a gate-refused (duplicate/non-catch) mint is best-effort, matching the in-process path
+		resolved()
 		return nil
 	})
 }

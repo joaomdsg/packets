@@ -37,17 +37,34 @@ import (
 // its own session's repo.
 func PruneIdleProducers(ctx context.Context) {
 	liveReg.Range(func(k, v any) bool {
-		e := v.(*liveEntry)
-		if e.cfg.RepoDir == "" || e.log == nil {
-			return true // no store to prune
-		}
-		inFlight, err := e.log.ClaimsInFlight()
-		if err != nil {
-			return true // never prune on a read error
-		}
-		_, _ = ingest.PruneProducerObjects(ctx, e.cfg.RepoDir, k.(string), inFlight > 0)
+		pruneProducerIfIdle(ctx, k.(string), v.(*liveEntry))
 		return true
 	})
+}
+
+// pruneProducerIfIdle reclaims one session's ingested objects when it has no
+// claims in flight, applying the same economy-safe retention + fail-toward-keep
+// rules as the sweep (see PruneIdleProducers). It is the unit both the periodic
+// sweep and the post-verdict hook (ConsumeClaims' OnResolved) share, so a claim
+// resolving reclaims its producer's objects immediately rather than only at the
+// next tick.
+func pruneProducerIfIdle(ctx context.Context, key string, e *liveEntry) {
+	if e == nil || e.cfg.RepoDir == "" || e.log == nil {
+		return // no store to prune
+	}
+	inFlight, err := e.log.ClaimsInFlight()
+	if err != nil {
+		return // never prune on a read error
+	}
+	_, _ = ingest.PruneProducerObjects(ctx, e.cfg.RepoDir, key, inFlight > 0)
+}
+
+// pruneProducerSession looks the session up in the registry and prunes it if
+// idle — the post-verdict hook's entry point, which has only the session key.
+func pruneProducerSession(ctx context.Context, key string) {
+	if v, ok := liveReg.Load(key); ok {
+		pruneProducerIfIdle(ctx, key, v.(*liveEntry))
+	}
 }
 
 // StartProducerGC runs PruneIdleProducers every interval until ctx is cancelled —
