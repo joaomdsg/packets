@@ -51,6 +51,11 @@ type LiveConfig struct {
 	// not-yet-funded target head-first; an empty or fully-drawn-down backlog makes a
 	// Spend a silent no-op (the honest scarcity signal — no distinct work to buy).
 	DispatchBacklog []ledger.Target
+	// UseContainer, when true, runs this session's LIVE orders (Target.Prompt set) in
+	// the hardened agent container (harness.RunContainer) instead of the host
+	// subprocess (harness.RunProcess). The firewall is unchanged — both produce a
+	// revision the host settles; only WHERE the agent runs differs.
+	UseContainer bool
 }
 
 // resolveCycle is the seam OnConnect runs the catch cycle through. It defaults to
@@ -63,6 +68,11 @@ var resolveCycle = ResolveStreaming
 // settled revisions); tests swap it for a scripted stub so the live-fill routing
 // is exercised without a claude binary or API key.
 var runHarness = harness.RunProcess
+
+// runHarnessContainer is the seam a UseContainer live order runs its agent through
+// — the hardened agent container (harness.RunContainer), same signature as
+// runHarness. Tests swap it.
+var runHarnessContainer = harness.RunContainer
 
 // liveEntry is one session's wiring: the cycle config, its ledger, and its
 // admission semaphore (a buffered channel of size cfg.MaxConcurrent, or nil when
@@ -804,7 +814,11 @@ func runLiveOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 	// Bound the agent run so a runaway harness can't burn the budget without limit
 	// (the cost-gate — the only token cap a live order has; council R69/R70).
 	hctx, cancel := context.WithTimeout(context.Background(), liveHarnessTimeout)
-	turns, err := runHarness(hctx, e.cfg.RepoDir, order.Target.Prompt, func(evs []translate.UIEvent) {
+	runner := runHarness // host subprocess by default; the container when the session opts in
+	if e.cfg.UseContainer {
+		runner = runHarnessContainer
+	}
+	turns, err := runner(hctx, e.cfg.RepoDir, order.Target.Prompt, func(evs []translate.UIEvent) {
 		if len(evs) > 0 {
 			e.addActivityBeat(formatActivity(evs[len(evs)-1])) // the latest event = the agent's current move
 		}

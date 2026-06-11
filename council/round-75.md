@@ -155,6 +155,20 @@ seam-wiring + real image cover). Remaining: 5b wire the runHarness seam to selec
 RunContainer + the real agent Dockerfile; 5c+ egress allowlist / multi-tenant /
 push-to-durable-storage.
 
+## Build record — slice 5b-i SHIPPED (per-session runner selection)
+
+`LiveConfig.UseContainer bool` + a `runHarnessContainer = harness.RunContainer` seam;
+`runLiveOrder` selects `runner := runHarness; if cfg.UseContainer { runner =
+runHarnessContainer }` — the ONLY change (timeout/lastMintedSHA/settleCatch/activity/
+status all unchanged). Default false preserves the host-subprocess path (every
+existing live test unaffected). tdd-rygba: two routing tests (UseContainer→container
+runner, not subprocess; default→subprocess, not container — real discriminators); Blue
++ Audit clean; -race + full suite 20/20. The firewall is unchanged (both runners just
+produce a revision the host settles). Remaining for 5b: the CLI `-container` flag
+(sets UseContainer on the primary session) + the REAL agent Dockerfile (node/go/python
++ claude) + a CI build step — slice 5b-ii (wiring/infra; a real live run is
+API-key-gated).
+
 ## New clashes opened / resolved
 
 Resolved: the agent container is a trust-isolation boundary (separate hardened
