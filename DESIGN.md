@@ -226,6 +226,23 @@ Built since (council round 67, `internal/harness`):
   gated round needing maintainer sign-off. A real run needs `claude` on PATH + an
   `ANTHROPIC_API_KEY`.
 
+Built since (council round 75, `internal/harness`):
+
+- **The agent-container security profile (slice 5a-i):** `harness.ContainerArgs`
+  builds the hardened-but-egress-allowed `docker run` argv for running the live
+  harness IN A CONTAINER — `--cap-drop=ALL`, `--security-opt=no-new-privileges`,
+  seccomp, `--read-only` rootfs + `--tmpfs=/tmp`, pids/memory caps, `--user=<host
+  uid:gid>` (so the agent's repo writes are host-owned), the repo bind-mounted
+  WRITABLE as the sole writable surface (`<repo>:/work`, `-w /work`), secrets passed
+  by NAME (`-e ANTHROPIC_API_KEY`, never a value in argv), no docker.sock, and the
+  command = `claude` + the reused `ClaudeArgs`. Crucially it does NOT carry
+  `--network=none` — the agent is a TRUST/ISOLATION boundary (a trusted harness in a
+  box, needing the model API + a writable repo), distinct from the verification
+  cage's CONTAINMENT of untrusted oracle code. Pure, unit-tested (each security
+  property pinned). The runner that execs it + the agent image (with a writable
+  HOME/cache for the read-only rootfs) + wiring the `runHarness` seam to it are the
+  next slices (5a-ii / 5b); `Supervisor` + `runLiveOrder` are unchanged by design.
+
 Built since (council round 73, `internal/ledger`):
 
 - **The Trust Ledger's first slice — a per-session scouting projection:**

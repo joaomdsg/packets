@@ -346,6 +346,16 @@ Layout of this directory:
   + ScoutingReport). The autonomous-safe high-value feature space is built out; the
   deep economy + agent container are gated.
 
+- [Round 75](round-75.md) — the AGENT CONTAINER thread OPENS (maintainer lifted the
+  gate: "move the goal post to the container orchestration"). Full council: the agent
+  box is a TRUST/ISOLATION boundary (trusted harness, EGRESS + WRITABLE repo), a
+  SEPARATE hardened profile from the verification cage's CONTAINMENT (--network=none,
+  read-only). The RunProcess→RunContainer seam leaves Supervisor + runLiveOrder
+  UNCHANGED; the firewall is unchanged (host re-derives verdicts). Slice 5a-i shipped:
+  pure `harness.ContainerArgs` — the hardened-but-egress-allowed `docker run` argv
+  (cap-drop/seccomp/non-root/read-only/pids+mem + writable repo bind + by-name secrets,
+  NO --network=none, NO docker.sock), tests pinning each security property.
+
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
 CI/CD `a5b74ebb…`, Refactoring `a172b669…`.
