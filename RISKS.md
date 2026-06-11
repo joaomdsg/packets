@@ -125,6 +125,14 @@ anchor anywhere in the trust stack.**
   broken build. The conflict-guard can't fire for cross-file semantic breakage.
   *Fix:* gate fan-out on a build+test of the *integrated* branch; derive disjointness
   from a symbol graph, not file overlap.
+- **Set-not-multiset survivor keying under-credits (§29.4 / Clash F #13).** Two same-operator
+  survivors on one line, one later killed, reads as `NoCatch` instead of `PartialCatch`
+  (the survivors collapse to one set entry). **[ASSESSED 2026-06-11 — council R78, HELD]**
+  This is a DELIBERATE, test-locked decision (the `catch`/`LineState` docs +
+  `TestLineStateAt_deduplicatesRepeatedOperatorsIntoASet`), not a latent defect. It is
+  economy-neutral (a suppressed `PartialCatch` is never recorded). A safe multiset-survivor
+  implementation exists, but it reverses a multiply-documented design choice for a
+  display-only edge-case gain → a maintainer call, not autonomous sweep work. Held pending steer.
 - ~~**Confirmed-catch only well-defined for test-only fixes (§29.3).**~~ **[RESOLVED 2026-06-11 — survivor-set definition built]**
   A catch is defined as the line's survivor-set going non-empty→empty, exactly the
   fix — NOT "same mutant killed." `internal/catch/catch.go`: `Catch` = "a stable
