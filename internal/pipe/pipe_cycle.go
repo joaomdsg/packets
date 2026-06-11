@@ -190,6 +190,14 @@ func integrateOnTip(ctx context.Context, repoDir, fixRev, tipRev string, testCmd
 	if tipRev == "" {
 		return "", fmt.Errorf("pipe: empty trunk tip revision")
 	}
+	// A tipRev that resolves to no commit is a caller/config error, not "trunk
+	// moved": `git rebase <bad>` exits non-zero exactly like a real textual
+	// conflict, so the bare rebase-failure→LandConflict mapping below would render
+	// a confidently-wrong "rebase needed" verdict for an unresolvable tip. Verify
+	// it up front so a genuine conflict is the ONLY thing that reaches LandConflict.
+	if _, err := git(ctx, repoDir, "rev-parse", "--verify", "--quiet", tipRev+"^{commit}"); err != nil {
+		return "", fmt.Errorf("pipe: trunk tip %s does not resolve to a commit", short(tipRev))
+	}
 	parent, err := os.MkdirTemp("", "packets-land-*")
 	if err != nil {
 		return "", fmt.Errorf("pipe: temp worktree dir: %w", err)

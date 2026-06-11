@@ -219,6 +219,25 @@ func TestRunCatchCycle_emptyTipErrorsInsteadOfMislabelingConflict(t *testing.T) 
 	require.Error(t, err, "an empty tipRev must fail closed, never be mislabeled as a trunk-moved LandConflict")
 }
 
+func TestRunCatchCycle_failsClosedOnANonexistentTip(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	write(t, dir, "go.mod", "module adultpipe\n\ngo 1.23\n")
+	write(t, dir, "adult.go", adultGo)
+	write(t, dir, "adult_test.go", weakTest)
+	base := commitAll(t, dir, "base")
+	write(t, dir, "adult_test.go", strongTest) // test-only fix; anchor stays Same → reaches integrateOnTip
+	fix := commitAll(t, dir, "fix: strengthen the test")
+
+	// A tipRev that names no commit is a caller/config error, not "trunk moved".
+	// `git rebase <bad>` exits non-zero exactly like a real conflict, so a bare
+	// rebase-failure→LandConflict mapping would render a confidently-wrong
+	// "rebase needed" verdict. A tip that cannot be resolved has no integration
+	// answer — it must fail closed with an error, like the empty-tip guard.
+	_, err := pipe.RunCatchCycle(context.Background(), dir, base, fix, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", adultAnchor(), goTestCmd)
+	require.Error(t, err, "a nonexistent tipRev must fail closed, never be mislabeled as a LandConflict")
+}
+
 func TestRunCatchCycle_landsCleanOnNonConflictingTip(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)

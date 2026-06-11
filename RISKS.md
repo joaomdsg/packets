@@ -362,12 +362,11 @@ design risks above, which are about the spec). Each: where, the finding, the fix
      confidently-wrong terminal). Now guarded: `integrateOnTip` returns an error on an
      empty testCmd OR empty tipRev, so the card stays honestly in-flight rather than
      showing a false integration verdict. `cmd/packets` defaults `-tip` to `-fix`.
-  2. **Nonexistent `tipRev` conflated with conflict — DEFERRED (low severity).** A
-     genuinely bad (nonexistent) tipRev also exits non-zero → reported as `LandConflict`
-     rather than an error. Acceptable for now: the only caller (`app.Resolve` via the
-     wire) passes an already-validated rev; a bad tip cannot arise from a realistic
-     caller. Fix later: distinguish "rebase in progress" (real conflict) from an
-     immediate rev-resolution failure before labeling `LandConflict`.
+  2. ~~**Nonexistent `tipRev` conflated with conflict — DEFERRED (low severity).**~~
+     **[FIXED 2026-06-11 — council R77]** `integrateOnTip` now pre-validates the tip
+     with `git rev-parse --verify --quiet <tipRev>^{commit}` before the rebase, so an
+     unresolvable tip fails closed with an error and a genuine textual conflict is the
+     ONLY thing that reaches `LandConflict`. RED: `TestRunCatchCycle_failsClosedOnANonexistentTip`.
   3. **Integrated-cost multiplier — DEFERRED to the #15 benchmark gate.** A cycle now
      runs the oracle TWICE (base + fix) PLUS a third full `testCmd` run on the rebased
      integrated tree; a future merge queue re-runs integrate per tip move. The
