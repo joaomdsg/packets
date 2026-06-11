@@ -399,9 +399,14 @@ design risks above, which are about the spec). Each: where, the finding, the fix
   `--name-status -z` (NUL-delimited, RAW paths) over a token-walk parse, so every
   pathname byte (TAB/newline/`"`/control/non-ASCII) is handled and quotepath is no
   longer needed there. Locked by `TestReanchor_outdatesAnchorOnAFileWhoseNameContainsATab`.
-  **Residual narrowed:** `internal/diff/diff.go` `Compute` still extracts paths
+  ~~**Residual narrowed:** `internal/diff/diff.go` `Compute` still extracts paths
   from quoted diff output (the same exposure), so a `Moved` verdict on such a file
-  could still mis-read; that is its own deferred `-z` slice.
+  could still mis-read; that is its own deferred `-z` slice.~~ **[RESOLVED 2026-06-11
+  — council R79]** `Compute` now sources paths + counts from `git diff --numstat -z`
+  (raw NUL-terminated paths) and hunks from the unified patch zipped by file order,
+  so no path is read from a quotable patch header. The exposure is CLOSED end-to-end
+  across both fileStatus and Compute. Capstone: `TestReanchor_movesAnchorOnAFileWhoseNameContainsATab`
+  (a Moved verdict on a tab-named file, which degraded to Outdated before this fix).
 - ~~(original)~~ **Where:** `internal/reanchor/reanchor.go` `fileStatus` (name-status parse) and
   the `f.Path == a.Path` hunk loop; `internal/diff/diff.go` path extraction.
 - **Finding:** git's default `core.quotepath=true` octal-quotes and double-quote-

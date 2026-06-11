@@ -36,77 +36,106 @@ type Diff struct {
 }
 
 // Compute returns the structured diff between fromRev and toRev in the git repo
-// at repoDir. Diff output is pinned canonical (--no-color, --no-ext-diff,
-// --no-renames, and explicit a/ b/ prefixes) so the repo/user git config cannot
-// change the format the parser reads. Rename detection is intentionally OFF for
-// now (--no-renames overrides any diff.renames config): a rename shows as a
-// delete + an add (see RISKS.md "reanchor-rename-similarity-cliff", a later
-// brick). Line CONTENT is not captured (ranges/counts only).
+// at repoDir. Rename detection is intentionally OFF (--no-renames overrides any
+// diff.renames config): a rename shows as a delete + an add (see RISKS.md
+// "reanchor-rename-similarity-cliff", a later brick). Line CONTENT is not
+// captured (ranges/counts only).
+//
+// Paths and add/delete counts come from `--numstat -z`, NOT from the patch
+// headers: git C-quotes any path containing a tab/newline/double-quote/control
+// char (and, without quotepath=false, every non-ASCII path) in the
+// `diff --git`/`+++ b/` headers (`+++ "b/tab\tname.txt"`), which a header parse
+// would mangle so a consumer matching on the anchor's path never finds the file.
+// `--numstat -z` emits RAW paths NUL-terminated, immune to all quoting. Hunks
+// still come from the unified patch, associated to files by git's stable
+// emission order (identical for both invocations given identical args).
 func Compute(ctx context.Context, repoDir, fromRev, toRev string) (Diff, error) {
-	// -c core.quotepath=false: git's default octal-quotes non-ASCII paths in the
-	// `diff --git`/`+++ b/` headers (café.txt → "caf\303\251.txt"), so the parsed
-	// FileDiff.Path would be the mangled quoted form and never match a consumer's
-	// real anchor path.
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.quotepath=false", "diff",
+	stat, err := git(ctx, repoDir, "diff", "--numstat", "-z", "--no-renames", fromRev, toRev)
+	if err != nil {
+		return Diff{}, err
+	}
+	patch, err := git(ctx, repoDir, "diff",
 		"--no-color", "--no-ext-diff", "--no-renames",
 		"--src-prefix=a/", "--dst-prefix=b/",
 		fromRev, toRev)
+	if err != nil {
+		return Diff{}, err
+	}
+	files := parseNumstatZ(stat)
+	groups := parseHunkGroups(patch)
+	for i := range files {
+		if i < len(groups) {
+			files[i].Hunks = groups[i]
+		}
+	}
+	return Diff{Files: files}, nil
+}
+
+func git(ctx context.Context, repoDir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = repoDir
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
-		return Diff{}, fmt.Errorf("git diff %s %s: %w: %s", fromRev, toRev, err, strings.TrimSpace(errBuf.String()))
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(errBuf.String()))
 	}
-	return parseUnifiedDiff(out.String()), nil
+	return out.String(), nil
 }
 
-// parseUnifiedDiff turns canonical `git diff` text into a Diff. It is a pure
-// function over the diff text (the I/O lives in Compute), exercised through
-// Compute's real-git tests.
-func parseUnifiedDiff(text string) Diff {
+// parseNumstatZ turns `git diff --numstat -z` output into per-file Path + counts.
+// Each record is NUL-terminated and tab-separated as "added\tdeleted\tpath"; the
+// path is taken as everything after the second tab so a TAB in the filename is
+// preserved. A "-" count (a binary file) becomes 0.
+func parseNumstatZ(text string) []FileDiff {
 	var files []FileDiff
-	var cur FileDiff
-	var inFile bool
-	flush := func() {
-		if inFile {
-			files = append(files, cur)
+	for _, rec := range strings.Split(text, "\x00") {
+		if rec == "" {
+			continue
 		}
+		fields := strings.SplitN(rec, "\t", 3)
+		if len(fields) != 3 {
+			continue
+		}
+		files = append(files, FileDiff{
+			Path:    fields[2],
+			Added:   countOrZero(fields[0]),
+			Deleted: countOrZero(fields[1]),
+		})
 	}
+	return files
+}
+
+func countOrZero(field string) int {
+	if field == "-" {
+		return 0 // binary file: numstat reports "-" for both sides
+	}
+	n, err := strconv.Atoi(field)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// parseHunkGroups returns each file's hunks from the unified patch, in git's
+// emission order — one group per `diff --git` header, so the i-th group belongs
+// to the i-th file parseNumstatZ reports. Paths in the headers are ignored (they
+// may be quoted); only the ordered `@@` ranges are read.
+func parseHunkGroups(text string) [][]Hunk {
+	var groups [][]Hunk
+	started := false
 	for _, line := range strings.Split(text, "\n") {
 		switch {
 		case strings.HasPrefix(line, "diff --git "):
-			flush()
-			cur = FileDiff{Path: pathFromDiffGit(line)}
-			inFile = true
-		case !inFile:
-			// preamble before the first file header (none for plain git diff)
-		case strings.HasPrefix(line, "+++ b/"):
-			cur.Path = strings.TrimPrefix(line, "+++ b/")
-		case strings.HasPrefix(line, "@@"):
+			groups = append(groups, nil)
+			started = true
+		case started && strings.HasPrefix(line, "@@"):
 			if h, ok := parseHunkHeader(line); ok {
-				cur.Hunks = append(cur.Hunks, h)
+				groups[len(groups)-1] = append(groups[len(groups)-1], h)
 			}
-		case strings.HasPrefix(line, "+++ "), strings.HasPrefix(line, "--- "):
-			// file headers (incl. /dev/null sides) — not content. Detected with
-			// the trailing space so an added line like "++++x" is NOT skipped.
-		case strings.HasPrefix(line, "+"):
-			cur.Added++
-		case strings.HasPrefix(line, "-"):
-			cur.Deleted++
 		}
 	}
-	flush()
-	return Diff{Files: files}
-}
-
-// pathFromDiffGit extracts the new path from a "diff --git a/<p> b/<p>" header
-// (the text after " b/"). Renames/quoted paths-with-spaces are out of scope.
-func pathFromDiffGit(line string) string {
-	if i := strings.Index(line, " b/"); i >= 0 {
-		return line[i+len(" b/"):]
-	}
-	return ""
+	return groups
 }
 
 // parseHunkHeader parses "@@ -OldStart[,OldLines] +NewStart[,NewLines] @@ ...".

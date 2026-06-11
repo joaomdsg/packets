@@ -216,6 +216,30 @@ func TestReanchor_outdatesAnchorOnAFileWhoseNameContainsATab(t *testing.T) {
 	assert.Equal(t, reanchor.Outdated, got.State, "a tab-named edited file must not phantom-resolve as Same")
 }
 
+// The capstone of the -z path fix across BOTH fileStatus and diff.Compute: a
+// MOVED verdict on a tab-named file. Lines inserted above the anchor shift it;
+// resolving Moved (not Outdated) requires diff.Compute to surface the file's
+// hunks under its real path so the delta is computed — which the patch-header
+// parse could not do for a quoted name.
+func TestReanchor_movesAnchorOnAFileWhoseNameContainsATab(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	name := "tab\tname.txt"
+	body := numbered(20)
+	write(t, dir, name, body)
+	base := commitAll(t, dir, "base")
+	// Prepend 3 lines so the anchored content shifts down by 3 but is unchanged.
+	write(t, dir, name, "a\nb\nc\n"+body)
+	head := commitAll(t, dir, "insert 3 lines above")
+
+	a := reanchor.Anchor{Path: name, Start: 10, End: 12, LineHash: reanchor.HashLines(linesOf(body, 10, 12))}
+	got, err := reanchor.Reanchor(context.Background(), dir, a, base, head)
+	require.NoError(t, err)
+	assert.Equal(t, reanchor.Moved, got.State, "a tab-named file with content shifted must resolve Moved, not Outdated")
+	assert.Equal(t, 13, got.Start, "anchor start shifts by the 3 inserted lines")
+	assert.Equal(t, 15, got.End)
+}
+
 func TestReanchor_accumulatesDeltaFromMultipleHunksAbove(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)

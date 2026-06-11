@@ -277,3 +277,27 @@ func TestCompute_reportsTheRealPathForANonASCIIFile(t *testing.T) {
 	_, ok := fileByPath(d, "café.txt")
 	require.Truef(t, ok, "café.txt missing from diff (quoted-path mangling?): %+v", d.Files)
 }
+
+// A filename containing a literal TAB is C-quoted by git even with
+// core.quotepath=false (`+++ "b/tab\tname.txt"`), so a parse that reads the path
+// from the patch header would mangle it and a consumer matching on the anchor's
+// path would never find the file's hunks — a Moved verdict would silently
+// degrade to Outdated. The path must surface raw, with its hunks attached.
+func TestCompute_reportsTheRealPathAndHunksForAFileWhoseNameContainsATab(t *testing.T) {
+	dir := initRepo(t)
+	name := "tab\tname.txt"
+	write(t, dir, name, numbered(20))
+	base := commitAll(t, dir, "base")
+	lines := strings.Split(numbered(20), "\n")
+	lines[9] = "CHANGED"
+	write(t, dir, name, strings.Join(lines, "\n"))
+	head := commitAll(t, dir, "edit line 10 of the tab-named file")
+
+	d, err := diff.Compute(context.Background(), dir, base, head)
+	require.NoError(t, err)
+	f, ok := fileByPath(d, name)
+	require.Truef(t, ok, "tab-named file missing from diff (quoted-path mangling?): %+v", d.Files)
+	require.NotEmpty(t, f.Hunks, "the tab-named file's hunks must attach to its real path")
+	brackets := func(h diff.Hunk, line int) bool { return h.NewStart <= line && line <= h.NewStart+h.NewLines-1 }
+	assert.True(t, brackets(f.Hunks[0], 10), "hunk %+v must bracket the edited line 10", f.Hunks[0])
+}
