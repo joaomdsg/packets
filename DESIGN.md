@@ -183,9 +183,16 @@ Built since (council round 67, `internal/harness`):
   produces no revision skips the cycle; the agent run is bounded by a
   `liveHarnessTimeout` (the runaway-token cost-gate). Tested via the swappable
   `resolveCycle` seam (no real oracle/agent in CI): a produced revision yielding a
-  catch mints `wo:<id>` and moves the balance; a no-catch mints nothing. **Still
-  deferred:** the live-activity surface line + `PublishActivity` wiring (4c), the
-  agent container (5+).
+  catch mints `wo:<id>` and moves the balance; a no-catch mints nothing.
+- **The live-activity streaming seam (slice 4c-i, council R71):** `harness.Supervisor`
+  gained a `WithActivity(func([]translate.UIEvent))` functional option; `Run` fires it
+  per stream line with that line's activity events the moment they are read — before
+  the turn settles — so a live agent's thinking/editing/tool beats can be surfaced as
+  they stream (the returned `[]Turn` is batch-at-completion; this is the live seam).
+  Purely additive; settle/turns/base-threading unchanged. **Still deferred:** thread
+  the callback through `RunProcess` + a per-session activity buffer the card polls,
+  rendering a distinct "latest activity" line (4c-ii, the buffer-poll mechanism R71
+  chose over the scratch bus); the agent container (5+).
 
 Everything past that — the full trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet

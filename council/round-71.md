@@ -62,6 +62,21 @@ beats only after the run completes would be honest but NOT "watch it work live".
 - SLICE 5+: containerize the agent run; (later) the /fleet cross-session activity
   ticker off the PublishActivity bus brick.
 
+## Build record — slice 4c-i SHIPPED
+
+`harness.Supervisor` gained a non-breaking functional option `WithActivity(fn
+func([]translate.UIEvent))` (+ `Option` type; `New` is now variadic — existing
+`New(dir,base)` calls unaffected). `Run` fires the callback per stream line with
+that line's activity events the moment they are read — BEFORE the turn settles — so
+beats stream live. Purely additive: the pending/turns accumulation, settle-at-turn-
+end, and base-threading are unchanged. tdd-rygba: Red → Yellow (added a test proving
+activity streams for an in-progress/unsettled turn — the essence of "live") → Green →
+Blue (all paths covered; per-line scoping + ordering sound) → Audit (clean; no race;
+14 New call sites still compile). `-race` green; vet clean. (A flaky
+`internal/sandbox` container-reap test failed once under the degraded local env —
+full tmpfs pressuring Docker — and passed on retry; 4c-i touches only
+internal/harness. CI is the gate.)
+
 ## New clashes opened / resolved
 
 Resolved: the 4c surfacing mechanism — per-session buffer poll (not the bus) for the

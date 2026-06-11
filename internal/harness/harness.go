@@ -30,14 +30,30 @@ type Turn struct {
 
 // Supervisor reduces one harness stream into settled turns against a repo.
 type Supervisor struct {
-	repoDir string
-	baseRev string
+	repoDir    string
+	baseRev    string
+	onActivity func([]translate.UIEvent)
+}
+
+// Option configures a Supervisor at construction.
+type Option func(*Supervisor)
+
+// WithActivity registers a callback invoked with each stream line's activity
+// events the moment they are read — BEFORE the turn settles — so a live agent's
+// thinking/editing/tool beats can be surfaced as they stream, not only in the
+// batch of turns Run returns at completion.
+func WithActivity(fn func([]translate.UIEvent)) Option {
+	return func(s *Supervisor) { s.onActivity = fn }
 }
 
 // New constructs a Supervisor that settles turns in repoDir, diffing the first
 // turn against baseRev.
-func New(repoDir, baseRev string) *Supervisor {
-	return &Supervisor{repoDir: repoDir, baseRev: baseRev}
+func New(repoDir, baseRev string, opts ...Option) *Supervisor {
+	s := &Supervisor{repoDir: repoDir, baseRev: baseRev}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // Run reads the harness stream from r to completion, surfacing each turn's
@@ -60,9 +76,11 @@ func (s *Supervisor) Run(ctx context.Context, r io.Reader) ([]Turn, error) {
 		if err != nil {
 			return nil, err
 		}
+		var activity []translate.UIEvent
 		for _, e := range events {
 			if e.Type != "turn.ended" {
 				pending = append(pending, e)
+				activity = append(activity, e)
 				continue
 			}
 			out, err := orchestrator.SettleTurn(ctx, s.repoDir, s.baseRev, "harness turn")
@@ -74,6 +92,11 @@ func (s *Supervisor) Run(ctx context.Context, r io.Reader) ([]Turn, error) {
 			}
 			turns = append(turns, Turn{Events: pending, Outcome: out})
 			pending = nil
+		}
+		// Stream this line's activity live, the moment it is read — before the turn
+		// settles — so the surface can show the agent working in real time.
+		if s.onActivity != nil && len(activity) > 0 {
+			s.onActivity(activity)
 		}
 	}
 	if err := scanner.Err(); err != nil {
