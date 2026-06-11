@@ -267,6 +267,15 @@ Layout of this directory:
   `LiveConfig.DispatchBacklog` on the primary session (it was test-only, so Spend
   no-op'd via the shipped binary). Pure `parseBacklogSpec` unit-tested; LineHash
   computed vs base so the supply dedup against the primary target holds.
+- [Round 67](round-67.md) — the LIVE-HARNESS thread OPENS (the P0→P2 product gap:
+  no real Claude Code harness is ever spawned; work orders "fill" via a pre-funded
+  base→fix diff). Full six converged 6/6 on the stateful turn-reducer as slice 1:
+  a new `internal/harness.Supervisor` reads a harness stream-json stream from an
+  `io.Reader`, accumulates `translate` UI events per turn, and settles a revision
+  via `orchestrator.SettleTurn` at each `turn.ended` (threading new SHA→next base).
+  Testable with a scripted fixture (no API key). Economy firewall: the harness mints
+  NOTHING (host-settle is the only minter). Real subprocess + containerization are
+  later slices.
 
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,

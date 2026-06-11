@@ -125,6 +125,22 @@ Built since (council rounds 28–35, `internal/fabric`, `internal/bridge`,
   resolve to a durable rejection, so a bet never lingers in-flight forever; a
   transient cage flake / ctx-timeout stays in-flight, resubmittable.
 
+Built since (council round 67, `internal/harness`):
+
+- **The live-harness turn-reducer (P0→P2 thread, slice 1):** `harness.Supervisor`
+  reads a Claude Code harness's stream-json output from any `io.Reader`, surfaces
+  each turn's live activity via `internal/translate`, and at every `turn.ended`
+  settles the working tree into a revision via `orchestrator.SettleTurn` —
+  threading the minted SHA forward so each turn's diff shows only what that turn
+  changed. The harness mints nothing itself (the economy firewall: only the
+  host-side settle step produces a revision); an incomplete trailing turn settles
+  nothing; a malformed line or read failure errors. Tested against a real git repo
+  with a scripted fixture stream — no subprocess, no API key. **Still deferred on
+  this thread:** the real-process adapter (spawn `claude -p --output-format
+  stream-json` via `os/exec`), publishing activity events live to the surface,
+  wiring the live revision into the work-order fill path (today it fills from a
+  pre-funded base→fix diff), and containerizing the agent run.
+
 Everything past that — the full trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet
 built.
