@@ -135,11 +135,20 @@ Built since (council round 67, `internal/harness`):
   changed. The harness mints nothing itself (the economy firewall: only the
   host-side settle step produces a revision); an incomplete trailing turn settles
   nothing; a malformed line or read failure errors. Tested against a real git repo
-  with a scripted fixture stream — no subprocess, no API key. **Still deferred on
-  this thread:** the real-process adapter (spawn `claude -p --output-format
-  stream-json` via `os/exec`), publishing activity events live to the surface,
-  wiring the live revision into the work-order fill path (today it fills from a
-  pre-funded base→fix diff), and containerizing the agent run.
+  with a scripted fixture stream — no subprocess, no API key.
+- **The real Claude Code process adapter (slice 2):** `harness.RunProcess` spawns a
+  real `claude -p <task> --output-format stream-json --verbose --permission-mode
+  bypassPermissions` (the flags pinned by a unit test — both `stream-json` and
+  `--verbose` are required for the CLI to emit the event stream the reducer
+  consumes), sets the working dir to the repo, and feeds the process stdout to the
+  Supervisor (diffing from the repo's current HEAD). On a mid-stream reducer error
+  it kills + drains + reaps the child so a partially-read pipe can't deadlock
+  `Wait`. The spawn is IO wiring (build/vet/manual-run verified, API-key-gated); the
+  arg builder and the reducer it drives are unit-tested. **Still deferred on this
+  thread:** publishing activity events live to the surface, wiring the live revision
+  into the work-order fill path (today it fills from a pre-funded base→fix diff),
+  and containerizing the agent run (its own gated round — the agent box needs
+  egress + a writable repo, the opposite of the `--network=none` verification cage).
 
 Everything past that — the full trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet

@@ -97,6 +97,23 @@ Per lens:
   wire the settled revision into the work-order fill path (replace the pre-funded
   diff with the live one); containerize the agent run (its own gated round).
 
+## Build record
+
+- SLICE 1 (commit 19c56c6): `harness.Supervisor` — the stateful turn-reducer
+  (reads stream-json from an `io.Reader`, accumulates per-turn activity via
+  `translate`, settles a revision via `orchestrator.SettleTurn` at each
+  `turn.ended`, threads minted SHA→next base). tdd-rygba: 9 tests (two-turn
+  base-threading discriminator, no-edit, secret-block, incomplete-trailing-turn,
+  malformed-line, read-failure, settle-failure, large-line, blank-line skip).
+  Audit clean.
+- SLICE 2 (this round): `harness.RunProcess` + `ClaudeArgs` — the real `claude`
+  process adapter. `ClaudeArgs` (pure, unit-tested) pins the headless-streaming
+  flags (`-p`, `--output-format stream-json`, `--verbose`, `--permission-mode
+  bypassPermissions`); `RunProcess` is exec/IO wiring (build/vet/manual verified).
+  Audit caught + fixed a real deadlock/leak: a mid-stream reducer error went
+  straight to `cmd.Wait()` with stdout only partially read → an unread pipe could
+  block the child and deadlock Wait; now kill+drain+reap on the error path.
+
 ## New clashes opened / resolved
 
 Opened: observer-vs-controller (deferred to P3). Resolved in convergence: package
