@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -579,6 +580,10 @@ type LiveCard struct {
 	// set by that item's on.SetSignal just before the post, then read by FundChosen
 	// to dispatch the CHOSEN target instead of the FIFO head.
 	FundTarget via.SignalStr `via:"fundtarget"`
+	// OrderPrompt carries the free-form task the Lead authored in the compose control,
+	// read by PlaceOrder to fund a prompt-carrying live order (vs drawing a pre-baked
+	// backlog target). Per-tab signal, not authoritative session state.
+	OrderPrompt via.SignalStr `via:"orderprompt"`
 	// Balance is the spend broadcast trigger: the balance ROW value is re-read
 	// from the ledger in View (the source of truth), but the ledger is not
 	// reactive — so Spend writes the new balance here to make the live SSE stream
@@ -664,6 +669,14 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 			h.Class("spend-action"),
 			h.Text(spendButtonLabel(cfg, log)),
 		))
+	}
+	// AUTHOR a live order: when there is balance to fund one, render the compose
+	// control so the Lead can type a task and place it (the runtime counterpart of
+	// the -live CLI flag). Below it, a calm note when no API key is configured — the
+	// order would fail without one — linking to the setup surface rather than letting
+	// the Lead place an order that can't run.
+	if balance > 0 {
+		parts = append(parts, renderCompose(c))
 	}
 	// The prep bench: the fundable work on deck, so the Lead sees (and, in a later
 	// slice, curates) what a Spend funds rather than a blind auto-pick. Omitted when
@@ -774,6 +787,57 @@ func (c *LiveCard) FundChosen(ctx *via.Ctx) {
 		c.Dispatch.Write(ctx, strconv.Itoa(d))
 	}
 	go drainQueuedOrders(c.Key)
+}
+
+// PlaceOrder authors a LIVE order from the card: it funds a prompt-carrying target
+// (the Lead's free-form task) against the balance and dispatches it, so the live
+// harness runs the authored work — the UI counterpart of the -live CLI flag, but
+// composed at runtime instead of baked at boot. The base is the repo's CURRENT
+// HEAD, so the agent works the live tree. An empty prompt, an unconfigured repo, or
+// an over-budget balance is a silent no-op (never a funded order with no task, no
+// tree, or no catch to spend). On success it mirrors Spend: announce the drained
+// balance + risen dispatch over SSE, then run the order in the background.
+func (c *LiveCard) PlaceOrder(ctx *via.Ctx) {
+	cfg, log := readLiveState(c.Key)
+	if log == nil {
+		return
+	}
+	prompt := strings.TrimSpace(c.OrderPrompt.Read(ctx))
+	if prompt == "" {
+		return // an empty prompt is not an order
+	}
+	head, ok := repoHead(cfg.RepoDir)
+	if !ok {
+		return // no resolvable tree to run the agent against — never dispatch a treeless live order
+	}
+	tgt := ledger.Target{BaseRev: head, Prompt: prompt}
+	if err := log.AppendDispatch("liveorder", tgt, ownTargetOf(cfg)); err != nil {
+		return // over-budget / nothing to spend: a no-op, never an error to the Lead
+	}
+	if b, err := log.Balance(); err == nil {
+		c.Balance.Write(ctx, strconv.Itoa(b))
+	}
+	if d, err := log.PendingDispatches(); err == nil {
+		c.Dispatch.Write(ctx, strconv.Itoa(d))
+	}
+	go drainQueuedOrders(c.Key)
+}
+
+// repoHead resolves repoDir's current HEAD, the base a UI-authored live order runs
+// from. An empty dir or an unresolvable HEAD (no repo / no commit) reports false so
+// PlaceOrder refuses rather than dispatch a treeless order.
+func repoHead(repoDir string) (string, bool) {
+	if repoDir == "" {
+		return "", false
+	}
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	head := strings.TrimSpace(string(out))
+	return head, head != ""
 }
 
 // chosenFundable resolves a "path:line" bench key to the matching fundable target,

@@ -120,6 +120,33 @@ body {
   cursor: pointer;
 }
 .settings__save:hover { border-color: var(--pk-balance); }
+
+/* ---- author a live order ---- */
+.compose { display: flex; flex-direction: column; gap: var(--pk-sm); margin: var(--pk-sm) 0; }
+.compose__prompt {
+  padding: var(--pk-sm);
+  background: var(--pk-surface);
+  color: var(--pk-ink);
+  border: 1px solid var(--pk-line);
+  border-radius: 6px;
+  font: inherit;
+  min-height: 3.5em;
+  resize: vertical;
+}
+.compose__prompt:focus { outline: none; border-color: var(--pk-accent); }
+.compose__place {
+  align-self: flex-start;
+  padding: var(--pk-xs) var(--pk-md);
+  background: var(--pk-surface-2);
+  color: var(--pk-balance);
+  border: 1px solid var(--pk-line);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+.compose__place:hover { border-color: var(--pk-balance); }
+.compose__needs-key { color: var(--pk-ink-dim); font-size: 0.92em; }
+.compose__needs-key-link { color: var(--pk-accent); text-decoration: none; }
 .board-row {
   display: flex;
   flex-wrap: wrap;
