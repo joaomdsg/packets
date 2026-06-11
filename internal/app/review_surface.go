@@ -200,6 +200,7 @@ func (c *ReviewCard) AnswerQuestion(ctx *via.Ctx) {
 	// question vanishes"). A still-surviving line is NOT resolved (honest: try again).
 	if !findingsHaveLine(newFindings, file, line) {
 		e.markResolved(file, line)
+		e.recordQuestionUnblock(file, line) // a killing answer clears the block — earns attention bandwidth
 	}
 	// Wholesale replace is correct because the live card anchors ONE line and
 	// mutation.Run is scoped to it, so the cache only ever holds that line's findings.

@@ -143,6 +143,10 @@ type liveEntry struct {
 	// the answer sticks for the session. Ephemeral, off the economy ledger (a
 	// diagnostic, like findings); guarded by findingsMu.
 	resolved map[string]bool
+	// blockedQ tracks which review-question ids already have a logged attention block
+	// this session, so recordQuestionBlocks logs each question's block ONCE — a later
+	// connect cycle re-finding the same survivor never re-blocks. Guarded by findingsMu.
+	blockedQ map[string]bool
 	// land is the latest connect cycle's integration verdict (clean/conflict/
 	// checks_red), cached so the fleet board can show which sessions are blocked from
 	// merging — ephemeral, recomputed each connect, off the economy ledger. Guarded
@@ -304,6 +308,42 @@ func (e *liveEntry) markResolved(file string, line int) {
 
 // findingKey is the per-line identity used to match a resolved answer to a finding.
 func findingKey(file string, line int) string { return file + ":" + strconv.Itoa(line) }
+
+// recordQuestionBlocks logs an attention BLOCK for each newly-surfaced review
+// question — the producer needing the Lead's input — starting that question's
+// bandwidth interval. It is idempotent per question id: a later connect cycle that
+// re-finds the same survivor never re-blocks (blockedQ tracks what is already
+// open), so the interval is anchored to when the question FIRST appeared. The
+// ledger publish runs outside findingsMu so I/O never holds the lock; a logging
+// failure is best-effort (a missed block only forgoes a future award, never breaks
+// the cycle).
+func (e *liveEntry) recordQuestionBlocks(fs []mutation.Finding) {
+	e.findingsMu.Lock()
+	if e.blockedQ == nil {
+		e.blockedQ = map[string]bool{}
+	}
+	var fresh []string
+	for _, f := range fs {
+		id := findingKey(f.File, f.Line)
+		if !e.blockedQ[id] {
+			e.blockedQ[id] = true
+			fresh = append(fresh, id)
+		}
+	}
+	e.findingsMu.Unlock()
+	now := time.Now()
+	for _, id := range fresh {
+		_ = e.log.AppendBlock(id, now)
+	}
+}
+
+// recordQuestionUnblock logs that the Lead cleared the question at file:line — the
+// unblock that closes its bandwidth interval and earns the latency-weighted award.
+// Best-effort, off the catch economy (the balance firewall is untouched: an unblock
+// moves only the bandwidth meter).
+func (e *liveEntry) recordQuestionUnblock(file string, line int) {
+	_ = e.log.AppendUnblock(findingKey(file, line), time.Now())
+}
 
 // setOrderFindings caches a filled work-order's review questions (off-ledger, like
 // findings) so the order's test-debt is reviewable. Empty findings clear the entry.
@@ -1124,7 +1164,8 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 		// the /review surface — ephemeral diagnostic state, off the economy ledger.
 		if e := lookupLiveEntry(c.Key); e != nil {
 			e.setFindings(res.Findings)
-			e.setLand(string(res.Land)) // cache the integration verdict for the fleet board
+			e.recordQuestionBlocks(res.Findings) // each surfaced question opens an attention-bandwidth interval
+			e.setLand(string(res.Land))          // cache the integration verdict for the fleet board
 		}
 		result <- resolved{verdict: res.Verdict, land: string(res.Land), questions: strconv.Itoa(len(res.Findings))}
 	}()
