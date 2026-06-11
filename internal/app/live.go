@@ -657,6 +657,11 @@ type LiveCard struct {
 	// here so the dispatch row rises over the live SSE stream in the SAME render as
 	// the balance drains. It carries no authoritative value — View is the source.
 	Dispatch via.StateTabStr
+	// BandwidthMeter is the spend broadcast trigger for the attention-bandwidth row,
+	// mirroring Balance: View re-reads the meter from the ledger (the source of truth),
+	// but the ledger is not reactive — so PlaceOrder writes the new bandwidth here to
+	// fan out a live SSE re-render as the meter drains.
+	BandwidthMeter via.StateTabStr
 	// FillBeats is a re-render trigger written by the Stream when the live-fill buffer
 	// (a currently-filling order's accruing beats) changes, so the card shows the
 	// order filling live. View reads the buffer; this cell only nudges the re-render.
@@ -737,12 +742,13 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 			h.Text(spendButtonLabel(cfg, log)),
 		))
 	}
-	// AUTHOR a live order: when there is balance to fund one, render the compose
-	// control so the Lead can type a task and place it (the runtime counterpart of
-	// the -live CLI flag). Below it, a calm note when no API key is configured — the
-	// order would fail without one — linking to the setup surface rather than letting
-	// the Lead place an order that can't run.
-	if balance > 0 {
+	// AUTHOR a live order: when there is attention BANDWIDTH to fund one, render the
+	// compose control so the Lead can type a task and place it (the runtime
+	// counterpart of the -live CLI flag). A live order is funded by the responsiveness
+	// the Lead earned, not a catch — so the control appears with bandwidth, not
+	// balance. Below it, a calm note when no API key is configured — the order would
+	// fail without one — linking to the setup surface.
+	if bandwidth > 0 {
 		parts = append(parts, renderCompose(c))
 	}
 	// The prep bench: the fundable work on deck, so the Lead sees (and, in a later
@@ -890,11 +896,15 @@ func (c *LiveCard) PlaceOrder(ctx *via.Ctx) {
 		return // no resolvable tree to run the agent against — never dispatch a treeless live order
 	}
 	tgt := ledger.Target{BaseRev: head, Prompt: prompt}
-	if err := log.AppendDispatch("liveorder", tgt, ownTargetOf(cfg)); err != nil {
-		return // over-budget / nothing to spend: a no-op, never an error to the Lead
+	// A UI-authored live order is funded by ATTENTION bandwidth, not a catch — the
+	// responsiveness the Lead earned by unblocking work funds the autonomous work
+	// they dispatch (the two meters, both used). An over-budget meter is refused by
+	// the ledger and is a silent no-op.
+	if err := log.AppendLiveDispatch("liveorder", tgt, ownTargetOf(cfg)); err != nil {
+		return
 	}
-	if b, err := log.Balance(); err == nil {
-		c.Balance.Write(ctx, strconv.Itoa(b))
+	if bw, err := log.Bandwidth(); err == nil {
+		c.BandwidthMeter.Write(ctx, strconv.Itoa(bw)) // announce the drained meter
 	}
 	if d, err := log.PendingDispatches(); err == nil {
 		c.Dispatch.Write(ctx, strconv.Itoa(d))

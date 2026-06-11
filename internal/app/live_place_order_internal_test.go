@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,7 +13,6 @@ import (
 	"github.com/go-via/via"
 	"github.com/go-via/via/vt"
 
-	"github.com/joaomdsg/packets/internal/catch"
 	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/harness"
 	"github.com/joaomdsg/packets/internal/ledger"
@@ -56,7 +56,10 @@ func TestLiveCard_placeOrderFundsAndDispatchesTheAuthoredPrompt(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = f.Close() })
 	log := ledger.Bind(f, "author", "i")
-	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "c.go", Line: 1, ReasonTag: "catch"}))
+	// A live order is funded by attention bandwidth: clear a block fast to earn it.
+	bbase := time.Unix(1_700_000_000, 0)
+	require.NoError(t, log.AppendBlock("q1", bbase))
+	require.NoError(t, log.AppendUnblock("q1", bbase.Add(30*time.Second))) // +3 bandwidth
 	registerSession("author", LiveConfig{RepoDir: repo, BaseRev: head, Anchor: anchorForCap(), TestCmd: []string{"true"}}, log)
 
 	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
@@ -76,9 +79,9 @@ func TestLiveCard_placeOrderFundsAndDispatchesTheAuthoredPrompt(t *testing.T) {
 	got := orderRecordFor(t, log, 1)
 	assert.Equal(t, "add a feature.go file", got.Target.Prompt, "the order carries the authored prompt")
 	assert.Equal(t, head, got.Target.BaseRev, "the order's base is the repo's live HEAD, so the agent works the current tree")
-	bal, err := log.Balance()
+	bw, err := log.Bandwidth()
 	require.NoError(t, err)
-	assert.Equal(t, 0, bal, "authoring an order spends one catch to fund it, like any dispatch")
+	assert.Equal(t, 2, bw, "authoring a live order spends one attention bandwidth to fund it (3 earned − 1)")
 }
 
 // An empty prompt is not an order: placing one must be a silent no-op, never a
@@ -93,7 +96,9 @@ func TestLiveCard_placeOrderIsANoOpOnAnEmptyPrompt(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = f.Close() })
 	log := ledger.Bind(f, "empty", "i")
-	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "c.go", Line: 1, ReasonTag: "catch"}))
+	bbase := time.Unix(1_700_000_000, 0)
+	require.NoError(t, log.AppendBlock("q1", bbase))
+	require.NoError(t, log.AppendUnblock("q1", bbase.Add(30*time.Second))) // +3 bandwidth
 	registerSession("empty", LiveConfig{RepoDir: repo, BaseRev: head, Anchor: anchorForCap(), TestCmd: []string{"true"}}, log)
 
 	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
@@ -108,9 +113,9 @@ func TestLiveCard_placeOrderIsANoOpOnAnEmptyPrompt(t *testing.T) {
 	tc := vt.NewClient(t, server, "/?key=empty")
 	require.Equal(t, 200, tc.Action((&LiveCard{Key: "empty"}).PlaceOrder).WithSignal("orderprompt", "   ").Fire())
 
-	bal, err := log.Balance()
+	bw, err := log.Bandwidth()
 	require.NoError(t, err)
-	assert.Equal(t, 1, bal, "an empty prompt funds nothing — the balance is untouched")
+	assert.Equal(t, 3, bw, "an empty prompt funds nothing — the bandwidth meter is untouched")
 }
 
 // The card must render the order-authoring control (a prompt input bound to the
@@ -123,7 +128,9 @@ func TestLiveCard_rendersTheOrderAuthoringControlWhenFunded(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = f.Close() })
 	log := ledger.Bind(f, "compose", "i")
-	require.NoError(t, log.Append(ledger.CatchRecord{Outcome: catch.Catch, Path: "c.go", Line: 1, ReasonTag: "catch"}))
+	bbase := time.Unix(1_700_000_000, 0)
+	require.NoError(t, log.AppendBlock("q1", bbase))
+	require.NoError(t, log.AppendUnblock("q1", bbase.Add(30*time.Second))) // +3 bandwidth funds the control
 	registerSession("compose", LiveConfig{RepoDir: ".", BaseRev: "b", Anchor: anchorForCap(), TestCmd: []string{"true"}}, log)
 
 	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")

@@ -27,6 +27,7 @@ type Projection struct {
 	// nor moves the latency interval. The attention-bandwidth earn folds from these.
 	blocks   map[string]int64
 	unblocks map[string]int64
+	bwSpent  int // total bandwidth debited (the meter's sink)
 }
 
 // Bandwidth is the earned attention bandwidth: the sum of awards across every
@@ -42,7 +43,7 @@ func (p Projection) Bandwidth() int {
 		latency := time.Duration(unblockMs-blockMs) * time.Millisecond
 		total += bandwidthAward(latency)
 	}
-	return total
+	return total - p.bwSpent
 }
 
 // Balance is credits (confirmed catches) minus debits (positive spends), folded
@@ -315,6 +316,14 @@ func foldEvents(events []fabric.Event) (Projection, error) {
 			}
 			if _, seen := p.unblocks[u.ID]; !seen {
 				p.unblocks[u.ID] = u.AtUnixMs // a block clears once; duplicates never re-pay
+			}
+		case kindBWSpend:
+			s, err := DecodeBandwidthSpend(e.Data)
+			if err != nil {
+				return Projection{}, err
+			}
+			if s.Amount > 0 {
+				p.bwSpent += s.Amount
 			}
 		default:
 			return Projection{}, fmt.Errorf("ledger: replay encountered unknown event kind %q", kind)
