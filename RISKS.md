@@ -384,11 +384,17 @@ design risks above, which are about the spec). Each: where, the finding, the fix
   (a `café.txt`→`résumé.txt` rename resolves LostViaRename with the real new path)
   and `TestCompute_reportsTheRealPathForANonASCIIFile`. The Audit confirmed no
   third latent site (settle already uses `-z` raw paths; reanchor's `fileAt` and
-  ingest's `for-each-ref` parse no file paths from output). **Residual (exotic,
+  ingest's `for-each-ref` parse no file paths from output). ~~**Residual (exotic,
   not fixed):** filenames containing a literal TAB / newline / `"` / control char
   are still C-quoted by git even with quotepath=false, so they could mis-split on
-  the `\t` delimiter in `fileStatus`; the proper fix is `-z` (as settle does) — a
-  larger change, deferred as pathological.
+  the `\t` delimiter in `fileStatus`; the proper fix is `-z` (as settle does).~~
+  **[RESOLVED 2026-06-11 — council R76]** `fileStatus` switched to
+  `--name-status -z` (NUL-delimited, RAW paths) over a token-walk parse, so every
+  pathname byte (TAB/newline/`"`/control/non-ASCII) is handled and quotepath is no
+  longer needed there. Locked by `TestReanchor_outdatesAnchorOnAFileWhoseNameContainsATab`.
+  **Residual narrowed:** `internal/diff/diff.go` `Compute` still extracts paths
+  from quoted diff output (the same exposure), so a `Moved` verdict on such a file
+  could still mis-read; that is its own deferred `-z` slice.
 - ~~(original)~~ **Where:** `internal/reanchor/reanchor.go` `fileStatus` (name-status parse) and
   the `f.Path == a.Path` hunk loop; `internal/diff/diff.go` path extraction.
 - **Finding:** git's default `core.quotepath=true` octal-quotes and double-quote-

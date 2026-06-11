@@ -138,34 +138,44 @@ type fileChange struct {
 // unchanged; an "R" record (path on the old side) is a rename; "D" a deletion;
 // anything else a modification.
 func fileStatus(ctx context.Context, repoDir, path, fromRev, toRev string) (fileChange, error) {
-	// -c core.quotepath=false: git's default octal-quotes + double-quote-wraps
-	// non-ASCII paths in --name-status (café.txt → "caf\303\251.txt"), so an
-	// Anchor.Path with non-ASCII bytes would never match and the file would read
-	// as unchanged — a phantom Same that silently drops a catch.
-	out, err := git(ctx, repoDir, "-c", "core.quotepath=false",
-		"diff", "--find-renames", "--name-status", fromRev, toRev)
+	// -z emits NUL-delimited records with RAW (unquoted) paths. Without it git
+	// C-quotes any path containing a tab/newline/double-quote/control char (and,
+	// without quotepath=false, every non-ASCII path too) — e.g. café.txt →
+	// "caf\303\251.txt", "tab\tname.txt" — so a TAB-split parse mis-reads the
+	// record and the file phantom-resolves as Same, silently dropping a catch.
+	// -z dodges both: quoting is suppressed and the field separator (NUL) cannot
+	// occur in a pathname.
+	out, err := git(ctx, repoDir, "diff", "--find-renames", "--name-status", "-z", fromRev, toRev)
 	if err != nil {
 		return fileChange{}, err
 	}
-	for _, line := range strings.Split(out, "\n") {
-		if line == "" {
+	// With -z the stream is a flat sequence of NUL-terminated tokens: a status
+	// code, then its path (two paths for R/C records). Walk it token-by-token
+	// rather than line-by-line.
+	toks := strings.Split(out, "\x00")
+	for i := 0; i < len(toks); {
+		code := toks[i]
+		if code == "" {
+			i++
 			continue
 		}
-		fields := strings.Split(line, "\t")
-		code := fields[0]
 		switch {
-		case strings.HasPrefix(code, "R") && len(fields) == 3:
-			if fields[1] == path {
-				return fileChange{kind: statusRenamed, newPath: fields[2]}, nil
+		case strings.HasPrefix(code, "R") && i+2 < len(toks):
+			oldPath, newPath := toks[i+1], toks[i+2]
+			if oldPath == path {
+				return fileChange{kind: statusRenamed, newPath: newPath}, nil
 			}
-		case code == "D" && len(fields) == 2:
-			if fields[1] == path {
-				return fileChange{kind: statusDeleted}, nil
-			}
-		case len(fields) == 2:
-			if fields[1] == path {
+			i += 3
+		case i+1 < len(toks):
+			if toks[i+1] == path {
+				if code == "D" {
+					return fileChange{kind: statusDeleted}, nil
+				}
 				return fileChange{kind: statusModified}, nil
 			}
+			i += 2
+		default:
+			i++
 		}
 	}
 	return fileChange{kind: statusUnchanged}, nil

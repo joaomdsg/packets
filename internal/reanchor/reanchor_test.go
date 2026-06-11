@@ -192,6 +192,30 @@ func TestReanchor_followsARenameOfANonASCIIPath(t *testing.T) {
 	assert.Equal(t, "résumé.txt", got.Path, "the new path is the real unquoted non-ASCII name")
 }
 
+// A filename containing a literal TAB is C-quoted by git even with
+// core.quotepath=false ("tab\tname.txt"), so a name-status parse that splits on
+// TAB mis-reads the record and the anchored file reads as Same — silently
+// dropping a catch. A -z (NUL-delimited, raw paths) parse must classify the
+// edit honestly as Outdated.
+func TestReanchor_outdatesAnchorOnAFileWhoseNameContainsATab(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t)
+	name := "tab\tname.txt"
+	body := numbered(20)
+	write(t, dir, name, body)
+	base := commitAll(t, dir, "base")
+	// Edit line 10 (overlapping the anchor) so the honest verdict is Outdated, not Same.
+	lines := strings.Split(body, "\n")
+	lines[9] = "EDITED"
+	write(t, dir, name, strings.Join(lines, "\n"))
+	head := commitAll(t, dir, "edit tab-named file")
+
+	a := reanchor.Anchor{Path: name, Start: 10, End: 10, LineHash: reanchor.HashLines(linesOf(body, 10, 10))}
+	got, err := reanchor.Reanchor(context.Background(), dir, a, base, head)
+	require.NoError(t, err)
+	assert.Equal(t, reanchor.Outdated, got.State, "a tab-named edited file must not phantom-resolve as Same")
+}
+
 func TestReanchor_accumulatesDeltaFromMultipleHunksAbove(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)
