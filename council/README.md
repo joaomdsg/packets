@@ -306,6 +306,16 @@ Layout of this directory:
   from runOneOrder; runLiveOrder runs resolveCycle on (base, liveHEAD, liveHEAD,
   anchor) and mints via the seam. Cost-gate = a RunProcess ctx timeout.
 
+- [Round 71](round-71.md) — slice 4c (surface the live agent's activity on the card).
+  3-lens council (UX/Systems/TDD) converged on a per-session BUFFER POLL (mirror the
+  fill-beat mechanism) over the scratch bus: a distinct "latest activity" row,
+  latest-beat-only, absent on dead-air; firewall-safe; server-testable. The bus
+  (`PublishActivity`, R68) is YAGNI for one card — reserved for a future /fleet
+  cross-session activity ticker (preserves R18 isolation). Surfaced a build wrinkle:
+  `Supervisor.Run`/`RunProcess` return turns only at completion, so LIVE streaming
+  needs a callback seam through the supervisor (slice 4c-i) before the buffer/card
+  render (4c-ii).
+
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
 CI/CD `a5b74ebb…`, Refactoring `a172b669…`.
