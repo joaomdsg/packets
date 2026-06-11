@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,6 +67,24 @@ type LiveConfig struct {
 	// never mint — the in-process host stays the single minter. Ignored when
 	// ListenAddr is empty. Build with NewProducerGrant.
 	Grants []fabric.ProducerGrant
+}
+
+// bundleAuthorized reports whether the request carries HTTP Basic credentials
+// matching a grant for session key (producer == session key). The password is
+// compared in constant time so a prober cannot time-recover it; the user/session
+// equality checks are not secret and need no such guard.
+func bundleAuthorized(grants []fabric.ProducerGrant, key string, r *http.Request) bool {
+	user, pass, ok := r.BasicAuth()
+	if !ok {
+		return false
+	}
+	for _, g := range grants {
+		if g.Session == key && g.User == user &&
+			subtle.ConstantTimeCompare([]byte(g.Pass), []byte(pass)) == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // NewProducerGrant builds a producer authorization for the live server: the
@@ -1114,6 +1133,18 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 		key := r.URL.Query().Get("key")
 		if key == "" {
 			key = defaultSessionKey
+		}
+		// When producers are configured, the bundle blob (the one producer channel
+		// that stays on HTTP — git bundles are ill-suited to NATS messaging) is
+		// authenticated against the SAME grant table as the NATS claim ingress:
+		// Basic credentials must match a grant for this session key (producer ==
+		// session key). Checked BEFORE the registry lookup so an unauthenticated
+		// prober learns nothing about which keys exist. With no grants configured
+		// (in-process/single-user runs) the endpoint stays open, as before.
+		if len(cfg.Grants) > 0 && !bundleAuthorized(cfg.Grants, key, r) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="packets-bundle"`)
+			http.Error(w, "bundle: unauthorized", http.StatusUnauthorized)
+			return
 		}
 		if _, ok := liveReg.Load(key); !ok {
 			http.NotFound(w, r)
