@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joaomdsg/packets/internal/fabric"
 )
@@ -21,6 +22,27 @@ type Projection struct {
 	orders   []WorkOrderRecord
 	status   map[int]string
 	verdicts map[int]string // per-order oracle verdict (last-writer-wins), diagnostic only
+	// blocks/unblocks hold the FIRST stamp seen per id (earliest block, earliest
+	// clearing) — a block is raised and cleared once, so a duplicate never re-pays
+	// nor moves the latency interval. The attention-bandwidth earn folds from these.
+	blocks   map[string]int64
+	unblocks map[string]int64
+}
+
+// Bandwidth is the earned attention bandwidth: the sum of awards across every
+// cleared block (a block id with a matching unblock), each award folding the
+// throughput base + the latency bonus. An open block earns nothing.
+func (p Projection) Bandwidth() int {
+	total := 0
+	for id, blockMs := range p.blocks {
+		unblockMs, ok := p.unblocks[id]
+		if !ok {
+			continue // an open block — not yet cleared, earns nothing
+		}
+		latency := time.Duration(unblockMs-blockMs) * time.Millisecond
+		total += bandwidthAward(latency)
+	}
+	return total
 }
 
 // Balance is credits (confirmed catches) minus debits (positive spends), folded
@@ -238,7 +260,8 @@ func FleetBoard(ctx context.Context, f *fabric.Fabric) (map[string]FleetView, er
 }
 
 func foldEvents(events []fabric.Event) (Projection, error) {
-	p := Projection{status: map[int]string{}, verdicts: map[int]string{}}
+	p := Projection{status: map[int]string{}, verdicts: map[int]string{},
+		blocks: map[string]int64{}, unblocks: map[string]int64{}}
 	for _, e := range events {
 		switch kind := e.Subject[strings.LastIndex(e.Subject, ".")+1:]; kind {
 		case subjectKindCatch:
@@ -277,6 +300,22 @@ func foldEvents(events []fabric.Event) (Projection, error) {
 				return Projection{}, err
 			}
 			p.verdicts[v.ID] = v.Verdict // last-writer-wins, like status
+		case kindBlock:
+			b, err := DecodeBlock(e.Data)
+			if err != nil {
+				return Projection{}, err
+			}
+			if _, seen := p.blocks[b.ID]; !seen {
+				p.blocks[b.ID] = b.AtUnixMs // first block stamp wins (the interval start)
+			}
+		case kindUnblock:
+			u, err := DecodeUnblock(e.Data)
+			if err != nil {
+				return Projection{}, err
+			}
+			if _, seen := p.unblocks[u.ID]; !seen {
+				p.unblocks[u.ID] = u.AtUnixMs // a block clears once; duplicates never re-pay
+			}
 		default:
 			return Projection{}, fmt.Errorf("ledger: replay encountered unknown event kind %q", kind)
 		}
