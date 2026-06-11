@@ -245,7 +245,7 @@ body {
 .order-transcript__line { padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
 
 /* ---- the single review card ---- */
-.stock-row, .balance-row, .dispatch-row, .beat-row, .review-card, .land-row, .onboarding {
+.stock-row, .balance-row, .bandwidth-row, .dispatch-row, .beat-row, .review-card, .land-row, .onboarding {
   padding: var(--pk-sm) var(--pk-md);
   background: var(--pk-surface);
   border: 1px solid var(--pk-line);
@@ -256,6 +256,7 @@ body {
 .stock__reinvested { color: var(--pk-confirmed); }
 .stock__reason, .stock__self-flagged, .stock__would-ship { color: var(--pk-ink-dim); font-size: 0.92em; }
 .balance-row__amount { margin: 0; color: var(--pk-balance); font-weight: 600; }
+.bandwidth-row__amount { margin: 0; color: var(--pk-accent); font-weight: 600; }
 .dispatch-row__counts { margin: 0; color: var(--pk-ink-dim); font-family: var(--pk-mono); }
 .beat { color: var(--pk-ink-dim); font-family: var(--pk-mono); }
 .review-card__headline { margin: 0 0 var(--pk-xs) 0; font-weight: 600; }

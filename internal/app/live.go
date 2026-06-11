@@ -633,6 +633,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	cfg, log := readLiveState(c.Key)
 	var stock ledger.Stock
 	balance := 0
+	bandwidth := 0
 	var dispatch ledger.DispatchCounts
 	var dispatches []ledger.DispatchView
 	if log != nil {
@@ -641,6 +642,9 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 		}
 		if b, err := log.Balance(); err == nil {
 			balance = b
+		}
+		if bw, err := log.Bandwidth(); err == nil {
+			bandwidth = bw
 		}
 		if c, err := log.DispatchStatusCounts(); err == nil {
 			dispatch = c
@@ -680,7 +684,8 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	if hint := onboardingHint(stock); hint != nil {
 		parts = append(parts, hint)
 	}
-	parts = append(parts, surface.RenderStock(stock), surface.RenderBalance(balance))
+	parts = append(parts, surface.RenderStock(stock), surface.RenderBalance(balance),
+		surface.RenderBandwidth(bandwidth))
 	// The Spend action — turning a confirmed catch into a funded work-order — is the
 	// Lead's core economic move. Render its trigger right under the balance it spends,
 	// but ONLY when there is balance to spend: offering a Spend control with nothing
