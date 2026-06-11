@@ -186,7 +186,14 @@ func main() {
 	flag.Var(&backlog, "backlog", "seed a fundable work-order target on the primary session so Spend can dispatch+fill it; repeatable: base=SHA,fix=SHA,file=F,line=N[,tip=SHA]")
 	var live liveFlag
 	flag.Var(&live, "live", "seed a PROMPT-BEARING live work-order on the primary session (a real Claude Code harness produces the fix); repeatable: file=F,line=N,base=SHA[,tip=SHA],prompt=<task>")
+	producerListen := flag.String("producer-listen", "", "bind an AUTHENTICATED NATS socket (host:port) for cross-process producers to submit claims; empty keeps the fabric in-process-only")
+	var producers producerFlag
+	flag.Var(&producers, "producer", "authorize a cross-process producer to submit claims to its session's claim subtree (never mint); repeatable: key:user:pass")
 	flag.Parse()
+
+	if len(producers.grants) > 0 && *producerListen == "" {
+		log.Fatal("packets: -producer needs -producer-listen <host:port> to bind the authenticated socket")
+	}
 
 	if *base == "" || *fix == "" || *file == "" || *line == 0 {
 		log.Fatal("packets: -base, -fix, -file and -line are required")
@@ -243,6 +250,8 @@ func main() {
 		LedgerPath:      *ledgerPath,
 		DispatchBacklog: dispatchBacklog,
 		UseContainer:    *container,
+		ListenAddr:      *producerListen,
+		Grants:          producers.grants,
 		// Cap concurrent catch cycles: each is several full-suite runs (#15), and
 		// per-cycle wall-time stays flat through ~2 concurrent on the bench, so 2 is
 		// the honest default ceiling — connects beyond it queue, never pile on.

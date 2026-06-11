@@ -56,6 +56,26 @@ type LiveConfig struct {
 	// subprocess (harness.RunProcess). The firewall is unchanged — both produce a
 	// revision the host settles; only WHERE the agent runs differs.
 	UseContainer bool
+	// ListenAddr, when non-empty, binds the shared fabric to an AUTHENTICATED TCP
+	// NATS listener (host:port; port 0 picks a free port) so cross-process PRODUCERS
+	// submit claims as authenticated clients, each confined by a Grant to its own
+	// session's claim subtree. Empty keeps the fabric in-process-only (the default —
+	// tests and single-process runs need no socket and no auth).
+	ListenAddr string
+	// Grants authorizes the cross-process producers allowed on ListenAddr. Each
+	// grant's credentials may publish ONLY to its session's claim subtree and can
+	// never mint — the in-process host stays the single minter. Ignored when
+	// ListenAddr is empty. Build with NewProducerGrant.
+	Grants []fabric.ProducerGrant
+}
+
+// NewProducerGrant builds a producer authorization for the live server: the
+// credentials may publish claims ONLY to sessionKey's claim subtree, bound to
+// the one instance every economy uses (ledgerInstance), and may never mint. It
+// is the sanctioned constructor so callers (e.g. cmd/packets) need not know the
+// internal instance token.
+func NewProducerGrant(sessionKey, user, pass string) fabric.ProducerGrant {
+	return fabric.ProducerGrant{User: user, Pass: pass, Session: sessionKey, Instance: ledgerInstance}
 }
 
 // resolveCycle is the seam OnConnect runs the catch cycle through. It defaults to
@@ -440,7 +460,7 @@ var liveFabric *fabric.Fabric
 // startLiveFabric stands up the shared economy fabric, rooting its durable store
 // beside the configured ledger path (a dedicated dir per server, so two servers
 // in one process never share a store). An empty path falls back to a temp store.
-func startLiveFabric(ledgerPath string) (*fabric.Fabric, error) {
+func startLiveFabric(ledgerPath, listenAddr string, grants []fabric.ProducerGrant) (*fabric.Fabric, error) {
 	dir := ledgerPath + "-fabric"
 	if ledgerPath == "" {
 		d, err := os.MkdirTemp("", "packets-fabric-*")
@@ -450,6 +470,12 @@ func startLiveFabric(ledgerPath string) (*fabric.Fabric, error) {
 		dir = d
 	} else if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("app: fabric store dir: %v", err)
+	}
+	// A configured listen address binds an authenticated socket (the host stays
+	// in-process via NoAuthUser; producers authenticate and are grant-confined).
+	// Absent it, the fabric is in-process-only — no socket, no auth surface.
+	if listenAddr != "" {
+		return fabric.StartListening(context.Background(), dir, listenAddr, grants...)
 	}
 	return fabric.Start(context.Background(), dir)
 }
@@ -1030,7 +1056,7 @@ func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 // http.Handler) plus the ledger handle for the caller to close (closing it tears
 // the fabric down). Extra Via options (e.g. via.WithTestServer) are passed through.
 func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error) {
-	f, err := startLiveFabric(cfg.LedgerPath)
+	f, err := startLiveFabric(cfg.LedgerPath, cfg.ListenAddr, cfg.Grants)
 	if err != nil {
 		return nil, nil, err
 	}
