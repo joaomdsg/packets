@@ -109,11 +109,13 @@ anchor anywhere in the trust stack.**
   failing suite, `go test | tee`, `; echo`, `|| true` all exit 0 → green-when-red →
   the approve guard (§16) lands broken code. *Fix:* run checks via controlled exec
   with structured output (`go test -json`), like the mutation runner already does.
-- **Re-anchor: incremental signature vs immutable schema (§28 vs §14).** §28's
-  `prevRev→curRev` signature has no place to store the per-revision position; §14
-  stores only the immutable base anchor. *Verified from-base re-anchor gives the
-  right line; incremental needs state the schema lacks.* *Fix:* commit to from-base
-  re-anchoring on read.
+- ~~**Re-anchor: incremental signature vs immutable schema (§28 vs §14).**~~ **[RESOLVED 2026-06-11 — built from-base]**
+  Committed to from-base re-anchoring on read, exactly the fix: `reanchor.Reanchor(ctx, repoDir, a Anchor, fromRev, toRev)`
+  (`internal/reanchor/reanchor.go`) re-anchors the IMMUTABLE base `Anchor` (carrying the
+  base-line `LineHash`, checked by `rangeHashMatches`) from `fromRev` to `toRev` on
+  read — it stores NO per-revision incremental position, so the schema lacks nothing.
+  DESIGN §0.1's amends table records the same reconciliation (§28 incremental →
+  from-base on read). No incremental `prevRev→curRev` state exists anywhere.
 - **Re-anchor rename cliff (§28).** "Follow `git -M` rename" is similarity-threshold
   based — *verified: a renamed+heavily-edited file becomes delete+add, silently
   dropping the thread*, indistinguishable from a real deletion. *Fix:* pin the
@@ -123,11 +125,14 @@ anchor anywhere in the trust stack.**
   broken build. The conflict-guard can't fire for cross-file semantic breakage.
   *Fix:* gate fan-out on a build+test of the *integrated* branch; derive disjointness
   from a symbol graph, not file overlap.
-- **Confirmed-catch only well-defined for test-only fixes (§29.3).** *Verified:*
-  when the fix edits the anchored line, the surviving mutant (`>`→`>=`) and the
-  post-fix killed mutant (`>=`→`>`) are different mutants — "same mutant now killed"
-  is incoherent; the survivor's output can *be* the fix. *Fix:* define a catch as the
-  line's survivor-set going non-empty→empty, not "same mutant killed."
+- ~~**Confirmed-catch only well-defined for test-only fixes (§29.3).**~~ **[RESOLVED 2026-06-11 — survivor-set definition built]**
+  A catch is defined as the line's survivor-set going non-empty→empty, exactly the
+  fix — NOT "same mutant killed." `internal/catch/catch.go`: `Catch` = "a stable
+  line's survivor-set went from non-empty to empty" (with `PartialCatch` for a strict
+  shrink), computed over the before/after survivor-sets (`Survivors`), so a fix that
+  edits the anchored line and changes its mutation alphabet is handled coherently
+  (the before/after sets live over different alphabets; emptiness is the test, not
+  mutant identity). Validated end-to-end through `pipe.RunCatchCycle` (the §17 pipe).
 - ~~**"0 survivors" is ambiguous (§29.4).**~~ **[FIXED 2026-06-04, TDD — ambiguity half]**
   An untested `return x * 0.9` (no mutable operator) reported "0 findings" identically to
   a fully-tested line. **Fixed:** `Run` now returns `Result{Findings, MutantsConsidered}`;
