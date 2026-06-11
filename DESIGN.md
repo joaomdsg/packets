@@ -144,7 +144,11 @@ Built since (council round 67, `internal/harness`):
   Supervisor (diffing from the repo's current HEAD). On a mid-stream reducer error
   it kills + drains + reaps the child so a partially-read pipe can't deadlock
   `Wait`. The spawn is IO wiring (build/vet/manual-run verified, API-key-gated); the
-  arg builder and the reducer it drives are unit-tested. **Still deferred on this
+  arg builder and the reducer it drives are unit-tested. The spawn path is now also
+  INTEGRATION-tested against a fake `claude` binary on PATH (a real subprocess that
+  edits the repo + emits stream-json) — proving spawn → stream → settle → revision +
+  live activity end-to-end with no API key, and that a non-zero exit surfaces.
+  **Still deferred on this
   thread:** publishing activity events live to the surface, wiring the live revision
   into the work-order fill path (today it fills from a pre-funded base→fix diff),
   and containerizing the agent run (its own gated round — the agent box needs

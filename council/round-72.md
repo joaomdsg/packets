@@ -56,6 +56,19 @@ fix → its activity streams on the card → the catch cycle mints on the pre-sp
 anchor. What remains for production: the agent CONTAINER (gated round B, maintainer
 sign-off) and a real ANTHROPIC_API_KEY at run time.
 
+## Follow-on — RunProcess proven against a real subprocess
+
+After slice A, added an INTEGRATION test (`internal/harness`,
+`TestRunProcess_settlesARealSubprocessEditIntoARevisionAndStreamsItsActivity`): a
+fake `claude` executable on PATH (a `/bin/sh` script that edits a file in the repo
+and emits stream-json) drives the REAL `RunProcess` → spawn → stream → settle the
+file the subprocess actually wrote into a revision (HEAD moves, diff includes the
+file) + the edit activity streams live via the callback — all with NO API key
+(real > stub for the one seam that was build/vet-only). A second test proves a
+non-zero subprocess exit surfaces as an error. `-race` + full suite 20/20 + vet green.
+This upgrades the host-subprocess path from build/vet-only to integration-validated;
+the GOAL's "prove it for real" before the gated container round.
+
 ## New clashes opened / resolved
 
 Resolved: the gating boundary — a host-subprocess live run on a trusted local repo is
