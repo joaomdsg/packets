@@ -469,10 +469,15 @@ the same grant table (R83). On that boundary the deferred fix sequence is built:
 (2) a per-producer `bundleGuard` adds an upload rate-limit (429) + an aggregate
 retained-byte quota (413 before ingest), R85; (3) GC-by-resolved prunes a
 resolved producer's namespace on a post-verdict hook + periodic sweep and frees
-its quota, R84. **Still deferred (4):** a TTL-reap for uploaded-but-never-claimed
-objects + a GLOBAL disk ceiling across producers (a cross-producer policy layer;
-the periodic sweep already bounds the never-claimed case at its cadence). Original
-finding (now mostly historical) follows.
+its quota, R84. (4) **[GLOBAL CEILING BUILT 2026-06-11 — council R86]** A global disk ceiling
+(`bundleGlobalCeilingBytes`) now bounds the SUM of retained bytes across all
+producers (the per-producer quota only bounds one flooder); an over-ceiling upload
+is refused 503, and GC frees the aggregate on reclamation. The TTL-reap sub-item is
+SUBSUMED: GC (sweep + post-verdict hook) already reaps a producer's namespace
+whenever `ClaimsInFlight()==0` — exactly the uploaded-but-never-claimed state — so
+there is no leak to TTL away. A TTL would only ADD a grace window (relaxing R39's
+accepted immediate idle-prune), a maintainer design call, deliberately not built.
+Original finding (now mostly historical) follows.
 
 
 

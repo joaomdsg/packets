@@ -414,6 +414,9 @@ func resetConsumersForTest() {
 		bundleGuards.Delete(k)
 		return true
 	})
+	bundleAcctMu.Lock()
+	bundleGlobalRetained = 0
+	bundleAcctMu.Unlock()
 	// Reset the fields in place — never reassign the struct, which would swap out
 	// the mutex this call holds (the deferred Unlock would hit a fresh, unlocked
 	// one). Zero everything the spawner carries forward between StartClaimConsumers.
@@ -1180,11 +1183,17 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 			http.Error(w, "bundle: too large or unreadable", http.StatusBadRequest)
 			return
 		}
-		// Reserve this upload's bytes against the producer's quota BEFORE ingesting;
-		// an over-quota upload is refused without doing the work. GC-by-resolved (R84)
-		// frees the quota when the producer's objects are reclaimed.
-		if !guard.reserve(int64(len(body))) {
-			http.Error(w, "bundle: producer storage quota exceeded", http.StatusRequestEntityTooLarge)
+		// Reserve this upload's bytes against the producer's quota AND the global
+		// ceiling BEFORE ingesting; an over-limit upload is refused without doing the
+		// work. GC-by-resolved (R84) frees both when the producer's objects are
+		// reclaimed. A per-producer overflow is 413 (this producer's fault); a global
+		// overflow is 503 (the host is at capacity, not this producer's fault).
+		if ok, global := guard.reserve(int64(len(body))); !ok {
+			if global {
+				http.Error(w, "bundle: host storage at capacity", http.StatusServiceUnavailable)
+			} else {
+				http.Error(w, "bundle: producer storage quota exceeded", http.StatusRequestEntityTooLarge)
+			}
 			return
 		}
 		// A bad producer id, an invalid bundle, or one past the cap is a client
