@@ -19,6 +19,7 @@ import (
 
 	"github.com/joaomdsg/packets/internal/bridge"
 	"github.com/joaomdsg/packets/internal/fabric"
+	"github.com/joaomdsg/packets/internal/harness"
 	"github.com/joaomdsg/packets/internal/ingest"
 	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/mutation"
@@ -55,6 +56,12 @@ type LiveConfig struct {
 // the real ResolveStreaming; tests swap it to drive the admission cap
 // deterministically without spinning up real oracle work.
 var resolveCycle = ResolveStreaming
+
+// runHarness is the seam a LIVE work order runs its agent through. It defaults to
+// the real harness.RunProcess (spawns claude, reduces its stream-json into
+// settled revisions); tests swap it for a scripted stub so the live-fill routing
+// is exercised without a claude binary or API key.
+var runHarness = harness.RunProcess
 
 // liveEntry is one session's wiring: the cycle config, its ledger, and its
 // admission semaphore (a buffered channel of size cfg.MaxConcurrent, or nil when
@@ -738,8 +745,37 @@ func drainQueuedOrders(key string) {
 			_ = e.log.AppendStatus(order.ID, "failed") // best-effort terminal line; if this too fails, givenUp still bounds the loop
 			continue
 		}
-		runOneOrder(e, *order)
+		if order.Target.Prompt != "" {
+			runLiveOrder(e, *order)
+		} else {
+			runOneOrder(e, *order)
+		}
 	}
+}
+
+// runLiveOrder fills a LIVE work order: a real Claude Code harness runs the
+// order's task prompt and PRODUCES the fix revision in the repo (vs the
+// pre-funded base→fix diff runOneOrder replays). It mints NO catch — the
+// oracle/catch step on the produced revision is a later slice; this settles only
+// the agent's git revision, keeping the catch economy untouched (the firewall).
+// A terminal status is always reached ("done" on success, "failed" on a harness
+// error) so the order never lingers mid-flight: once it leaves "queued" the
+// drain's attempts cap no longer sees it, so the terminal write must happen here.
+func runLiveOrder(e *liveEntry, order ledger.WorkOrderRecord) {
+	if err := e.log.AppendStatus(order.ID, "running"); err != nil {
+		return // could not advance status — the order stays queued; the drain retries under the attempts cap
+	}
+	if e.sem != nil {
+		e.sem <- struct{}{}
+		defer func() { <-e.sem }()
+	}
+	e.startFill(order.ID)
+	defer e.endFill()
+	if _, err := runHarness(context.Background(), e.cfg.RepoDir, order.Target.Prompt); err != nil {
+		_ = e.log.AppendStatus(order.ID, "failed") // the live run failed — terminal, not a completed fill
+		return
+	}
+	_ = e.log.AppendStatus(order.ID, "done")
 }
 
 func runOneOrder(e *liveEntry, order ledger.WorkOrderRecord) {

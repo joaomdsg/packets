@@ -161,6 +161,18 @@ Built since (council round 67, `internal/harness`):
   live run into the work-order *fill* path needs the work-order model to gain a task
   prompt + a live-vs-prefunded mode (today `runOneOrder` fills a pre-funded
   base→fix diff target) — deferred to a dedicated council round, not guessed.
+- **The work-order LIVE-EXECUTION route (slice 4a, council R69):** `ledger.Target`
+  gains an optional `Prompt`; an empty prompt is the legacy pre-funded target, a set
+  prompt marks a LIVE order. `drainQueuedOrders` dispatches a prompt-bearing order to
+  a new `runLiveOrder` (a sibling of `runOneOrder`, reusing the status/sem/fill
+  machinery) which runs the agent through a `runHarness` seam (default
+  `harness.RunProcess`; tests swap a scripted stub — no API key) to PRODUCE the fix
+  revision in the repo. It reaches a terminal status ("done"/"failed") and mints
+  NOTHING — the firewall: a live run settles a git revision but the oracle/catch on
+  it is **slice 4b** (which must first design the live-order anchor model). The
+  `runHarness` seam means the routing + no-catch firewall are CI-tested against a
+  real temp git repo. **Still deferred:** the catch on a live revision (4b), the
+  live-activity surface line (4c), the agent container (5+).
 
 Everything past that — the full trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet

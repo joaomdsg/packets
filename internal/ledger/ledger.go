@@ -95,6 +95,10 @@ type Target struct {
 	Path     string `json:"path"`
 	Line     int    `json:"line"`
 	LineHash string `json:"line_hash,omitempty"`
+	// Prompt, when set, marks a LIVE work order: the natural-language task a real
+	// Claude Code harness runs to PRODUCE the fix revision, instead of the
+	// pre-funded BaseRev→FixRev diff. Empty = the legacy pre-funded target.
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // DispatchCounts is the work-order tally split by current status — the watchable

@@ -80,6 +80,21 @@ buffer), `internal/ledger` (WorkOrderRecord/Target), `internal/harness`,
 - SLICE 4c: surface the "latest activity" line on the card (UX single-line, advisory).
 - SLICE 5+: containerize the agent run (its own gated round).
 
+## Build record — slice 4a SHIPPED
+
+`ledger.Target.Prompt` (optional) + `var runHarness = harness.RunProcess` seam +
+a dispatch branch in `drainQueuedOrders` + `runLiveOrder` (sibling of runOneOrder,
+reuses status/sem/fill machinery; runs the agent via the seam to produce the fix
+revision; terminal status done/failed; mints NOTHING). tdd-rygba:
+Red (two routing tests) → Yellow (added the firewall balance-unchanged assertion +
+a promptless "done" assertion; fixed the missing balance-seed for AppendDispatch;
+confirmed no hang — the attempts cap bounds a stuck order) → Green (found the status
+read must use the projection's DispatchView, not the raw WorkOrders record) → Blue
+(flagged the untested harness-error branch; my "leave for the attempts cap" comment
+was WRONG — a "running" order leaves the queued set, so I changed it to a terminal
+"failed" and added a covering test) → Audit (clean; race-checked; firewall + the
+startFill/endFill ordering confirmed). Full suite + vet green.
+
 ## New clashes opened / resolved
 
 Resolved: the work-order live-execution model fork (R68) — `Prompt` on `Target`, a
