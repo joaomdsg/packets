@@ -226,7 +226,21 @@ Built since (council round 67, `internal/harness`):
   gated round needing maintainer sign-off. A real run needs `claude` on PATH + an
   `ANTHROPIC_API_KEY`.
 
-Everything past that — the full trust economy, earned concurrency,
+Built since (council round 73, `internal/ledger`):
+
+- **The Trust Ledger's first slice — a per-session scouting projection:**
+  `ledger.Projection.ScoutingReport()` (+ a `Log` wrapper) folds a `ScoutReport`
+  {Caught, Completed} purely from the logged events — Completed = orders that ran to
+  `done`, Caught = those whose run minted a `wo:<id>` catch (the same provenance as
+  `RecentDispatches`; a `connect` catch never counts). `FirstPassRate()` =
+  Caught/Completed (0 = no signal; the render gates on Completed>0). This is the
+  outward "this lane ships clean — N/M first-pass" signal (V§13.2), counts-only and
+  retrospective — redeemed against logged facts, never a model judgment. **Deferred
+  (un-grounded / taste-gated):** the model catch-WEIGHT, risk-tier partitioning,
+  trust half-life, earned concurrency, force-deep, Delegation Tiers; the calm /board
+  render of this stat is the next slice.
+
+Everything past that — the rest of the trust economy, earned concurrency,
 merge-queue delivery, the management-sim UX — is designed here but not yet
 built.
 

@@ -85,6 +85,49 @@ func (p Projection) RecentDispatches(n int) []DispatchView {
 	return views
 }
 
+// ScoutReport is a per-session FIRST-PASS catch-rate — the outward Trust Ledger
+// signal ("this lane ships clean — N/M first-pass"). Completed counts orders that
+// ran to done; Caught counts those whose run minted a confirmed catch. Counts-only
+// and retrospective: it redeems against logged facts (order status + the wo:<id>
+// catch provenance), never a model judgment.
+type ScoutReport struct {
+	Caught    int
+	Completed int
+}
+
+// FirstPassRate is Caught/Completed. It returns 0 when nothing has completed — the
+// caller MUST gate on Completed>0 to tell "no signal yet" from a true 0% lane.
+func (s ScoutReport) FirstPassRate() float64 {
+	if s.Completed == 0 {
+		return 0
+	}
+	return float64(s.Caught) / float64(s.Completed)
+}
+
+// ScoutingReport folds the per-session first-pass catch-rate: of the orders that
+// completed (status done — a failed/queued/running order is not a completed pass),
+// how many minted a confirmed catch (a CatchRecord tagged Producer "wo:<id>"). Pure
+// projection; Caught is gated on completion, so it never exceeds Completed.
+func (p Projection) ScoutingReport() ScoutReport {
+	caughtIDs := make(map[string]bool)
+	for _, c := range p.catches {
+		if strings.HasPrefix(c.Producer, "wo:") {
+			caughtIDs[c.Producer] = true
+		}
+	}
+	var r ScoutReport
+	for _, o := range p.orders {
+		if p.status[o.ID] != "done" {
+			continue
+		}
+		r.Completed++
+		if caughtIDs["wo:"+strconv.Itoa(o.ID)] {
+			r.Caught++
+		}
+	}
+	return r
+}
+
 // QueuedWorkOrders returns the orders whose current status is exactly queued, in
 // funding order — the runner's input, mirroring Log.QueuedWorkOrders.
 func (p Projection) QueuedWorkOrders() []WorkOrderRecord {

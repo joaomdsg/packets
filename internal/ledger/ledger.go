@@ -387,6 +387,17 @@ func (l *Log) RecentDispatches(n int) ([]DispatchView, error) {
 	return p.RecentDispatches(n), nil
 }
 
+// ScoutingReport projects this log's per-session first-pass catch-rate (completed
+// orders and how many caught) — the outward Trust Ledger signal, a pure projection
+// of the persisted log.
+func (l *Log) ScoutingReport() (ScoutReport, error) {
+	p, err := l.project()
+	if err != nil {
+		return ScoutReport{}, err
+	}
+	return p.ScoutingReport(), nil
+}
+
 // WorkOrders reads back every funded work-order in order, a pure projection of
 // the persisted log (catch and spend lines are skipped). The monotonic id and
 // producer/status fields are read straight from the stream, so they replay identically.

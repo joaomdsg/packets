@@ -71,6 +71,20 @@ dispatch outcomes. No new mint, no model judgment, no taste call.
   trust half-life; earned concurrency; force-deep; Delegation Tiers (all need
   maintainer taste or a skim-depth history the ledger doesn't carry).
 
+## Build record — slice 1 SHIPPED (the scouting projection)
+
+`internal/ledger`: `ScoutReport{Caught, Completed int}` + `FirstPassRate()`
+(Caught/Completed, 0 when Completed==0 — the caller gates on Completed>0 for
+no-signal). `Projection.ScoutingReport()` (pure): Completed = orders with status
+"done" (failed/queued/running are NOT a completed pass — a harness crash is infra,
+not a missed catch); Caught = completed orders with a `wo:<id>` catch (the same
+provenance logic as RecentDispatches — a "connect" catch never marks an order
+caught). `Log.ScoutingReport()` wrapper. tdd-rygba: Red → Yellow (added a
+catch-on-uncompleted-order test pinning Caught≤Completed) → Green → Blue (all
+branches covered; error path acceptable parity) → Audit (clean; provenance-leak-free;
+no panic on a stray wo:id; pure/deterministic). `-race` + full suite green. Slice 2
+renders it on /board.
+
 ## New clashes opened / resolved
 
 Resolved: the next thread (Trust Ledger) HAS an autonomous-safe first slice (a
