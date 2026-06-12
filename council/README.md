@@ -356,6 +356,41 @@ Layout of this directory:
   (cap-drop/seccomp/non-root/read-only/pids+mem + writable repo bind + by-name secrets,
   NO --network=none, NO docker.sock), tests pinning each security property.
 
+- [Round 101](round-101.md) — the DESIGN-LANGUAGE POLISH thread OPENS
+  (maintainer steer: "world-class designer; make the language sleek,
+  industry-leading, cohesive, reusable; improve the flows; converge
+  autonomously"). Audit of the real ~R100 tree found a half-system (color +
+  spacing only; radius/border/focus/type/components hand-rolled per surface,
+  ~1/3 of style.go duplicated) + a real WCAG 2.4.7 invisible-focus gap + an
+  accreted single-scroll live card and dead-end drill-ins. Web Designer and
+  UX/UI Specialist lenses FUSED on `.pk-section-label` (the extracted heading =
+  the sub-landmark) → one shared spec ([`design-language.md`](design-language.md)),
+  two sequenced PRs: PR1 the `--pk-*` token + component layer (focus fixed once
+  on the components, honest-state hues untouched), PR2 the flows (sectioned
+  card, unified funding pair, drill-return). Settled: drop `--pk-surface-3` (no
+  consumer; gate on flows-PR A), `:focus-visible` outline over a box-shadow
+  ring (a11y owner held, no reflow), focus fix rides this thread (free, on the
+  shared components).
+
+- [Round 102](round-102.md) — DESIGN-LANGUAGE POLISH CLOSE-OUT
+  (complete-for-V1). Both PRs shipped + green: PR1 (scale tokens
+  `--pk-radius`/`-sm`, `--pk-border`, `--pk-font-sm`/`-xs` + a shared
+  `:focus-visible` ring; `.pk-btn`/`--quiet`/`.pk-input`/`.pk-chip`/
+  `.pk-section-label`/`.pk-card` reused via multi-class; honest-state hues
+  byte-for-byte) + the 2 reuse-gap closures (CSS DRY on
+  `.review-answer__submit`; crumbs wrapped in `nav`); PR2 flows A (sectioned
+  live card, `role="main"` + aria-live kept, act-now omitted on fresh session),
+  B (`renderFundWork` labelled pair + dim two-currency explainer, no meter),
+  C (drill-return + symmetric crumbs, QueryEscape'd keys). Test-first; new
+  `card_sections`/`fund_work`/`drill_return` internal tests + extended
+  `style`/`board_inflight` guardrails, `-race -count=1` green. Canon
+  reconciliation (VISION/DESIGN/RISKS/clashes): no violation, no regression, no
+  clash reopened; 4 defensible notes (Flow A's act-now-first ordering is a
+  semantic grouping not a score per V§13.1; Flow B verified meter-free; Clash J
+  not reopened — R101 IS the "real stylesheet driver" J anticipated, hues
+  untouched; the verdict surface is presentation-only). Clash J confirmed
+  STILL RESOLVED.
+
 Session-scoped agent IDs from rounds 1–2 (dead, provenance only): UX
 `a985fda4…`, Game design `af9d2f4c…`, Systems `a494dd62…`, TDD `afcf847e…`,
 CI/CD `a5b74ebb…`, Refactoring `a172b669…`.

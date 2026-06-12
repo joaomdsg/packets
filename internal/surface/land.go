@@ -16,7 +16,7 @@ import (
 func RenderLand(land pipe.LandState) h.H {
 	state, headline, detail := presentLand(land)
 	return h.Div(
-		h.Class("land-row"),
+		h.Class("pk-card land-row"),
 		h.Data("state", state),
 		h.P(h.Class("land-row__headline"), h.Text(headline)),
 		h.P(h.Class("land-row__detail"), h.Text(detail)),

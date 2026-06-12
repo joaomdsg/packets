@@ -89,12 +89,17 @@ func (c *SettingsCard) View(_ *via.CtxR) h.H {
 			h.Class("settings"),
 			h.Role("main"),
 			h.Attr("aria-label", "settings"),
+			// A back-affordance so the setup surface isn't a dead end: a link to the
+			// originating session card (Flow C). Settings is the single-server setup, so
+			// it returns to the default session card.
+			h.Nav(h.Attr("aria-label", "return"),
+				h.P(h.Class("settings__return"), cardReturnCrumb(defaultSessionKey))),
 			h.Span(h.Class("settings__status"), h.Data("state", state), h.Text(status)),
 			h.Div(
 				h.Class("settings__token"),
 				h.Input(h.Type("password"), c.Token.Bind(),
-					h.Class("settings__token-input"), h.Placeholder("sk-ant-…")),
-				h.Button(on.Click(c.SaveToken), h.Class("settings__save"), h.Text("Save key")),
+					h.Class("pk-input settings__token-input"), h.Placeholder("sk-ant-…")),
+				h.Button(on.Click(c.SaveToken), h.Class("pk-btn settings__save"), h.Text("Save key")),
 			),
 		),
 	)

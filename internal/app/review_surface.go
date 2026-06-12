@@ -228,12 +228,21 @@ func (c *ReviewCard) View(_ *via.CtxR) h.H {
 	}
 	cfg, log := readLiveState(navKey)
 	parts := []h.H{h.Class("review"), h.Data("state", "review"), navHeader(navKey)}
+	// A back-affordance so the review drill-in isn't a dead end: a link to the
+	// originating session card (Flow C). The per-order branch ALSO adds an up-link to
+	// the session review, making per-order↔session nav symmetric.
+	parts = append(parts, h.Nav(h.Attr("aria-label", "return"),
+		h.P(h.Class("review__return"), cardReturnCrumb(navKey))))
 
 	// Per-order review (/review?wo=<id>): the filled work-order's OWN review questions
 	// — the test-debt the funded work left — read from the per-order findings cache,
 	// not the session's connect cycle. Read-only here; order-scoped answering is a
 	// later slice. (The editable answer flow below is session-scoped.)
 	if woID, err := strconv.Atoi(c.WO); err == nil && woID > 0 {
+		// The per-order review's UP-link to the session review (drop the wo scope), so a
+		// funded order's test-debt isn't a dead end — the symmetric leg of Flow C.
+		parts = append(parts, h.Nav(h.Attr("aria-label", "review nav"),
+			h.P(h.Class("review__up"), reviewSessionCrumb(navKey))))
 		// "See the edits this order made": the order's base→fix diff, in a Monaco diff
 		// editor. The diff is STATIC and pre-funded (the fix revision the order ran) —
 		// honest framing, never a faked "live agent typing".
@@ -308,7 +317,7 @@ func renderAnswerForm(anchor review.Thread, woID int) h.H {
 			// "answering" signal is true so the running line below reveals itself.
 			h.Attr("data-indicator", "answering"),
 			h.Div(h.ID("answer-editor"), h.Class("review-answer__editor")),
-			h.Button(h.Type("button"), h.Class("review-answer__submit"),
+			h.Button(h.Type("button"), h.Class("pk-btn review-answer__submit"),
 				h.Text("Submit answer — re-run the oracle")),
 			h.Script(h.Raw(answerEditorJS(anchor.File, anchor.StartLine))),
 		),

@@ -14,7 +14,7 @@ import (
 // never speaks for another).
 func RenderBandwidth(bandwidth int) h.H {
 	return h.Div(
-		h.Class("bandwidth-row"),
+		h.Class("pk-card bandwidth-row"),
 		h.Data("state", "bandwidth"),
 		h.Data("bandwidth", strconv.Itoa(bandwidth)),
 		h.P(h.Class("bandwidth-row__amount"), h.Text("Attention bandwidth: "+strconv.Itoa(bandwidth))),

@@ -25,9 +25,10 @@ type Projection struct {
 	// blocks/unblocks hold the FIRST stamp seen per id (earliest block, earliest
 	// clearing) — a block is raised and cleared once, so a duplicate never re-pays
 	// nor moves the latency interval. The attention-bandwidth earn folds from these.
-	blocks   map[string]int64
-	unblocks map[string]int64
-	bwSpent  int // total bandwidth debited (the meter's sink)
+	blocks      map[string]int64
+	unblocks    map[string]int64
+	bwSpent     int                  // total bandwidth debited (the meter's sink)
+	refinements []RefinedOrderRecord // dead-air sharpenings the backlog folds on read
 }
 
 // Bandwidth is the earned attention bandwidth: the sum of awards across every
@@ -58,6 +59,10 @@ func (p Projection) Records() []CatchRecord { return p.catches }
 
 // WorkOrders is the funded work-order ledger in funding (id) order.
 func (p Projection) WorkOrders() []WorkOrderRecord { return p.orders }
+
+// Refinements is the refined-work-order ledger in append order — the sharpening
+// facts (split/criteria/convention) the backlog projection folds on read.
+func (p Projection) Refinements() []RefinedOrderRecord { return p.refinements }
 
 // DispatchStatusCounts tallies the orders by CURRENT status (last status line
 // per id wins; an unknown status counts as queued), mirroring Log.
@@ -325,6 +330,12 @@ func foldEvents(events []fabric.Event) (Projection, error) {
 			if s.Amount > 0 {
 				p.bwSpent += s.Amount
 			}
+		case kindWORefine:
+			r, err := DecodeRefine(e.Data)
+			if err != nil {
+				return Projection{}, err
+			}
+			p.refinements = append(p.refinements, r)
 		default:
 			return Projection{}, fmt.Errorf("ledger: replay encountered unknown event kind %q", kind)
 		}

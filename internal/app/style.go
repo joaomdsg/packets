@@ -38,6 +38,67 @@ const packetsStyle = `
   --pk-sm: 8px;
   --pk-md: 14px;
   --pk-lg: 22px;
+  /* type scale — collapses the ad-hoc em fractions into three steps */
+  --pk-font-sm: 0.92em;   /* the dominant secondary size */
+  --pk-font-xs: 0.82em;   /* the uppercase section labels */
+  /* radius + border — promote the repeated literals */
+  --pk-radius: 6px;       /* the canonical corner (was ~14 literals) */
+  --pk-radius-sm: 4px;    /* the tighter corner (the review-submit drifter) */
+  --pk-border: 1px solid var(--pk-line);  /* the hairline (was ~12 literals) */
+}
+
+/* The WCAG 2.4.7 fix: a real, calm focus ring on every keyboard-focused
+   control — bronze accent (the documented keyboard cue), an outline so it does
+   not reflow. The per-component border-color swap stays as reinforcement. */
+:focus-visible {
+  outline: 2px solid var(--pk-accent);
+  outline-offset: 2px;
+}
+
+/* ---- the shared component layer: box CSS lives once here; each surface adds
+   its semantic class via multi-class for hue/state/layout only ---- */
+.pk-btn {
+  padding: var(--pk-xs) var(--pk-md);
+  background: var(--pk-surface-2);
+  color: var(--pk-balance);
+  border: var(--pk-border);
+  border-radius: var(--pk-radius);
+  font: inherit;
+  cursor: pointer;
+}
+.pk-btn:hover { border-color: var(--pk-balance); }
+.pk-btn:disabled { color: var(--pk-ink-dim); cursor: default; }
+.pk-btn:disabled:hover { border-color: var(--pk-line); }
+.pk-btn--quiet { background: transparent; color: var(--pk-ink-dim); }
+.pk-btn--quiet:hover { border-color: var(--pk-accent); color: var(--pk-ink); }
+.pk-input {
+  padding: var(--pk-xs) var(--pk-sm);
+  background: var(--pk-surface);
+  color: var(--pk-ink);
+  border: var(--pk-border);
+  border-radius: var(--pk-radius);
+  font: inherit;
+}
+.pk-input:focus-visible { border-color: var(--pk-accent); }
+.pk-chip {
+  padding: 1px var(--pk-sm);
+  border: var(--pk-border);
+  border-radius: var(--pk-radius);
+  font-family: var(--pk-mono);
+  font-size: var(--pk-font-sm);
+  color: var(--pk-ink-dim);
+}
+.pk-section-label {
+  color: var(--pk-ink-dim);
+  font-size: var(--pk-font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pk-card {
+  padding: var(--pk-sm) var(--pk-md);
+  background: var(--pk-surface);
+  border: var(--pk-border);
+  border-radius: var(--pk-radius);
 }
 
 body {
@@ -61,7 +122,7 @@ body {
 }
 .board-nav__home { color: var(--pk-ink); font-weight: 700; text-decoration: none; }
 .board-nav__home:hover { color: var(--pk-accent); }
-.board-nav__breadcrumb { display: inline-flex; align-items: baseline; gap: var(--pk-xs); color: var(--pk-ink-dim); font-size: 0.92em; }
+.board-nav__breadcrumb { display: inline-flex; align-items: baseline; gap: var(--pk-xs); color: var(--pk-ink-dim); font-size: var(--pk-font-sm); }
 .board-nav__crumb { color: var(--pk-ink-dim); text-decoration: none; }
 .board-nav__crumb:hover { color: var(--pk-accent); }
 .board-nav__sep { color: var(--pk-ink-dim); }
@@ -72,25 +133,8 @@ body {
 /* the fleet view's one command: create a session. A calm inline input + button,
    in the surface idiom — no modal, no alarm. */
 .board-create { display: flex; gap: var(--pk-sm); align-items: baseline; margin-bottom: var(--pk-md); }
-.board-create__key {
-  padding: var(--pk-xs) var(--pk-sm);
-  background: var(--pk-surface);
-  color: var(--pk-ink);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
-  font: inherit;
-}
-.board-create__key:focus { outline: none; border-color: var(--pk-accent); }
-.board-create__btn {
-  padding: var(--pk-xs) var(--pk-md);
-  background: var(--pk-surface-2);
-  color: var(--pk-balance);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
-  font: inherit;
-  cursor: pointer;
-}
-.board-create__btn:hover { border-color: var(--pk-balance); }
+/* box CSS now lives on .pk-input / .pk-btn (multi-class); the semantic classes
+   are kept as stable hooks for future per-surface nudges. */
 
 /* ---- the setup surface (the Anthropic key) ---- */
 .settings { display: flex; flex-direction: column; gap: var(--pk-md); }
@@ -100,96 +144,58 @@ body {
 .settings__status[data-state="unconfigured"] { color: var(--pk-ink-dim); }
 .settings__status[data-state="configured"] { color: var(--pk-balance); }
 .settings__token { display: flex; gap: var(--pk-sm); align-items: baseline; }
-.settings__token-input {
-  padding: var(--pk-xs) var(--pk-sm);
-  background: var(--pk-surface);
-  color: var(--pk-ink);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
-  font: inherit;
-  min-width: 22ch;
-}
-.settings__token-input:focus { outline: none; border-color: var(--pk-accent); }
-.settings__save {
-  padding: var(--pk-xs) var(--pk-md);
-  background: var(--pk-surface-2);
-  color: var(--pk-balance);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
-  font: inherit;
-  cursor: pointer;
-}
-.settings__save:hover { border-color: var(--pk-balance); }
+.settings__token-input { min-width: 22ch; }  /* box CSS on .pk-input */
+/* .settings__save box CSS now on .pk-btn */
 
 /* ---- the authoring assist (the producer's draft read) ---- */
 .authoring { display: flex; flex-direction: column; gap: var(--pk-sm); }
-.compose__analyze {
-  padding: var(--pk-xs) var(--pk-md);
-  background: var(--pk-surface-2);
-  color: var(--pk-ink-dim);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
-  font: inherit;
-  cursor: pointer;
-}
-.compose__analyze:hover { border-color: var(--pk-accent); color: var(--pk-ink); }
-.analysis { display: flex; flex-direction: column; gap: var(--pk-xs); padding: var(--pk-sm) var(--pk-md); background: var(--pk-surface); border: 1px solid var(--pk-line); border-radius: 6px; }
+/* .compose__analyze is a .pk-btn--quiet; it kept the surface-2 background */
+.compose__analyze { background: var(--pk-surface-2); }
+.analysis { display: flex; flex-direction: column; gap: var(--pk-xs); }  /* box CSS on .pk-card */
 .analysis__summary { color: var(--pk-ink); }
 /* readiness is an honest STATE in the calm palette — never an alarm green/red. A
    blocked draft reads dim ("not yet"); a ready one reads in the balance hue. */
 .analysis__readiness[data-state="blocked"] { color: var(--pk-ink-dim); }
 .analysis__readiness[data-state="ready"] { color: var(--pk-balance); }
-.analysis__questions-label { color: var(--pk-ink-dim); font-size: 0.92em; }
+.analysis__questions-label { color: var(--pk-ink-dim); font-size: var(--pk-font-sm); }
 .analysis__questions { margin: 0; padding-left: var(--pk-md); color: var(--pk-ink); }
 .analysis__unavailable { color: var(--pk-ink-dim); }
 /* the editable Monaco editor — the single draft source (was a plain textarea). */
 .compose__live { display: flex; flex-direction: column; gap: var(--pk-sm); }
-.compose__editor { height: 180px; border: 1px solid var(--pk-line); border-radius: 6px; }
+.compose__editor { height: 180px; border: var(--pk-border); border-radius: var(--pk-radius); }
 /* the flagged spans, by severity — a calm underline, never a red squiggle. */
 .authoring-flag-question { text-decoration: underline dotted var(--pk-accent); }
 .authoring-flag-gap { text-decoration: underline wavy var(--pk-ink-dim); }
 .authoring-flag-note { text-decoration: underline dotted var(--pk-ink-dim); }
 /* the live-read indicator: dim and hidden at rest, a calm "analyzing…" while a
    debounced re-read is pending/in-flight — never a spinner. */
-.compose__analyzing { color: var(--pk-ink-dim); font-size: 0.85em; opacity: 0; transition: opacity 0.2s; }
+.compose__analyzing { color: var(--pk-ink-dim); font-size: var(--pk-font-xs); opacity: 0; transition: opacity 0.2s; }
 .compose__analyzing[data-state="pending"], .compose__analyzing[data-state="analyzing"] { opacity: 1; }
 /* the readiness reflection beside place — a guide, not an alarm: caution reads
    dim, ready reads in the balance hue. */
-.compose__readiness { font-size: 0.9em; }
+.compose__readiness { font-size: var(--pk-font-sm); }
 .compose__readiness[data-state="caution"] { color: var(--pk-ink-dim); }
 .compose__readiness[data-state="ready"] { color: var(--pk-balance); }
 
 /* ---- author a live order ---- */
 .compose { display: flex; flex-direction: column; gap: var(--pk-sm); margin: var(--pk-sm) 0; }
-.compose__place {
-  align-self: flex-start;
-  padding: var(--pk-xs) var(--pk-md);
-  background: var(--pk-surface-2);
-  color: var(--pk-balance);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
-  font: inherit;
-  cursor: pointer;
-}
-.compose__place:hover { border-color: var(--pk-balance); }
-.compose__needs-key { color: var(--pk-ink-dim); font-size: 0.92em; }
+.compose__place { align-self: flex-start; }  /* box CSS on .pk-btn */
+.compose__needs-key { color: var(--pk-ink-dim); font-size: var(--pk-font-sm); }
 .compose__needs-key-link { color: var(--pk-accent); text-decoration: none; }
+/* box CSS (padding + surface + border + radius) now on .pk-card (multi-class);
+   this keeps only the row's flex layout. */
 .board-row {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--pk-sm) var(--pk-md);
-  padding: var(--pk-sm) var(--pk-md);
-  background: var(--pk-surface);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
 }
 .board-row:hover { background: var(--pk-surface-2); }           /* a calm cue for the future keyboard nav */
 .board-row__key { font-weight: 700; min-width: 7ch; color: inherit; text-decoration: none; }
 .board-row__key:hover { color: var(--pk-accent); }
 .board-row__stock { font-weight: 600; color: var(--pk-confirmed); }
 .board-row__balance { color: var(--pk-balance); font-variant-numeric: tabular-nums; }
-.board-row__activity { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; }
+.board-row__activity { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: var(--pk-font-sm); }
 .board-row__misses { color: var(--pk-lost); }
 .board-row__hitrate { color: var(--pk-ink-dim); }
 .board-row__backlog { color: var(--pk-ink-dim); }
@@ -201,26 +207,18 @@ body {
 /* a session's integration verdict, surfaced on the board only when it BLOCKS a
    merge — honest color (R45 palette): conflict = muted warn, checks-red = muted
    loss. Never an alarm. */
-.board-row__land { font-size: 0.92em; }
+.board-row__land { font-size: var(--pk-font-sm); }
 .board-row__land[data-state="land-conflict"] { color: var(--pk-inflight); }
 .board-row__land[data-state="land-checks-red"] { color: var(--pk-lost); }
 /* fleet-level merge-readiness roll-up: how much of the fleet is blocked from
    landing. A calm dim summary line, surfaced only when ≥1 session is blocked — a
    count, never a gauge or alarm. */
-.board__land-summary { display: block; color: var(--pk-ink-dim); font-size: 0.92em; }
+.board__land-summary { display: block; color: var(--pk-ink-dim); font-size: var(--pk-font-sm); }
 /* retire a session from the fleet view — a quiet, low-emphasis control (dim until
    hover), never an alarm; only on non-default rows. */
-.board-row__retire {
-  margin-left: auto;
-  padding: 0 var(--pk-sm);
-  background: transparent;
-  color: var(--pk-ink-dim);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
-  font: inherit;
-  font-size: 0.85em;
-  cursor: pointer;
-}
+/* a quiet variant (.pk-btn--quiet); keeps its margin, tighter padding, smaller
+   type, and the lost-hue hover as semantic reinforcement. */
+.board-row__retire { margin-left: auto; padding: 0 var(--pk-sm); font-size: var(--pk-font-xs); }
 .board-row__retire:hover { color: var(--pk-lost); border-color: var(--pk-lost); }
 
 /* the producers' bet lifecycle — one sealed cluster, distinct from confirmed stock */
@@ -231,15 +229,10 @@ body {
   padding: 1px var(--pk-sm);
   border-left: 2px solid var(--pk-line);
 }
-.board-row__bets-label, .board-row__dispatches-label {
-  color: var(--pk-ink-dim);
-  font-size: 0.82em;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
+/* the uppercase labels are .pk-section-label (multi-class) */
 .board-row__inflight { color: var(--pk-inflight); }
 .board-row__rejected { color: var(--pk-lost); }
-.board-row__dispatch { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; }
+.board-row__dispatch { color: var(--pk-ink-dim); }  /* font-family/font-size now on .pk-chip; KEEP color + the [data-outcome] hue rules */
 /* a resolved order's outcome, legible at a glance in the honest palette (extends
    the per-state color of R45 to the dispatch round-trip): caught is a calm
    confirmed, missed a muted loss — never an alarm red/green. A queued/running
@@ -254,7 +247,7 @@ body {
 .board-row__dispatch-questions { color: var(--pk-ink-dim); }
 /* "watch it fill": a calm live row while the runner fills an order — the cycle beats
    accruing as the oracle works. Dim mono, in the beat idiom; vanishes when done. */
-.order-filling { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; padding: var(--pk-xs) 0; }
+.order-filling { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: var(--pk-font-sm); padding: var(--pk-xs) 0; }
 /* the scrolling agent transcript while an order fills: bounded height so a long run
    scrolls in place rather than pushing the card; the calm mono idiom, no alarm. */
 .order-transcript {
@@ -263,25 +256,23 @@ body {
   overflow-y: auto;
   padding: var(--pk-xs) var(--pk-sm);
   background: var(--pk-surface);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
+  border: var(--pk-border);
+  border-radius: var(--pk-radius);
   font-family: var(--pk-mono);
-  font-size: 0.88em;
+  font-size: var(--pk-font-sm);
   color: var(--pk-ink-dim);
 }
 .order-transcript__line { padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
 
 /* ---- the single review card ---- */
+/* box CSS (padding + surface + border + radius) now on .pk-card (multi-class);
+   these keep only the shared bottom margin between stacked cards. */
 .stock-row, .balance-row, .bandwidth-row, .dispatch-row, .beat-row, .review-card, .land-row, .onboarding {
-  padding: var(--pk-sm) var(--pk-md);
-  background: var(--pk-surface);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
   margin-bottom: var(--pk-sm);
 }
 .stock__count { font-weight: 700; color: var(--pk-confirmed); }
 .stock__reinvested { color: var(--pk-confirmed); }
-.stock__reason, .stock__self-flagged, .stock__would-ship { color: var(--pk-ink-dim); font-size: 0.92em; }
+.stock__reason, .stock__self-flagged, .stock__would-ship { color: var(--pk-ink-dim); font-size: var(--pk-font-sm); }
 .balance-row__amount { margin: 0; color: var(--pk-balance); font-weight: 600; }
 .bandwidth-row__amount { margin: 0; color: var(--pk-accent); font-weight: 600; }
 .dispatch-row__counts { margin: 0; color: var(--pk-ink-dim); font-family: var(--pk-mono); }
@@ -297,7 +288,7 @@ body {
   margin-bottom: var(--pk-sm);
   border-left: 2px solid var(--pk-accent);
   color: var(--pk-ink-dim);
-  font-size: 0.95em;
+  font-size: var(--pk-font-sm);
   text-decoration: none;
 }
 .review-questions:hover { color: var(--pk-ink); }
@@ -312,41 +303,43 @@ body {
   gap: var(--pk-xs);
   padding: var(--pk-sm) var(--pk-md);
   background: var(--pk-surface);
-  border: 1px solid var(--pk-line);
+  border: var(--pk-border);
   border-left: 2px solid var(--pk-accent);
-  border-radius: 6px;
+  border-radius: var(--pk-radius);
 }
-.review-thread__anchor { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: 0.92em; }
+.review-thread__anchor { color: var(--pk-ink-dim); font-family: var(--pk-mono); font-size: var(--pk-font-sm); }
 .review-thread__body { color: var(--pk-ink); }
 /* the Monaco review editor island: a sized mount point for the read-only editor.
    The editor is progressive enhancement over the text threads above; if it never
    mounts (loader blocked, JS off), this empty box just stays collapsed and the
    text threads carry the review. */
 .review-editor-island { display: block; }
-.review-editor { width: 100%; height: 60vh; border: 1px solid var(--pk-line); border-radius: 6px; }
+.review-editor { width: 100%; height: 60vh; border: var(--pk-border); border-radius: var(--pk-radius); }
 /* the per-order diff editor — the edits the work order made, base vs fix side by
    side (a static, pre-funded diff; never a faked live agent). */
 .order-diff-island { display: block; }
-.order-diff-editor { width: 100%; height: 45vh; border: 1px solid var(--pk-line); border-radius: 6px; }
+.order-diff-editor { width: 100%; height: 45vh; border: var(--pk-border); border-radius: var(--pk-radius); }
 .review-editor:empty { height: 0; border: 0; } /* no editor mounted → no empty box */
 /* the answer affordance: write a killing test + submit. Calm, in the surface idiom —
    a monospace input area + a quiet submit; the reward is the question vanishing, so
    nothing here shouts. */
 .review-answer { display: flex; flex-direction: column; gap: var(--pk-xs); margin-top: var(--pk-sm); }
-.review-answer__label { margin: 0; color: var(--pk-ink-dim); font-size: 0.92em; }
+.review-answer__label { margin: 0; color: var(--pk-ink-dim); font-size: var(--pk-font-sm); }
 /* the editable Monaco answer pane: write the killing test in a real editor matching
    the read-only source pane above. */
 .review-answer__input { display: flex; flex-direction: column; gap: var(--pk-xs); }
-.review-answer__editor { width: 100%; height: 14em; border: 1px solid var(--pk-line); border-radius: 6px; }
+.review-answer__editor { width: 100%; height: 14em; border: var(--pk-border); border-radius: var(--pk-radius); }
+/* reuses .pk-btn for the hairline/box; only reinforces the accent on the border
+   and tightens the corner — .pk-btn owns the border width/style. */
 .review-answer__submit {
   align-self: flex-start;
   color: var(--pk-ink); background: var(--pk-surface);
-  border: 1px solid var(--pk-accent); border-radius: 4px;
+  border-color: var(--pk-accent); border-radius: var(--pk-radius-sm);
   padding: 4px 12px; cursor: pointer;
 }
 /* the in-flight running status — calm dim text, shown by datastar (data-show) only
    while the oracle re-run is in flight. */
-.review-answer__running { color: var(--pk-ink-dim); font-size: 0.92em; }
+.review-answer__running { color: var(--pk-ink-dim); font-size: var(--pk-font-sm); }
 /* a surviving-mutant line in the editor: a calm left-edge accent + a glyph, never
    an alarm — the honest "the tests didn't catch this here" marker. */
 .review-survivor-line { background: color-mix(in srgb, var(--pk-accent) 12%, transparent); }
@@ -383,46 +376,74 @@ body {
   border-left: 2px solid var(--pk-accent);
 }
 .onboarding__lead { margin: 0 0 var(--pk-xs) 0; font-weight: 600; color: var(--pk-ink); }
-.onboarding__step { margin: 0 0 var(--pk-xs) 0; color: var(--pk-ink-dim); font-size: 0.95em; }
+.onboarding__step { margin: 0 0 var(--pk-xs) 0; color: var(--pk-ink-dim); font-size: var(--pk-font-sm); }
 
 /* ---- the Spend action: the Lead's core economic move, shown only when there is
    balance to spend. A calm, deliberate control in the balance hue — not an alarm,
    not a pulsing call-to-action. ---- */
-.spend-action {
-  margin: 0 0 var(--pk-sm) 0;
-  padding: var(--pk-xs) var(--pk-md);
-  background: var(--pk-surface-2);
-  color: var(--pk-balance);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
-  font: inherit;
-  cursor: pointer;
-}
-.spend-action:hover { border-color: var(--pk-balance); }
+.spend-action { margin: 0 0 var(--pk-sm) 0; }  /* box CSS on .pk-btn */
 
-/* ---- the prep bench: the fundable work on deck, so the Lead curates what a Spend
-   funds instead of a blind auto-pick. A calm mono list, no alarm. ---- */
+/* ---- the prep bench: the fundable work on deck, each target a card the Lead can
+   FUND or SHARPEN (split / criteria / convention) during dead-air. A calm stacked
+   list, no alarm, no gauge. ---- */
 .bench {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--pk-xs) var(--pk-sm);
+  flex-direction: column;
+  gap: var(--pk-sm);
   padding: var(--pk-xs) var(--pk-md);
   margin-bottom: var(--pk-sm);
   border-left: 2px solid var(--pk-line);
 }
-.bench__label { color: var(--pk-ink-dim); font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.04em; }
-/* each bench item is a fund-this button — a calm mono chip, balance-hue on hover
-   (it spends a catch), never an alarm. */
-.bench__item {
-  padding: 1px var(--pk-sm);
-  background: transparent;
-  color: var(--pk-ink-dim);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
-  font-family: var(--pk-mono);
-  font-size: 0.92em;
+/* .bench__label is a .pk-section-label; each .bench__item is a .pk-card. */
+.bench__item { display: flex; flex-direction: column; gap: var(--pk-xs); }
+.bench__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--pk-sm); }
+.bench__target { font-family: var(--pk-mono); font-size: var(--pk-font-sm); }
+/* the fund affordance spends a catch — balance-hue on hover (the old chip cue). */
+.bench__fund:hover { color: var(--pk-balance); border-color: var(--pk-balance); }
+/* the sharpen disclosure: a calm dim toggle, not a shouting call-to-action. */
+.bench__sharpen {
   cursor: pointer;
+  color: var(--pk-ink-dim);
+  font-size: var(--pk-font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
-.bench__item:hover { color: var(--pk-balance); border-color: var(--pk-balance); }
+.bench__body { display: flex; flex-direction: column; gap: var(--pk-xs); padding-top: var(--pk-xs); }
+.bench__criteria { width: 100%; min-height: 3em; resize: vertical; font-family: var(--pk-mono); }
+/* an attached sharpening, shown as calm dim lines (a decision the Lead made). */
+.bench__anno { display: flex; flex-direction: column; gap: 2px; }
+.bench__anno-item { color: var(--pk-ink-dim); font-size: var(--pk-font-sm); }
+
+/* the agent-runner control: a calm act-now row (host vs container for live orders),
+   sitting with the funding controls it governs. */
+.live-runner { display: flex; align-items: baseline; gap: var(--pk-sm); }
+.live-runner__mode { color: var(--pk-ink-dim); font-size: var(--pk-font-sm); }
+
+/* the fleet board's live activity beat — what an agent is doing right now, a calm
+   dim ticker on its row (shown only while an order fills). */
+.board-row__activity-beat { color: var(--pk-ink-dim); font-size: var(--pk-font-sm); }
+
+/* ---- Flow A: the live card's two sub-landmarks. The split is carried by the
+   labelled <section> regions (and the per-row .pk-card elevation), NOT a third
+   background layer — --pk-surface-3 is gated out (§1). A little vertical rhythm
+   between the regions is the only chrome the calm system needs. ---- */
+[role="main"] > section + section { margin-top: var(--pk-md); }
+
+/* ---- Flow B: the unified funding group. Spend (balance hue) and place-order
+   (bandwidth/accent hue) co-located under one label + a dim two-currency
+   explainer. A labelled affordance pair — never a meter/gauge/bar. ---- */
+.fund-work {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pk-sm);
+  padding: var(--pk-xs) var(--pk-md);
+  margin-bottom: var(--pk-sm);
+  border-left: 2px solid var(--pk-line);
+}
+.fund-work__explainer { color: var(--pk-ink-dim); font-size: var(--pk-font-sm); margin: 0; }
+
+/* ---- Flow C: the drill-return affordances on /review and /settings reuse the
+   breadcrumb crumb idiom (.board-nav__crumb), so they inherit its calm hue + focus.
+   Only the surrounding paragraph needs spacing. ---- */
+.review__return, .review__up, .settings__return { margin: 0 0 var(--pk-sm) 0; font-size: var(--pk-font-sm); }
 `

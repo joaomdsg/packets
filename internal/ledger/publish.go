@@ -53,6 +53,13 @@ func PublishWorkOrderVerdict(ctx context.Context, f *fabric.Fabric, session, ins
 	return publish(ctx, f, session, instance, kindWOVerdict, v)
 }
 
+// PublishRefine emits a refined-work-order record on the canonical minted-worefine
+// subject and returns its stream sequence. Like the status/verdict lines it targets
+// the dispatch subtree, never a catch — sharpening is not an economic event.
+func PublishRefine(ctx context.Context, f *fabric.Fabric, session, instance string, r RefinedOrderRecord) (uint64, error) {
+	return publish(ctx, f, session, instance, kindWORefine, r)
+}
+
 func publish(ctx context.Context, f *fabric.Fabric, session, instance, kind string, rec any) (uint64, error) {
 	data, err := json.Marshal(rec)
 	if err != nil {
@@ -104,4 +111,13 @@ func DecodeWorkOrderVerdict(data []byte) (WorkOrderVerdictRecord, error) {
 		return WorkOrderVerdictRecord{}, fmt.Errorf("ledger: decode work-order verdict: %v", err)
 	}
 	return v, nil
+}
+
+// DecodeRefine decodes a refined-work-order event payload from the bus.
+func DecodeRefine(data []byte) (RefinedOrderRecord, error) {
+	var r RefinedOrderRecord
+	if err := json.Unmarshal(data, &r); err != nil {
+		return RefinedOrderRecord{}, fmt.Errorf("ledger: decode refine: %v", err)
+	}
+	return r, nil
 }

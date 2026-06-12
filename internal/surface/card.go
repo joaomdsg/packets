@@ -46,7 +46,7 @@ func (c *ReviewCard) View(ctx *via.CtxR) h.H {
 func RenderVerdict(verdict string) h.H {
 	state, headline, detail := present(verdict)
 	return h.Div(
-		h.Class("review-card"),
+		h.Class("pk-card review-card"),
 		h.Data("state", state),
 		h.P(h.Class("review-card__headline"), h.Text(headline)),
 		h.P(h.Class("review-card__detail"), h.Text(detail)),

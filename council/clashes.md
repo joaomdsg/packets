@@ -196,6 +196,14 @@ resolution, **the experiment that settles it**, and the verdict trail
   with no server change; only `/` and `/board` are HTML anyway (`/fleet`,
   `/stream` are machine SSE/JSON APIs). Color DEFERRED to a real stylesheet
   driver (dark mode / design system), where it's a no-cost addition on the hooks.
+- **Verdict (R102 — CONFIRMED still RESOLVED):** the R101 design-system pass IS
+  the "real stylesheet driver" this verdict anticipated, and the close-out
+  audit confirms it honored the deferral exactly: it added only scale +
+  component tokens (`--pk-radius`, `--pk-border`, `--pk-font-*`) plus a shared
+  `:focus-visible` rule reusing the existing `--pk-accent`, introduced NO new
+  served CSS asset (all in the inline `packetsStyle` string), and left the
+  honest-state hues and the bet-vs-confirmed structural separation
+  byte-for-byte. Color on the existing hooks remains a no-cost future addition.
 
 ## Clash K — How a cross-process producer's commits reach the host (SHA transport)
 

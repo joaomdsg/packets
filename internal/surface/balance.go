@@ -14,7 +14,7 @@ import (
 // another).
 func RenderBalance(balance int) h.H {
 	return h.Div(
-		h.Class("balance-row"),
+		h.Class("pk-card balance-row"),
 		h.Data("state", "balance"),
 		h.Data("balance", strconv.Itoa(balance)),
 		h.P(h.Class("balance-row__amount"), h.Text("Balance: "+strconv.Itoa(balance))),

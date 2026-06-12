@@ -1,6 +1,34 @@
 package app
 
-import "github.com/go-via/via/h"
+import (
+	"net/url"
+
+	"github.com/go-via/via/h"
+)
+
+// cardReturnCrumb is the back-affordance a drill-in surface (/review, /settings)
+// renders so the Lead is never stranded: an anchor BACK to the originating session
+// card (/?key=<key>), reusing the breadcrumb crumb idiom. The key is URL-escaped so
+// a query-metacharacter key (valid as a NATS token, e.g. "a&b") round-trips to the
+// exact session rather than splitting the query (mirrors the board drill href).
+func cardReturnCrumb(key string) h.H {
+	return h.A(
+		h.Href("/?key="+url.QueryEscape(key)),
+		h.Class("board-nav__crumb drill-return"),
+		h.Text("← back to card"),
+	)
+}
+
+// reviewSessionCrumb is the per-order review's UP-link to the SESSION review (drop
+// the wo scope), closing the per-order→session leg of the symmetric review nav so a
+// funded order's test-debt isn't a dead end.
+func reviewSessionCrumb(key string) h.H {
+	return h.A(
+		h.Href("/review?key="+url.QueryEscape(key)),
+		h.Class("board-nav__crumb drill-return"),
+		h.Text("↑ session review"),
+	)
+}
 
 // navHeader is the shared, stateless nav bar prepended to every page (the fleet
 // board and each session card), turning the disconnected URLs into a navigable

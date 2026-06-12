@@ -122,6 +122,37 @@ func TestPublishStatus_roundTripsStatusTransitionThroughTheBus(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
+func TestPublishRefine_roundTripsRefinedOrderRecordThroughTheBus(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	f := startFabric(t)
+	want := ledger.RefinedOrderRecord{
+		Kind:     "worefine",
+		RefineID: 3,
+		Target:   ledger.Target{BaseRev: "base", FixRev: "fix", TipRev: "fix", Path: "pay.go", Line: 8},
+		Refine:   "split",
+		Splits: []ledger.Target{
+			{BaseRev: "base", FixRev: "fix", TipRev: "fix", Path: "pay.go", Line: 8},
+			{BaseRev: "base", FixRev: "fix", TipRev: "fix", Path: "pay.go", Line: 40},
+		},
+		Criteria: []string{"rejects a negative amount"},
+		Note:     "errors wrap with a short origin prefix",
+	}
+
+	seq, err := ledger.PublishRefine(ctx, f, "s1", "i1", want)
+	require.NoError(t, err)
+
+	events, err := f.ReplaySubject(ctx, fabric.EventSubject("s1", "i1", fabric.StatusMinted, "worefine"))
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, seq, events[0].Seq)
+
+	got, err := ledger.DecodeRefine(events[0].Data)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
 // The taxonomy must demux the kinds: each publisher writes ONLY its own kind's
 // subject, so a per-kind filter sees exactly one event and a rebuild never folds
 // a spend where it expected a catch.
@@ -139,8 +170,10 @@ func TestPublishKinds_eachLandsOnlyOnItsOwnKindSubject(t *testing.T) {
 	require.NoError(t, err)
 	_, err = ledger.PublishStatus(ctx, f, "s1", "i1", ledger.StatusRecord{Kind: "wostatus", ID: 1, Status: "running"})
 	require.NoError(t, err)
+	_, err = ledger.PublishRefine(ctx, f, "s1", "i1", ledger.RefinedOrderRecord{Kind: "worefine", RefineID: 1, Refine: "criteria"})
+	require.NoError(t, err)
 
-	for _, kind := range []string{"catch", "spend", "workorder", "wostatus"} {
+	for _, kind := range []string{"catch", "spend", "workorder", "wostatus", "worefine"} {
 		events, err := f.ReplaySubject(ctx, fabric.EventSubject("s1", "i1", fabric.StatusMinted, kind))
 		require.NoError(t, err)
 		assert.Len(t, events, 1, "kind %q must carry exactly its own one event", kind)
@@ -158,6 +191,7 @@ func TestDecoders_returnErrorOnMalformedPayload(t *testing.T) {
 		{"spend", func(b []byte) error { _, err := ledger.DecodeSpend(b); return err }},
 		{"workorder", func(b []byte) error { _, err := ledger.DecodeWorkOrder(b); return err }},
 		{"wostatus", func(b []byte) error { _, err := ledger.DecodeStatus(b); return err }},
+		{"worefine", func(b []byte) error { _, err := ledger.DecodeRefine(b); return err }},
 	}
 	for _, d := range decoders {
 		t.Run(d.name, func(t *testing.T) {

@@ -224,6 +224,7 @@ func TestBoardCard_showsRecentDispatchesWithCaughtOrMissedOutcome(t *testing.T) 
 
 	body := vt.NewClient(t, server, "/board").HTML()
 	require.Contains(t, body, "board-row__dispatches", "recent dispatches render in their own cluster")
+	require.Contains(t, body, "pk-chip board-row__dispatch", "the read-only dispatch line composes the mono .pk-chip")
 	require.Contains(t, body, "WO#1", "the caught order is shown by id")
 	require.Contains(t, body, "alpha.go:7", "with its target")
 	require.Contains(t, body, "caught", "WO#1 minted → caught")

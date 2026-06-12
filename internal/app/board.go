@@ -23,8 +23,8 @@ type CardRow struct {
 	Key              string
 	Confirmed        int
 	Reinvested       int
-	InFlight         int // claims submitted but not yet minted — producers' pending BETS, never confirmed catches (two-scores)
-	Rejected         int // verified-lost: bets the host verified and found no catch — a RESOLVED loss, distinct from a pending in-flight bet and from a confirmed catch (two-scores)
+	InFlight         int                   // claims submitted but not yet minted — producers' pending BETS, never confirmed catches (two-scores)
+	Rejected         int                   // verified-lost: bets the host verified and found no catch — a RESOLVED loss, distinct from a pending in-flight bet and from a confirmed catch (two-scores)
 	Dispatches       []ledger.DispatchView // this session's recent funded work-orders + their caught/missed outcome — honest per-order round-trip legibility, never a fabricated rank
 	Balance          int
 	Queued           int
@@ -35,6 +35,7 @@ type CardRow struct {
 	BacklogRemaining int
 	OpenQuestions    int    // the session's latest-cycle open review questions (surviving mutants) — test debt the green verdict hides, made visible across the fleet; a diagnostic, never scored (off the economy)
 	Land             string // the session's latest-cycle integration verdict (clean/conflict/checks_red) — surfaced on the board only when BLOCKED, so "Landed ≠ Merged" is visible across the fleet
+	Activity         string // the agent's latest live activity beat (e.g. "editing auth.go") while an order fills — the cross-session "watch the shop" ticker; "" when idle, so an idle row stays calm
 	seq              int    // registration ordinal — the deterministic tie-break, not rendered
 }
 
@@ -94,6 +95,9 @@ func BoardRows() []CardRow {
 		// The latest integration verdict, read from the in-memory cache (not the log)
 		// — surfaced on the board only when it blocks a merge (see View).
 		row.Land = e.landState()
+		// The agent's live activity beat (in-process, read straight from the session's
+		// fill buffer) — the cross-session ticker, surfaced only while an order fills.
+		row.Activity = e.activitySnapshot()
 		rows = append(rows, row)
 		return true
 	})
@@ -190,8 +194,8 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 		// The fleet view's one command: start a new session economy. A calm input +
 		// button, in the surface idiom — no modal, no menu.
 		h.Div(h.Class("board-create"),
-			h.Input(h.Type("text"), c.NewKey.Bind(), h.Class("board-create__key"), h.Placeholder("new session key")),
-			h.Button(on.Click(c.CreateSession), h.Class("board-create__btn"), h.Text("Create session")),
+			h.Input(h.Type("text"), c.NewKey.Bind(), h.Class("pk-input board-create__key"), h.Placeholder("new session key")),
+			h.Button(on.Click(c.CreateSession), h.Class("pk-btn board-create__btn"), h.Text("Create session")),
 		),
 	}
 	rows := BoardRows()
@@ -209,7 +213,7 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 	}
 	for _, r := range rows {
 		row := []h.H{
-			h.Class("board-row"),
+			h.Class("pk-card board-row"),
 			h.Data("key", r.Key),
 			// The row key DRILLS into that session's card — the fleet board is not a
 			// dead end. The default row links to /?key=default (explicit + honest). The
@@ -224,7 +228,7 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 			// reader parses each label. The inner spans keep their class hooks so a
 			// future stylesheet can color bets muted-vs-solid with no server change.
 			h.Div(h.Class("board-row__bets"),
-				h.Span(h.Class("board-row__bets-label"), h.Text("bets:")),
+				h.Span(h.Class("pk-section-label board-row__bets-label"), h.Text("bets:")),
 				h.Span(h.Class("board-row__inflight"), h.Text(strconv.Itoa(r.InFlight)+" in flight")),
 				h.Span(h.Class("board-row__rejected"), h.Text(strconv.Itoa(r.Rejected)+" verified-lost")),
 			),
@@ -255,6 +259,12 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 				h.Text(label),
 			))
 		}
+		// What the agent is doing RIGHT NOW — a calm dim ticker, surfaced only while an
+		// order fills (a beat exists), so the Lead watches the shop across sessions
+		// without opening each card. Absent on an idle row (no dead "·").
+		if r.Activity != "" {
+			row = append(row, h.Span(h.Class("board-row__activity-beat"), h.Text("· "+r.Activity)))
+		}
 		// The funded work-order round-trip made legible: recent dispatches with their
 		// caught/missed outcome, in their own cluster (omitted when there are none).
 		// Honest per-order outcomes, never a fabricated rank.
@@ -267,7 +277,7 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 		if r.Key != defaultSessionKey {
 			row = append(row, h.Button(
 				on.Click(c.RetireSession, on.SetSignal(&c.RetireKey.Signal, r.Key)),
-				h.Class("board-row__retire"), h.Text("retire"),
+				h.Class("pk-btn pk-btn--quiet board-row__retire"), h.Text("retire"),
 			))
 		}
 		parts = append(parts, h.Div(row...))
@@ -313,10 +323,10 @@ func renderDispatches(key string, views []ledger.DispatchView) h.H {
 	if len(views) == 0 {
 		return nil
 	}
-	spans := []h.H{h.Class("board-row__dispatches"), h.Span(h.Class("board-row__dispatches-label"), h.Text("dispatches:"))}
+	spans := []h.H{h.Class("board-row__dispatches"), h.Span(h.Class("pk-section-label board-row__dispatches-label"), h.Text("dispatches:"))}
 	for _, v := range views {
 		text := "WO#" + strconv.Itoa(v.ID) + " " + v.Target.Path + ":" + strconv.Itoa(v.Target.Line) + " " + v.Status
-		span := []h.H{h.Class("board-row__dispatch")}
+		span := []h.H{h.Class("pk-chip board-row__dispatch")}
 		// A resolved order carries its outcome as a hook so the calm palette can
 		// color caught vs missed at a glance (a queued/running order has no outcome
 		// yet, so no hook — it stays neutral).

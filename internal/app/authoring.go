@@ -116,8 +116,8 @@ func composeSurface(da *draftAnalysis) h.H {
 		h.Data("on:viaanalyze", "$orderprompt=evt.detail.draft;@post('/_action/AnalyzeDraft')"),
 		h.Data("on:viaplace", "$orderprompt=evt.detail.draft;@post('/_action/PlaceOrder')"),
 		h.Div(h.ID("authoring-editor"), h.Class("compose__editor")),
-		h.Button(h.Type("button"), h.Class("compose__analyze"), h.Text("Analyze draft")),
-		h.Button(h.Type("button"), h.Class("compose__place"), h.Text("Place order")),
+		h.Button(h.Type("button"), h.Class("pk-btn pk-btn--quiet compose__analyze"), h.Text("Analyze draft")),
+		h.Button(h.Type("button"), h.Class("pk-btn compose__place"), h.Text("Place order")),
 		h.Span(h.Class("compose__analyzing"), h.Data("state", "idle"), h.Text("analyzing…")),
 		h.Script(h.Src(monacoLoaderURL)),
 		h.Script(h.Raw(authoringEditorJS)),
@@ -166,7 +166,7 @@ func renderAnalysisPanel(da *draftAnalysis) h.H {
 	}
 	if da.Result == nil {
 		return h.Div(
-			h.Class("analysis"),
+			h.Class("pk-card analysis"),
 			h.Data("state", "unavailable"),
 			h.Span(h.Class("analysis__unavailable"), h.Text("Analysis unavailable — "+da.Reason+".")),
 		)
@@ -177,7 +177,7 @@ func renderAnalysisPanel(da *draftAnalysis) h.H {
 		state = "ready"
 	}
 	parts := []h.H{
-		h.Class("analysis"),
+		h.Class("pk-card analysis"),
 		h.Data("state", state),
 		h.Attr("aria-label", "draft analysis"),
 		h.Span(h.Class("analysis__summary"), h.Text(a.Summary)),

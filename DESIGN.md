@@ -77,6 +77,18 @@ superseded. Each row: the original claim → what now holds → where.
   `GOTOOLCHAIN=local`); the security boundary moved to that prefetcher, the
   only network in the system. See §19.1, `council/round-34.md`. *(CRITICAL —
   resolved)*
+- §6 / §7 / §13 / §14 surface stack ("React + Vite", "WebSocket", "Postgres
+  as the event log", "Tailwind + shadcn") → **the built surface is
+  server-driven, not an SPA**: Go-rendered Via HTML + Datastar over **SSE**
+  (`go-via/via`), a hand-rolled CSS design language
+  (`internal/app/style.go`, `council/design-language.md`), Monaco as a JS
+  island. Go, Docker, Monaco, and the harness stand. **Persistence is a
+  hybrid:** the **NATS/JetStream** append-only log (built) is the source of
+  truth for event-sourced state; a **Postgres** store (planned, not yet
+  built) holds the relational, non-event-sourced state — user preferences,
+  session data, auth — *beside* the log, not as the log. §13's protocol
+  *semantics* stand on SSE; §14's relational shape is Postgres's home (the
+  event-sourced projections fold from JetStream). See §7.
 
 Contradictions #2, #6, #8, #9, #10 (VISION side), #11, #12 are
 VISION-internal (its economy sections) and are tracked in `RISKS.md`;
@@ -309,7 +321,7 @@ built.
 4. The core mapping: PR review ⇄ harness events
 5. Domain model
 6. Architecture
-7. Recommended stack
+7. Stack (as built)
 8. UI surface (v1)
 9. Open decisions (all resolved → deep dives)
 10. Risks / hard parts
@@ -431,22 +443,22 @@ Code itself lives in the container's git repo / a volume — the DB stores
 ## 6. Architecture
 
 ```text
-        Browser (React + Monaco)
+        Browser (thin: server-rendered HTML + Monaco islands)
    file tree │ diff + inline threads │ editor │ checks │ activity
         ▲                                   │
-        │  WebSocket (UI events ⇄ commands) │
+        │  SSE (server push) ⇄ Datastar @post (commands)  │
         ▼                                   ▼
    ┌──────────────────────────────────────────────────┐
    │              Orchestrator (Go)                     │
    │  • session/thread state machine                    │
-   │  • WS gateway + fan-out                             │
+   │  • Via surface: render HTML + SSE fan-out           │
    │  • container manager (Docker SDK)                  │
    │  • harness supervisor: spawn, stream, feed turns   │
    │  • event translator (harness events → review UI)   │
    └───────────────┬───────────────────────┬───────────┘
-                   │ Docker API             │ Postgres/SQLite
-                   ▼                        ▼  (sessions, threads,
-        ┌───────────────────────┐             messages, eventlog)
+                   │ Docker API             │ NATS/JetStream log (built)
+                   ▼                        ▼  + Postgres (planned: prefs,
+        ┌───────────────────────┐             session data; §13.3/§14)
         │  Session container     │
         │  • cloned repo + git    │
         │  • language toolchains  │
@@ -468,18 +480,26 @@ comments, the orchestrator can either (a) feed them as one batched turn,
 or (b) fan out **ephemeral harness instances** for genuinely independent
 concerns and merge their edits. → **Open decision §9.1.**
 
-## 7. Recommended stack
+## 7. Stack (as built)
 
-| Layer            | Choice                         | Why |
+This table was a *recommendation* in the original draft; the slice that
+shipped (§0.2) made different, validated choices on the surface tier. It
+is rewritten in place to the **built** stack — the early "React + Vite /
+WebSocket / Postgres / Tailwind" row was never adopted and is struck, not
+kept as aspiration. The server tier (Go, Docker, the harness) stands as
+recommended; the client tier went **server-driven**, not SPA.
+
+| Layer            | Choice (built)                 | Why |
 |------------------|--------------------------------|-----|
-| Orchestrator/API | **Go**                         | Your strength; great at process supervision, concurrency, Docker SDK |
-| Realtime         | WebSocket (nhooyr/coder ws)    | Bi-directional event stream |
-| Frontend         | React + TypeScript + Vite      | Rich, stateful UI |
-| Editor + diff    | **Monaco** (+ monaco diff)     | Real editor + first-class diff |
-| Styling          | Tailwind + shadcn/ui           | Move fast on a dense UI |
-| Container        | Docker; image w/ harness+git+toolchains | Confirmed model |
-| Persistence      | Postgres (SQLite for dev)      | Relational metadata |
-| Agent engine     | Claude Code harness, stream-json I/O | Confirmed |
+| Orchestrator/API | **Go**                         | Process supervision, concurrency, Docker SDK — as recommended |
+| Realtime         | **Via server-driven SSE + Datastar** (`go-via/via`) | Server renders HTML and pushes it over SSE (`via.Stream`); commands are Datastar `@post` actions, not a bespoke bidirectional WS frame protocol. ~~WebSocket (nhooyr/coder ws)~~ — never built |
+| Frontend         | **Server-rendered Go HTML** (Via `h.*` builders) + Datastar | No SPA: the surface is built from Go, state lives server-side (the JetStream log), the browser is a thin projection. Rich panes are **JS islands** (below), not a React tree. ~~React + TypeScript + Vite~~ — never built |
+| Editor + diff    | **Monaco** as a Via JS island   | Real editor + first-class diff, mounted as an island inside the server-rendered card (the authoring draft *is* the Monaco editor, council R98). Stands as recommended |
+| Styling          | **Hand-rolled CSS design system** (`internal/app/style.go`, `--pk-*` tokens) | One inline stylesheet over the class hooks the markup emits — the calm "control-room" visual language (council R43); full spec in `council/design-language.md`. ~~Tailwind + shadcn/ui~~ — never built |
+| Container        | Docker; image w/ harness+git+toolchains | Confirmed model (the §19 sandbox/cage and §15 agent container are built on it) |
+| Persistence (event log) | **NATS/JetStream append-only log** (`internal/fabric`) — built, source of truth | An ordered, durable, replayable stream — the substrate §13.3/RISKS.md sequenced. The event-sourced state (revisions, threads, catches, fleet) folds from it; it is NOT a SQL database, and the original "Postgres is the event log" framing is struck |
+| Persistence (relational) | **Postgres** for user preferences + session data — **planned, not yet built** | The relational, *non-event-sourced* state that must outlive any single stream: user prefs/settings, session metadata, auth. This is §14's SQL schema's real home — a store *beside* the JetStream log, not the event log itself (SQLite for dev). ~~Postgres as the event log~~ |
+| Agent engine     | **Claude Code harness, stream-json I/O** | Confirmed (`internal/harness`) |
 
 ## 8. UI surface (v1)
 
@@ -677,9 +697,18 @@ read against `curRev`:
 The full algorithm, edge cases, and the rename-lost state are in §28.
 The `lineHash` lets us detect "same content moved" vs "content changed."
 
-## 13. Deep dive: client/server protocol (WebSocket)
+## 13. Deep dive: client/server protocol
 
-One WS per open Session. JSON frames, each `{v, type, ts, ...}`.
+> **Transport note (§0.1 amends):** the built surface is **SSE** (server
+> push via `via.Stream`) + Datastar `@post` for commands, not a bespoke
+> bidirectional WebSocket. The command/event *vocabulary* below is the
+> design contract and stands; only the carrier changed (server-push
+> instead of a symmetric WS frame). The §13.3 event-sourcing/replay model
+> maps directly onto the JetStream log that now backs it.
+
+The command/event split below reads as the message vocabulary regardless
+of carrier; the original draft framed it as one WS per Session with JSON
+frames `{v, type, ts, ...}`.
 
 ### 13.1 Client → server (commands)
 
@@ -736,11 +765,28 @@ carries a **producer + commit-status header** (which instance/branch,
 committed vs scratch), so replay can tell minted revisions from
 throwaway work.
 
-## 14. Deep dive: database schema
+## 14. Deep dive: relational model
 
-Postgres (SQLite-compatible subset for dev). Code lives in the
-container's git repo; the DB stores **metadata, conversation, and the
-event log** only.
+> **Persistence note (§0.1 amends) — a hybrid, split by event-sourced vs
+> not:**
+>
+> - **Event-sourced state** (revisions, threads, messages, checks, the
+>   event log itself) has no SQL today — its source of truth is the
+>   **NATS/JetStream** append-only log (`internal/fabric`), and the
+>   projections (ledger, fleet board) fold from it in-memory. For those
+>   tables, read `CREATE TABLE` as "the relational shape the projection
+>   mirrors," not a deployed Postgres. The original "Postgres *is* the
+>   event log" framing is struck.
+> - **Relational, non-event-sourced state** — **user preferences /
+>   settings, session data, auth** — *will* live in **Postgres** (planned,
+>   not yet built; SQLite for dev), beside the log. This is durable state
+>   that must outlive any stream and isn't naturally an event fold; the
+>   `sessions`/`users` shape below is its home.
+
+The original draft proposed a single Postgres (SQLite-compatible subset
+for dev) as the whole store. Code lives in the container's git repo; the
+relational store holds **metadata, preferences, and session data**, while
+the **event log** is JetStream's.
 
 ```sql
 -- A review workspace = one container + one branch off baseRef.
@@ -952,7 +998,7 @@ and de-risks §10 #1/#3 before we build review semantics on top.
 
 ```text
 [Browser]  one page: a task box + a live activity log + a diff view
-    │ WS
+    │ SSE (server push) + Datastar @post
 [Orchestrator (Go)]  session create → docker run → spawn harness →
     │                 stream events → settle revision → serve diff
 [Container]  session-agent shim → harness (stream-json) on a cloned repo
@@ -978,13 +1024,14 @@ and de-risks §10 #1/#3 before we build review semantics on top.
    hit, surface binary artifacts (§12.2.1). Test: golden harness-event
    fixture → expected UI events; plus no-edit-turn and staged-secret
    cases (this is the §12 reducer, born small — and already built).
-5. **WS gateway** — one session, frames from §13, `events` table +
-   monotonic seq, reconnect-replay. Test: two sequential connects with
-   `lastSeq` get no dupes, no gaps.
+5. **Via surface + SSE** — one session, the §13 vocabulary, an
+   append-only log + monotonic seq, reconnect-replay. Test: two sequential
+   connects with `lastSeq` get no dupes, no gaps.
 6. **Diff service** — `base..head` unified diff as `diff.data`. Test:
    known two-commit repo → expected hunks.
-7. **Frontend (Vite+React)** — task box → `task.create`; render
-   `activity.agent` as a live log; render `diff.data` in Monaco diff.
+7. **Frontend (server-rendered Via + Datastar)** — task box →
+   `task.create`; render `activity.agent` as a live SSE log; render
+   `diff.data` in a Monaco diff island.
    Manual demo: type "add a hello function", watch it happen, see green
    diff.
 
@@ -1130,7 +1177,7 @@ else is reconstructible.** Each failure maps to a defined recovery.
 
 | Failure                          | Detection                  | Recovery |
 |----------------------------------|----------------------------|----------|
-| Browser socket drops             | WS close                   | reconnect-replay from `lastSeq` (§13.3); session unaffected |
+| Browser socket drops             | SSE stream close           | reconnect-replay from `lastSeq` (§13.3); session unaffected |
 | Orchestrator restarts            | process boot               | rehydrate sessions from DB; re-attach to live containers by `container_id`; mark unreachable ones `errored` |
 | Container dies mid-turn          | shim heartbeat lost        | working tree is uncommitted → **roll back to last revision**; post a system message to the task thread; offer "retry turn" |
 | Harness exits non-zero / crashes | `result subtype:"error"`   | surface error in the active thread; keep prior revision; user can re-prompt |
@@ -1257,8 +1304,8 @@ real telemetry.
 - **session-agent (shim)** — our container entrypoint binary; spawns
   harness instances, settles revisions, mediates permissions, enforces
   the sandbox. Heir to agntpr's Invoker + ForkManager.
-- **Orchestrator** — host-side Go service: WS gateway, container
-  manager, event translator, state machine.
+- **Orchestrator** — host-side Go service: Via surface (HTML render + SSE
+  fan-out), container manager, event translator, state machine.
 - **Translator** — the reducer mapping harness events → review
   primitives (§12). The core engineering risk.
 - **Settle** — the turn-boundary step that commits the working tree and

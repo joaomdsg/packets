@@ -13,7 +13,7 @@ import (
 // base done → fix done → catch → land) accruing live rather than a spinner. An
 // empty list (no beat has streamed yet) renders an empty row — no tempo to show.
 func RenderBeats(beats string) h.H {
-	parts := []h.H{h.Class("beat-row"), h.Data("state", "beats")}
+	parts := []h.H{h.Class("pk-card beat-row"), h.Data("state", "beats")}
 	if beats != "" {
 		for _, kind := range strings.Split(beats, ",") {
 			parts = append(parts, h.Span(h.Class("beat"), h.Data("beat", kind), h.Text(kind)))

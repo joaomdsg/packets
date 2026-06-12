@@ -121,6 +121,12 @@ type liveEntry struct {
 	cfg LiveConfig
 	log *ledger.Log
 	sem chan struct{}
+	// useContainer is the session's RUNTIME runner mode: when true, live orders run in
+	// the hardened agent container (runHarnessContainer) instead of the host
+	// subprocess. Initialized from cfg.UseContainer (the -container boot flag) and
+	// flipped by the ToggleRunner action, so the Lead can switch at runtime instead of
+	// only at boot. Guarded by fillMu (read on the fill path, written by the toggle).
+	useContainer bool
 	// runMu serializes the per-key order runner so two concurrent Spends can't both
 	// drain (and double-run) the same queued order. One drainer per session at a time.
 	runMu sync.Mutex
@@ -217,6 +223,22 @@ func (e *liveEntry) activitySnapshot() string {
 	e.fillMu.Lock()
 	defer e.fillMu.Unlock()
 	return e.activityBeat
+}
+
+// useContainerMode reports whether this session's live orders run in the hardened
+// container (vs the host subprocess) — the runtime runner mode runLiveOrder reads.
+func (e *liveEntry) useContainerMode() bool {
+	e.fillMu.Lock()
+	defer e.fillMu.Unlock()
+	return e.useContainer
+}
+
+// toggleRunner flips the session between host-subprocess and container execution for
+// its next live order (an in-flight order keeps the runner it started on).
+func (e *liveEntry) toggleRunner() {
+	e.fillMu.Lock()
+	e.useContainer = !e.useContainer
+	e.fillMu.Unlock()
 }
 
 // activityTranscript returns a copy of the accruing beat transcript for this fill
@@ -446,7 +468,7 @@ func registerSession(key string, cfg LiveConfig, log *ledger.Log) {
 	if cfg.MaxConcurrent > 0 {
 		sem = make(chan struct{}, cfg.MaxConcurrent)
 	}
-	e := &liveEntry{cfg: cfg, log: log, sem: sem, seq: int(atomic.AddInt64(&regSeq, 1))}
+	e := &liveEntry{cfg: cfg, log: log, sem: sem, useContainer: cfg.UseContainer, seq: int(atomic.AddInt64(&regSeq, 1))}
 	liveReg.Store(key, e)
 	// If claim consumers are already running, a session registered now (e.g. an R53
 	// runtime-created session) gets its consumer immediately, not only those present
@@ -666,6 +688,13 @@ type LiveCard struct {
 	// read by PlaceOrder to fund a prompt-carrying live order (vs drawing a pre-baked
 	// backlog target). Per-tab signal, not authoritative session state.
 	OrderPrompt via.SignalStr `via:"orderprompt"`
+	// RefineTarget/RefineKind/RefineText carry a bench card's SHARPEN inputs: the
+	// path:line being refined, the kind (criteria | convention), and the free text
+	// (criteria one-per-line, or the convention note). Read by RefineChosen, which
+	// appends a worefine fact for that target. Per-tab signals, not session state.
+	RefineTarget via.SignalStr `via:"refinetarget"`
+	RefineKind   via.SignalStr `via:"refinekind"`
+	RefineText   via.SignalStr `via:"refinetext"`
 	// Balance is the spend broadcast trigger: the balance ROW value is re-read
 	// from the ledger in View (the source of truth), but the ledger is not
 	// reactive — so Spend writes the new balance here to make the live SSE stream
@@ -690,6 +719,12 @@ type LiveCard struct {
 	// (a currently-filling order's accruing beats) changes, so the card shows the
 	// order filling live. View reads the buffer; this cell only nudges the re-render.
 	FillBeats via.StateTabStr
+	// Bench is the re-render trigger for a sharpening: RefineChosen writes the current
+	// refinement count here so the bench re-renders (a split re-folds fundableBacklog;
+	// criteria/convention re-render the card body). It carries no authoritative value
+	// — View re-reads the refinements — and changes on every append (the count rises),
+	// so the frame always fans out even when the fundable target list is unchanged.
+	Bench via.StateTabStr
 }
 
 // View renders the card's rows via the shared surface rendering: the retrospective
@@ -753,43 +788,53 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	if hint := onboardingHint(stock); hint != nil {
 		parts = append(parts, hint)
 	}
-	parts = append(parts, surface.RenderStock(stock), surface.RenderBalance(balance),
-		surface.RenderBandwidth(bandwidth))
-	// The Spend action — turning a confirmed catch into a funded work-order — is the
-	// Lead's core economic move. Render its trigger right under the balance it spends,
-	// but ONLY when there is balance to spend: offering a Spend control with nothing
-	// to spend is dishonest (the click would be a silent no-op).
-	if balance > 0 {
-		parts = append(parts, h.Button(
-			on.Click(c.Spend),
-			h.Class("spend-action"),
-			h.Text(spendButtonLabel(cfg, log)),
-		))
-	}
-	// AUTHOR a live order: when there is attention BANDWIDTH to fund one, render the
-	// compose control so the Lead can type a task and place it (the runtime
-	// counterpart of the -live CLI flag). A live order is funded by the responsiveness
-	// the Lead earned, not a catch — so the control appears with bandwidth, not
-	// balance. Below it, a calm note when no API key is configured — the order would
-	// fail without one — linking to the setup surface.
-	if bandwidth > 0 {
-		parts = append(parts, renderAuthoring(c))
+	// The card splits into two sub-landmarks INSIDE main (Flow A): the ACT-NOW region
+	// gathers the moves the Lead makes right now (fund work, author + place an order);
+	// the STATE/HISTORY region carries the retrospective economy (stock, balance,
+	// dispatches, beats, verdict, land). The split is carried by the section headings
+	// + landmark roles, NOT a new background layer: --pk-surface-3 is SKIPPED (gate,
+	// §1) — the per-row .pk-card elevation plus the labelled regions already separate
+	// the two without a third elevation token without another consumer.
+	var actNow []h.H
+	// Flow B: spend (balance hue) and place-order (bandwidth hue) both FUND work, so
+	// they sit under one "fund work" group with a two-currency explainer, never read
+	// as unrelated controls.
+	if fund := renderFundWork(c, cfg, log, balance, bandwidth); fund != nil {
+		actNow = append(actNow, fund)
+		// The agent-runner control sits with the funding controls — it governs how a
+		// PLACED live order runs (host vs container). Gated on fund-work being present
+		// so a fresh, no-currency session keeps its act-now omitted (onboarding shown).
+		if e := lookupLiveEntry(c.Key); e != nil {
+			actNow = append(actNow, renderRunnerControl(c, e.useContainerMode()))
+		}
 	}
 	// The prep bench: the fundable work on deck, so the Lead sees (and, in a later
 	// slice, curates) what a Spend funds rather than a blind auto-pick. Omitted when
 	// there is no fundable work; guarded on log (fundableBacklog reads it).
 	if log != nil {
-		if bench := renderBench(c, fundableBacklog(cfg, log)); bench != nil {
-			parts = append(parts, bench)
+		if bench := renderBench(c, fundableBacklog(cfg, log), benchAnnotations(log)); bench != nil {
+			actNow = append(actNow, bench)
 		}
 	}
-	parts = append(parts, surface.RenderDispatch(dispatch))
+	if len(actNow) > 0 {
+		section := []h.H{
+			h.Attr("aria-labelledby", "act-now-label"),
+			h.Span(h.Class("pk-section-label"), h.ID("act-now-label"), h.Text("act now")),
+		}
+		parts = append(parts, h.Section(append(section, actNow...)...))
+	}
+	state := []h.H{
+		h.Attr("aria-labelledby", "state-history-label"),
+		h.Span(h.Class("pk-section-label"), h.ID("state-history-label"), h.Text("state & history")),
+		surface.RenderStock(stock), surface.RenderBalance(balance),
+		surface.RenderBandwidth(bandwidth), surface.RenderDispatch(dispatch),
+	}
 	// WATCH IT FILL: when the background runner is mid-fill on an order, show it live
 	// — the order id + the cycle beats accruing as the oracle works (re-rendered each
 	// Stream tick via the FillBeats poll). Omitted when nothing is filling.
 	if e := lookupLiveEntry(c.Key); e != nil {
 		if id, fb := e.fillSnapshot(); id > 0 {
-			parts = append(parts, h.Div(
+			state = append(state, h.Div(
 				h.Class("order-filling"),
 				h.Data("state", "beats"),
 				h.Text("filling WO#"+strconv.Itoa(id)+" — "+strings.Join(fb, " → ")),
@@ -798,7 +843,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 			// distinct from the oracle's cycle beats above. Absent on dead-air (no beat
 			// yet) so silence stays honest, no spinner.
 			if act := e.activitySnapshot(); act != "" {
-				parts = append(parts, h.Div(
+				state = append(state, h.Div(
 					h.Class("order-activity"),
 					h.Data("state", "activity"),
 					h.Text("· "+act),
@@ -814,7 +859,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 				for _, line := range tr {
 					lines = append(lines, h.Div(h.Class("order-transcript__line"), h.Text(line)))
 				}
-				parts = append(parts, h.Div(lines...))
+				state = append(state, h.Div(lines...))
 			}
 		}
 	}
@@ -822,9 +867,9 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	// with its caught/missed outcome, so the Lead watches the order they funded
 	// resolve in place (omitted when there are none — same helper the board uses).
 	if d := renderDispatches(navKey, dispatches); d != nil {
-		parts = append(parts, d)
+		state = append(state, d)
 	}
-	parts = append(parts,
+	state = append(state,
 		surface.RenderBeats(c.Beats.Read(ctx)),
 		surface.RenderVerdict(c.Verdict.Read(ctx)),
 	)
@@ -832,9 +877,10 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	// green hides honest test gaps — show the open-question count (the full anchored
 	// threads live on /review). Omitted when there are none.
 	if b := reviewQuestionsBadge(c.Questions.Read(ctx), navKey); b != nil {
-		parts = append(parts, b)
+		state = append(state, b)
 	}
-	parts = append(parts, surface.RenderLand(pipe.LandState(c.Land.Read(ctx))))
+	state = append(state, surface.RenderLand(pipe.LandState(c.Land.Read(ctx))))
+	parts = append(parts, h.Section(state...))
 	// nav landmark first, then the main economy region — distinct sibling landmarks.
 	return h.Div(navHeader(navKey), h.Div(parts...))
 }
@@ -934,6 +980,31 @@ func (c *LiveCard) PlaceOrder(ctx *via.Ctx) {
 		c.Dispatch.Write(ctx, strconv.Itoa(d))
 	}
 	go drainQueuedOrders(c.Key)
+}
+
+// ToggleRunner switches this session's live-order runner between the host subprocess
+// (default) and the hardened agent container — surfacing the built RunContainer path
+// (previously reachable only via the -container boot flag) as a runtime choice. The
+// NEXT live order uses the new mode; an in-flight one is unaffected. The card
+// auto-renders the new mode in the action's response.
+func (c *LiveCard) ToggleRunner(ctx *via.Ctx) {
+	if e := lookupLiveEntry(c.Key); e != nil {
+		e.toggleRunner()
+	}
+}
+
+// renderRunnerControl shows the session's live-order runner mode (host / container)
+// and a toggle — a calm act-now control surfacing the built container runner without
+// requiring a boot flag. Stripped-CSS legible (the mode is plain words).
+func renderRunnerControl(c *LiveCard, useContainer bool) h.H {
+	mode, toggleTo := "host", "run in container"
+	if useContainer {
+		mode, toggleTo = "container", "run on host"
+	}
+	return h.Div(h.Class("live-runner"),
+		h.Span(h.Class("live-runner__mode"), h.Text("agent runner: "+mode)),
+		h.Button(on.Click(c.ToggleRunner), h.Class("pk-btn--quiet live-runner__toggle"), h.Text(toggleTo)),
+	)
 }
 
 // repoHead resolves repoDir's current HEAD, the base a UI-authored live order runs
@@ -1046,7 +1117,7 @@ func runLiveOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 	// (the cost-gate — the only token cap a live order has; council R69/R70).
 	hctx, cancel := context.WithTimeout(context.Background(), liveHarnessTimeout)
 	runner := runHarness // host subprocess by default; the container when the session opts in
-	if e.cfg.UseContainer {
+	if e.useContainerMode() {
 		runner = runHarnessContainer
 	}
 	turns, err := runner(hctx, e.cfg.RepoDir, order.Target.Prompt, func(evs []translate.UIEvent) {

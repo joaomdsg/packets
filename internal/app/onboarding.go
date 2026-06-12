@@ -25,7 +25,7 @@ func onboardingHint(stock ledger.Stock) h.H {
 		return nil
 	}
 	return h.Section(
-		h.Class("onboarding"),
+		h.Class("pk-card onboarding"),
 		h.Data("state", "empty"),
 		h.P(h.Class("onboarding__lead"), h.Text("No confirmed catches yet.")),
 		h.P(h.Class("onboarding__step"), h.Text("This card runs the catch cycle on load — when the oracle confirms a catch it mints to your balance.")),

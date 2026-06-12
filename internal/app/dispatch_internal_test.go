@@ -19,18 +19,27 @@ import (
 	"github.com/joaomdsg/packets/internal/reanchor"
 )
 
+// awaitFrameContaining waits until the streamed SSE output has carried ALL of the
+// given substrings. It ACCUMULATES across frames: vt.Client.SSE reads the body in
+// fixed 4096-byte buffers and emits each read as a "frame", so a single rendered
+// card larger than 4096 bytes is split across reads — a harness artifact, not an SSE
+// event boundary. Requiring all substrings in one read would make the assertion
+// fragile to card growth (it broke when the act-now runner control was added), so we
+// assert the rendered stream contains them, which is the real property.
 func awaitFrameContaining(t *testing.T, frames <-chan string, d time.Duration, must ...string) {
 	t.Helper()
 	deadline := time.After(d)
+	var acc strings.Builder
 	for {
 		select {
 		case f, ok := <-frames:
 			if !ok {
-				t.Fatalf("frame stream closed before a frame carried all of %v", must)
+				t.Fatalf("frame stream closed before the stream carried all of %v", must)
 			}
+			acc.WriteString(f)
 			all := true
 			for _, m := range must {
-				if !strings.Contains(f, m) {
+				if !strings.Contains(acc.String(), m) {
 					all = false
 					break
 				}
@@ -39,7 +48,7 @@ func awaitFrameContaining(t *testing.T, frames <-chan string, d time.Duration, m
 				return
 			}
 		case <-deadline:
-			t.Fatalf("no single frame carried all of %v within %s", must, d)
+			t.Fatalf("the stream did not carry all of %v within %s", must, d)
 		}
 	}
 }

@@ -18,7 +18,7 @@ import (
 // from the verdict, Land, and beat rows (one row never speaks for another).
 func RenderStock(s ledger.Stock) h.H {
 	parts := []h.H{
-		h.Class("stock-row"),
+		h.Class("pk-card stock-row"),
 		h.Data("state", "stock"),
 		h.Span(h.Class("stock__count"), h.Text(strconv.Itoa(s.Count)+" confirmed")),
 		// The reinvested share (dispatch-minted) is its own span beside the count, so

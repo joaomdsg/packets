@@ -18,7 +18,7 @@ import (
 // speaks for another.
 func RenderDispatch(c ledger.DispatchCounts) h.H {
 	return h.Div(
-		h.Class("dispatch-row"),
+		h.Class("pk-card dispatch-row"),
 		h.Data("state", "dispatch"),
 		h.Data("dispatch-queued", strconv.Itoa(c.Queued)),
 		h.Data("dispatch-running", strconv.Itoa(c.Running)),
