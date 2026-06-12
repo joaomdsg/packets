@@ -81,6 +81,13 @@ func (c *LiveCard) AnalyzeDraft(ctx *via.Ctx) {
 	if draft == "" {
 		return // nothing to analyze
 	}
+	// The assist auto-triggers on caret movement (past a blank line), which fires even
+	// when the text is unchanged — re-running the producer on a draft already
+	// successfully analyzed can only reproduce the cached read, so it is a no-op. A
+	// prior FAILED read (Result nil) is NOT skipped, so a transient failure can retry.
+	if prev := e.analysisSnapshot(); prev != nil && prev.Result != nil && prev.Draft == draft {
+		return
+	}
 	// Cancel any prior in-flight read and run under a fresh context, so a fast-typing
 	// Lead's superseded analyses are abandoned, never left racing this one.
 	runCtx := e.beginAnalysis()
@@ -248,7 +255,8 @@ const authoringEditorJS = `(function(){
       }
       col.set(decos);
     }
-    function analyze(){ if (live) live.dispatchEvent(new CustomEvent('viaanalyze', { detail: { draft: ed.getValue() } })); }
+    var lastAnalyzed = null;
+    function analyze(){ if (live) { lastAnalyzed = ed.getValue(); live.dispatchEvent(new CustomEvent('viaanalyze', { detail: { draft: lastAnalyzed } })); } }
     function place(){ if (live) live.dispatchEvent(new CustomEvent('viaplace', { detail: { draft: ed.getValue() } })); }
     var aBtn = live ? live.querySelector('.compose__analyze') : null;
     var pBtn = live ? live.querySelector('.compose__place') : null;
@@ -270,7 +278,16 @@ const authoringEditorJS = `(function(){
       if (!fire) return;
       clearTimeout(timer); // moving fast keeps cancelling the pending trigger
       if (ind) ind.dataset.state = 'pending';
-      timer = setTimeout(function(){ lastLine = line; if (ind) ind.dataset.state = 'analyzing'; analyze(); }, 350);
+      timer = setTimeout(function(){
+        lastLine = line;
+        // Skip when the draft is unchanged since the last analysis — the auto-trigger
+        // fires on caret movement, so this guards the common "moved, didn't edit" case
+        // (no round-trip, no stuck 'analyzing' indicator). The explicit Analyze button
+        // bypasses this — it calls analyze() directly.
+        if (ed.getValue() === lastAnalyzed) { if (ind) ind.dataset.state = 'idle'; return; }
+        if (ind) ind.dataset.state = 'analyzing';
+        analyze();
+      }, 350);
     });
     var dataEl = document.getElementById('authoring-analysis-data');
     if (dataEl && window.MutationObserver) {

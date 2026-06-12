@@ -69,6 +69,12 @@ type LiveConfig struct {
 	// never mint — the in-process host stays the single minter. Ignored when
 	// ListenAddr is empty. Build with NewProducerGrant.
 	Grants []fabric.ProducerGrant
+	// ReposRoot is the parent directory under which board-created sessions resolve a
+	// picked repo. A browser directory picker yields only the folder NAME (never an
+	// absolute path), so CreateSession joins it under this root. Empty means a relative
+	// pick resolves against the server's working dir; an absolute pick is always used
+	// as-is. See resolveRepoDir.
+	ReposRoot string
 }
 
 // hasRepo reports whether this config names a repo the session can work — enough to

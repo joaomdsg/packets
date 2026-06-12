@@ -76,6 +76,76 @@ func TestLiveCard_analyzeDraftRendersTheProducersStructuredRead(t *testing.T) {
 	assert.Contains(t, body, "Which errors count as transient?", "every clarifying question is shown")
 }
 
+// The assist auto-triggers on caret movement (past a blank line), which fires even
+// when the draft text is unchanged. Re-running the producer on an identical draft is
+// pure waste (it can only reproduce the cached read), so a re-analyze of a draft
+// already successfully analyzed must be a no-op — no second producer spawn. NOT
+// parallel (shared globals).
+func TestLiveCard_analyzeDraftDoesNotRerunOnUnchangedDraft(t *testing.T) {
+	restore := analyzeDraft
+	t.Cleanup(func() { analyzeDraft = restore })
+	runs := 0
+	analyzeDraft = func(_ context.Context, _, _, _ string) (string, error) {
+		runs++
+		return `{"summary":"s","ready":true,"highlights":[],"questions":[]}`, nil
+	}
+
+	_, server := fundedAuthoringServer(t, "authdedup")
+
+	tc := vt.NewClient(t, server, "/?key=authdedup")
+	const draft = "Add retry logic to the uploader."
+	require.Equal(t, 200, tc.Action((&LiveCard{Key: "authdedup"}).AnalyzeDraft).WithSignal("orderprompt", draft).Fire())
+	require.Equal(t, 200, tc.Action((&LiveCard{Key: "authdedup"}).AnalyzeDraft).WithSignal("orderprompt", draft).Fire())
+
+	assert.Equal(t, 1, runs, "an unchanged draft must not re-run the producer")
+}
+
+// The unchanged-draft guard must skip only a SUCCESSFUL prior read: a draft whose
+// last analysis FAILED (or was unreadable) must still re-run on retry, else a
+// transient producer failure would strand the draft with no way to recover short of
+// editing it. NOT parallel (shared globals).
+func TestLiveCard_analyzeDraftRetriesAfterAFailedRunOnTheSameDraft(t *testing.T) {
+	restore := analyzeDraft
+	t.Cleanup(func() { analyzeDraft = restore })
+	runs := 0
+	analyzeDraft = func(_ context.Context, _, _, _ string) (string, error) {
+		runs++
+		if runs == 1 {
+			return "", context.DeadlineExceeded // first run fails
+		}
+		return `{"summary":"s","ready":true,"highlights":[],"questions":[]}`, nil
+	}
+
+	_, server := fundedAuthoringServer(t, "authretry")
+
+	tc := vt.NewClient(t, server, "/?key=authretry")
+	const draft = "Add retry logic to the uploader."
+	require.Equal(t, 200, tc.Action((&LiveCard{Key: "authretry"}).AnalyzeDraft).WithSignal("orderprompt", draft).Fire())
+	require.Equal(t, 200, tc.Action((&LiveCard{Key: "authretry"}).AnalyzeDraft).WithSignal("orderprompt", draft).Fire())
+
+	assert.Equal(t, 2, runs, "a failed prior analysis on the same draft must still retry")
+}
+
+// The guard must skip only an UNCHANGED draft: once the Lead edits the text, the new
+// draft must re-run the producer (the cached read is stale). NOT parallel (globals).
+func TestLiveCard_analyzeDraftRerunsWhenTheDraftChanges(t *testing.T) {
+	restore := analyzeDraft
+	t.Cleanup(func() { analyzeDraft = restore })
+	runs := 0
+	analyzeDraft = func(_ context.Context, _, _, _ string) (string, error) {
+		runs++
+		return `{"summary":"s","ready":true,"highlights":[],"questions":[]}`, nil
+	}
+
+	_, server := fundedAuthoringServer(t, "authchg")
+
+	tc := vt.NewClient(t, server, "/?key=authchg")
+	require.Equal(t, 200, tc.Action((&LiveCard{Key: "authchg"}).AnalyzeDraft).WithSignal("orderprompt", "Add retry logic.").Fire())
+	require.Equal(t, 200, tc.Action((&LiveCard{Key: "authchg"}).AnalyzeDraft).WithSignal("orderprompt", "Add retry logic with a budget.").Fire())
+
+	assert.Equal(t, 2, runs, "a changed draft must re-run the producer")
+}
+
 // The analysis feeds Monaco: the analyzed draft + the flagged spans must be emitted
 // as a machine-readable payload the editor decorates against, so the producer's
 // highlights anchor on exactly the bytes it flagged. NOT parallel (shared globals).

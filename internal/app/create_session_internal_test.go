@@ -2,7 +2,9 @@ package app
 
 import (
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,10 +14,11 @@ import (
 	"github.com/go-via/via/vt"
 )
 
-// The create form must offer a repo-dir input (a session is usable with just a
-// repo), bound to the new-repo signal — else the Lead can only inherit the server's
-// repo and never point a session at a different tree. NOT parallel (shared globals).
-func TestBoardCard_rendersARepoDirInput(t *testing.T) {
+// The create form's repo picker must be a real directory file input: a browser
+// can't hand the server an absolute path, so the input picks a directory and a
+// change handler derives the picked folder NAME into the new-repo signal (the
+// server resolves it under the repos root). NOT parallel (shared globals).
+func TestBoardCard_rendersADirectoryPicker(t *testing.T) {
 	resetConsumersForTest()
 	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
 	var server *httptest.Server
@@ -27,7 +30,116 @@ func TestBoardCard_rendersARepoDirInput(t *testing.T) {
 	t.Cleanup(func() { _ = log.Close() })
 
 	body := bodyOf(vt.NewClient(t, server, "/board").HTML())
-	require.Contains(t, body, `data-bind="newrepo"`, "the board renders an input bound to the new-repo signal")
+	require.Contains(t, body, `type="file"`, "the repo picker is a real file input")
+	require.Contains(t, body, "webkitdirectory", "the file input picks a directory, not a single file")
+	require.Contains(t, body, "$newrepo", "a change handler derives the picked folder name into the new-repo signal")
+}
+
+// A picked folder name (a single segment, never an absolute path) must resolve to a
+// repo UNDER the configured repos root — so the directory picker actually points the
+// session at a real tree. NOT parallel (shared globals).
+func TestBoardCard_resolvesAPickedFolderNameUnderTheReposRoot(t *testing.T) {
+	resetConsumersForTest()
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "myproj"), 0o755))
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath, ReposRoot: root,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	tc := vt.NewClient(t, server, "/board")
+	require.Equal(t, 200, tc.Action((&BoardCard{}).CreateSession).
+		WithSignal("newkey", "picked").WithSignal("newrepo", "myproj").Fire())
+
+	cfg, slog := readLiveState("picked")
+	require.NotNil(t, slog, "the created session is registered")
+	assert.Equal(t, filepath.Join(root, "myproj"), cfg.RepoDir, "the picked folder resolves under the repos root")
+}
+
+// A malicious/odd pick must never escape the repos root: only the final path segment
+// is used, so traversal collapses to a name joined under the root. NOT parallel.
+func TestBoardCard_pickedFolderCannotEscapeTheReposRoot(t *testing.T) {
+	resetConsumersForTest()
+	root := t.TempDir()
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath, ReposRoot: root,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	tc := vt.NewClient(t, server, "/board")
+	require.Equal(t, 200, tc.Action((&BoardCard{}).CreateSession).
+		WithSignal("newkey", "guarded").WithSignal("newrepo", "../../etc").Fire())
+
+	cfg, _ := readLiveState("guarded")
+	assert.Equal(t, filepath.Join(root, "etc"), cfg.RepoDir, "traversal collapses to a name under the root")
+	assert.True(t, strings.HasPrefix(cfg.RepoDir, root), "resolution never escapes the repos root")
+}
+
+// A pick whose final segment is dot-only (".", "..", "a/..") has no real folder
+// name — joining it under the root would either land ON the root or climb ABOVE
+// it. Such a pick must be treated as blank, so the created session inherits the
+// server's repo (RepoDir unchanged from the seeded default) instead of escaping.
+func TestBoardCard_dotOnlyPickInheritsTheServerRepo(t *testing.T) {
+	cases := []struct {
+		name string
+		pick string
+	}{
+		{"bare dotdot climbs above root", ".."},
+		{"trailing dotdot climbs above root", "a/.."},
+		{"bare dot lands on root", "."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetConsumersForTest()
+			root := t.TempDir()
+			defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+			var server *httptest.Server
+			_, log, err := NewServer(LiveConfig{
+				RepoDir: "server-repo", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+				TestCmd: []string{"true"}, LedgerPath: defLogPath, ReposRoot: root,
+			}, via.WithTestServer(&server))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = log.Close() })
+
+			vtc := vt.NewClient(t, server, "/board")
+			require.Equal(t, 200, vtc.Action((&BoardCard{}).CreateSession).
+				WithSignal("newkey", "dotpick").WithSignal("newrepo", tc.pick).Fire())
+
+			cfg, _ := readLiveState("dotpick")
+			assert.Equal(t, "server-repo", cfg.RepoDir, "a dot-only pick inherits the server's repo, never escapes")
+		})
+	}
+}
+
+// A folder NAMED with dots that is not a traversal token (e.g. "....") is a real,
+// legitimate directory name — the guard must reject only the dot-only traversal
+// tokens "." and "..", never blank a valid name that merely contains dots.
+func TestBoardCard_dottyButRealFolderNameResolvesUnderTheRoot(t *testing.T) {
+	resetConsumersForTest()
+	root := t.TempDir()
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: "server-repo", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath, ReposRoot: root,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	tc := vt.NewClient(t, server, "/board")
+	require.Equal(t, 200, tc.Action((&BoardCard{}).CreateSession).
+		WithSignal("newkey", "dotty").WithSignal("newrepo", "....").Fire())
+
+	cfg, _ := readLiveState("dotty")
+	assert.Equal(t, filepath.Join(root, "...."), cfg.RepoDir, "a dotty-but-real name resolves under the root, not blanked")
 }
 
 // A session created from the board must be fundable immediately: the Lead earns

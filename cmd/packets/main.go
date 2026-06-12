@@ -181,6 +181,7 @@ func main() {
 	cageImage := flag.String("cage-image", "packets-cage:dev", "Docker image the claim verifier runs producer-submitted work in")
 	container := flag.Bool("container", false, "run the primary session's LIVE work orders in the hardened agent container (harness.RunContainer) instead of the host subprocess; needs the packets-agent image + an ANTHROPIC_API_KEY")
 	seedBandwidth := flag.Int("bandwidth", 0, "seed N cleared attention intervals on the primary session at boot so live orders can be placed without first answering questions (dev/demo; each interval is worth ~3 attention bandwidth)")
+	reposRoot := flag.String("repos-root", "", "parent directory under which board-created sessions resolve a picked repo folder name (the directory picker yields only a name, never an absolute path); empty resolves a pick against the server's working dir")
 	var sessions sessionFlag
 	flag.Var(&sessions, "session", "additional keyed review target served at /?key=NAME; repeatable: key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA]")
 	var backlog backlogFlag
@@ -212,6 +213,7 @@ func main() {
 		UseContainer: *container,
 		ListenAddr:   *producerListen,
 		Grants:       producers.grants,
+		ReposRoot:    *reposRoot,
 		// Cap concurrent catch cycles: each is several full-suite runs (#15), and
 		// per-cycle wall-time stays flat through ~2 concurrent on the bench, so 2 is
 		// the honest default ceiling — connects beyond it queue, never pile on.

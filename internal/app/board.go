@@ -2,6 +2,7 @@ package app
 
 import (
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -216,10 +217,10 @@ func (c *BoardCard) CreateSession(ctx *via.Ctx) {
 		return // never clobber a live economy
 	}
 	cfg, _ := readLiveState(defaultSessionKey) // inherit the default config (same revs/test cmd)
-	// A typed repo dir points the new session at any tree (a session is usable with
-	// just a repo); a blank input inherits the server's repo. The new session carries
+	// A picked directory points the new session at any tree (a session is usable with
+	// just a repo); a blank pick inherits the server's repo. The new session carries
 	// no primary anchor — it is a prompt-first session the harness fills.
-	if repo := strings.TrimSpace(c.NewRepo.Read(ctx)); repo != "" {
+	if repo := resolveRepoDir(cfg.ReposRoot, c.NewRepo.Read(ctx)); repo != "" {
 		cfg.RepoDir = repo
 	}
 	cfg.Anchor = reanchor.Anchor{} // prompt-first: no inherited anchor / catch-cycle
@@ -236,6 +237,29 @@ func (c *BoardCard) CreateSession(ctx *via.Ctx) {
 	if e := lookupLiveEntry(key); e != nil && cfg.RepoDir != "" {
 		startWarmHarness(e, cfg.RepoDir)
 	}
+}
+
+// resolveRepoDir turns the create form's repo pick into a session repo dir. A
+// browser directory picker yields only the picked folder's NAME (never an absolute
+// path), so a relative pick is joined under reposRoot — and only its final segment
+// is used (filepath.Base), so a crafted "../foo" can never escape the root. A pick
+// whose final segment is a dot-only traversal token (".", "..") names no folder —
+// joining it would land ON the root or climb ABOVE it, so it is treated as blank.
+// An empty pick returns "" (the caller inherits the server's repo); an absolute path
+// (a power-user / programmatic value) is used as-is.
+func resolveRepoDir(reposRoot, pick string) string {
+	pick = strings.TrimSpace(pick)
+	if pick == "" {
+		return ""
+	}
+	if filepath.IsAbs(pick) {
+		return pick
+	}
+	base := filepath.Base(pick)
+	if base == "." || base == ".." {
+		return "" // dot-only token names no folder — would land on or above the root
+	}
+	return filepath.Join(reposRoot, base)
 }
 
 // startingBandwidthSeeds is how many cleared attention intervals a new session is
@@ -294,7 +318,13 @@ func (c *BoardCard) View(_ *via.CtxR) h.H {
 		// button, in the surface idiom — no modal, no menu.
 		h.Div(h.Class("board-create"),
 			h.Input(h.Type("text"), c.NewKey.Bind(), h.Class("pk-input board-create__key"), h.Placeholder("new session key")),
-			h.Input(h.Type("text"), c.NewRepo.Bind(), h.Class("pk-input board-create__repo"), h.Placeholder("repo dir (blank = server's repo)")),
+			// A real directory picker: the browser hands us file entries, never an
+			// absolute path, so the change handler derives the picked top-folder NAME
+			// into $newrepo (the server resolves it under the repos root). A blank pick
+			// inherits the server's repo.
+			h.Input(h.Type("file"), h.Attr("webkitdirectory", ""),
+				h.Data("on:change", "$newrepo = evt.target.files.length ? evt.target.files[0].webkitRelativePath.split('/')[0] : ''"),
+				h.Class("pk-input board-create__repo"), h.Attr("aria-label", "repo directory (blank = server's repo)")),
 			h.Button(on.Click(c.CreateSession), h.Class("pk-btn board-create__btn"), h.Text("Create session")),
 		),
 	}
