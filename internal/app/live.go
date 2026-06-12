@@ -71,6 +71,21 @@ type LiveConfig struct {
 	Grants []fabric.ProducerGrant
 }
 
+// hasRepo reports whether this config names a repo the session can work — enough to
+// be USABLE: the Lead authors prompt orders and the harness fills them against the
+// repo. A session with a repo renders the working card (no anchor required); only a
+// repo-less config falls back to the "No session configured" landing.
+func (c LiveConfig) hasRepo() bool {
+	return c.RepoDir != ""
+}
+
+// hasAnchor reports whether this config names a primary anchor — a base revision +
+// an anchored file — to run the legacy connect catch-cycle on. A repo-only session
+// leaves it false, so OnConnect runs no cycle (no phantom Oracle-running spinner).
+func (c LiveConfig) hasAnchor() bool {
+	return c.BaseRev != "" && c.Anchor.Path != ""
+}
+
 // bundleAuthorized reports whether the request carries HTTP Basic credentials
 // matching a grant for session key (producer == session key). The password is
 // compared in constant time so a prober cannot time-recover it; the user/session
@@ -784,6 +799,22 @@ type LiveCard struct {
 // stock, never breaks the card.
 func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	cfg, log := readLiveState(c.Key)
+	// Nothing to work at this key — neither a repo (prompt-authoring) nor an anchor
+	// (catch-cycle): render a calm landing pointing at the fleet board. A repo-only OR
+	// an anchored session is usable and renders the working card below.
+	if log == nil || (!cfg.hasRepo() && !cfg.hasAnchor()) {
+		return h.Div(navHeader(""),
+			h.Div(h.Role("main"), h.Attr("aria-label", "no session"),
+				h.Div(h.Class("pk-card onboarding"), h.Data("state", "empty"),
+					h.P(h.Class("onboarding__lead"), h.Text("No session configured.")),
+					h.P(h.Class("onboarding__step"),
+						h.Text("Open the "),
+						h.A(h.Href("/board"), h.Text("fleet board")),
+						h.Text(" to create or pick one.")),
+				),
+			),
+		)
+	}
 	var stock ledger.Stock
 	balance := 0
 	bandwidth := 0
@@ -834,7 +865,7 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	}
 	// A brand-new session gets a calm onboarding affordance ahead of the (all-zero)
 	// economy rows, so a first-run Lead sees the next action, not a dead screen.
-	if hint := onboardingHint(stock); hint != nil {
+	if hint := onboardingHint(stock, cfg.hasAnchor()); hint != nil {
 		parts = append(parts, hint)
 	}
 	// The card splits into two sub-landmarks INSIDE main (Flow A): the ACT-NOW region
@@ -918,17 +949,23 @@ func (c *LiveCard) View(ctx *via.CtxR) h.H {
 	if d := renderDispatches(navKey, dispatches); d != nil {
 		state = append(state, d)
 	}
-	state = append(state,
-		surface.RenderBeats(c.Beats.Read(ctx)),
-		surface.RenderVerdict(c.Verdict.Read(ctx)),
-	)
-	// A gated, calm badge: when the oracle left surviving mutants, the verdict's
-	// green hides honest test gaps — show the open-question count (the full anchored
-	// threads live on /review). Omitted when there are none.
-	if b := reviewQuestionsBadge(c.Questions.Read(ctx), navKey); b != nil {
-		state = append(state, b)
+	// The catch-cycle surface (beats, verdict, review-questions badge, land verdict)
+	// renders ONLY for an anchored session — it is the OnConnect cycle's output. A
+	// repo-only session runs no cycle, so showing the verdict here would mean a phantom
+	// "Oracle running…" spinner with nothing behind it.
+	if cfg.hasAnchor() {
+		state = append(state,
+			surface.RenderBeats(c.Beats.Read(ctx)),
+			surface.RenderVerdict(c.Verdict.Read(ctx)),
+		)
+		// A gated, calm badge: when the oracle left surviving mutants, the verdict's
+		// green hides honest test gaps — show the open-question count (the full anchored
+		// threads live on /review). Omitted when there are none.
+		if b := reviewQuestionsBadge(c.Questions.Read(ctx), navKey); b != nil {
+			state = append(state, b)
+		}
+		state = append(state, surface.RenderLand(pipe.LandState(c.Land.Read(ctx))))
 	}
-	state = append(state, surface.RenderLand(pipe.LandState(c.Land.Read(ctx))))
 	parts = append(parts, h.Section(state...))
 	// nav landmark first, then the main economy region — distinct sibling landmarks.
 	return h.Div(navHeader(navKey), h.Div(parts...))
@@ -1295,6 +1332,12 @@ func anchorFromTarget(t ledger.Target) reanchor.Anchor {
 // is buffered past the beat count so the cycle never blocks on a slow/gone client.
 func (c *LiveCard) OnConnect(ctx *via.Ctx) error {
 	cfg, log := readLiveState(c.Key)
+	// A session with no primary anchor (flag-less / repo-only boot) has no catch cycle
+	// to run — skip it so the working card (View) never sits behind a phantom
+	// Oracle-running spinner.
+	if log == nil || !cfg.hasAnchor() {
+		return nil
+	}
 	sem := cycleSem(c.Key)
 	type resolved struct{ verdict, land, questions string }
 	beats := make(chan pipe.TraceEvent, 16)
@@ -1392,7 +1435,15 @@ func NewServer(cfg LiveConfig, opts ...via.Option) (*via.App, *ledger.Log, error
 	}
 	liveFabric = f
 	log := ledger.BindOwning(f, defaultSessionKey, ledgerInstance)
-	setLiveState(cfg, log)
+	// Register the default session when it has a repo — enough to be usable
+	// (prompt-authoring; an anchor adds the catch-cycle but is derived from the repo, so
+	// a real boot with an anchor always has one). A repo-less flag-less boot registers
+	// no default — the board + settings still serve, and "/" is a calm landing (see
+	// View). The owning log still binds the fabric so the returned handle's Close tears
+	// the substrate down.
+	if cfg.hasRepo() {
+		setLiveState(cfg, log)
+	}
 	// The Anthropic key lives beside the ledger (one server, one key). Bind the store
 	// and inject any saved key into the env before mounting, so a restart keeps the
 	// harness runnable without a re-entry and the settings card reflects it.

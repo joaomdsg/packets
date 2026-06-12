@@ -5,11 +5,87 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/go-via/via"
 	"github.com/go-via/via/vt"
 )
+
+// The create form must offer a repo-dir input (a session is usable with just a
+// repo), bound to the new-repo signal — else the Lead can only inherit the server's
+// repo and never point a session at a different tree. NOT parallel (shared globals).
+func TestBoardCard_rendersARepoDirInput(t *testing.T) {
+	resetConsumersForTest()
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	body := bodyOf(vt.NewClient(t, server, "/board").HTML())
+	require.Contains(t, body, `data-bind="newrepo"`, "the board renders an input bound to the new-repo signal")
+}
+
+// A session created from the board must be fundable immediately: the Lead earns
+// bandwidth by answering review questions, but a prompt-first session has no
+// anchored catch flow to earn from — so create seeds starting attention bandwidth,
+// and the card renders the place-order control right away (no chicken-and-egg).
+// NOT parallel (shared globals).
+func TestBoardCard_createdSessionCanPlaceAPromptOrderImmediately(t *testing.T) {
+	resetConsumersForTest()
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	tc := vt.NewClient(t, server, "/board")
+	require.Equal(t, 200, tc.Action((&BoardCard{}).CreateSession).
+		WithSignal("newkey", "promptable").WithSignal("newrepo", ".").Fire())
+
+	_, slog := readLiveState("promptable")
+	require.NotNil(t, slog, "the created session is registered")
+	bw, err := slog.Bandwidth()
+	require.NoError(t, err)
+	assert.Greater(t, bw, 0, "create seeds starting bandwidth so an order can be placed")
+
+	card := bodyOf(vt.NewClient(t, server, "/?key=promptable").HTML())
+	assert.Contains(t, card, "compose__place", "the place-order control renders immediately on the new session")
+	// The new session is prompt-first — it inherits no anchor from the (anchored)
+	// default, so it runs no catch-cycle and shows no phantom Oracle-running spinner.
+	assert.NotContains(t, card, "Oracle running", "a created session is prompt-first — no inherited catch-cycle")
+}
+
+// The typed repo dir must become the created session's repo — else a session
+// pointed at a different tree silently works the server's repo instead. NOT
+// parallel (shared globals).
+func TestBoardCard_createSessionUsesTheTypedRepoDir(t *testing.T) {
+	resetConsumersForTest()
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	var server *httptest.Server
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	}, via.WithTestServer(&server))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	typed := freshGitRepo(t)
+	tc := vt.NewClient(t, server, "/board")
+	require.Equal(t, 200, tc.Action((&BoardCard{}).CreateSession).
+		WithSignal("newkey", "typedrepo").WithSignal("newrepo", typed).Fire())
+
+	cfg, slog := readLiveState("typedrepo")
+	require.NotNil(t, slog, "the created session is registered")
+	assert.Equal(t, typed, cfg.RepoDir, "the created session works the typed repo, not the server's")
+}
 
 // Sessions are created only at boot today — a Lead can't start a new economy from
 // the UI. The fleet board must let the Lead CREATE a session and immediately work

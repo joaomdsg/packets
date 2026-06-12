@@ -20,15 +20,24 @@ import (
 // and a dispatched work-order comes only from spending that balance. So stock.Count
 // == 0 holds exactly when the session has no catches, no balance, and no dispatches:
 // the blank entry screen. Returns nil otherwise, so the caller omits it.
-func onboardingHint(stock ledger.Stock) h.H {
+// hasAnchor reports whether the session runs the connect catch cycle on load (a
+// base revision + anchored file). Only an anchored session honestly promises an
+// automatic catch on load; a repo-only session runs no cycle, so it must not — that
+// would tell the Lead to wait for a mint that never comes. The first step varies on
+// it accordingly.
+func onboardingHint(stock ledger.Stock, hasAnchor bool) h.H {
 	if stock.Count != 0 {
 		return nil
+	}
+	mintStep := "Funded work-orders run the catch cycle — when the oracle confirms a catch it mints to your balance."
+	if hasAnchor {
+		mintStep = "This card runs the catch cycle on load — when the oracle confirms a catch it mints to your balance."
 	}
 	return h.Section(
 		h.Class("pk-card onboarding"),
 		h.Data("state", "empty"),
 		h.P(h.Class("onboarding__lead"), h.Text("No confirmed catches yet.")),
-		h.P(h.Class("onboarding__step"), h.Text("This card runs the catch cycle on load — when the oracle confirms a catch it mints to your balance.")),
+		h.P(h.Class("onboarding__step"), h.Text(mintStep)),
 		h.P(h.Class("onboarding__step"), h.Text("Spend balance to fund a work-order; a funded order that catches reinvests, compounding the stock.")),
 	)
 }

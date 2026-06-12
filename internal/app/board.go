@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
@@ -13,6 +14,7 @@ import (
 	"github.com/joaomdsg/packets/internal/fabric"
 	"github.com/joaomdsg/packets/internal/ledger"
 	"github.com/joaomdsg/packets/internal/pipe"
+	"github.com/joaomdsg/packets/internal/reanchor"
 )
 
 // CardRow is one session's line on the fleet board — a calm cross-card tally
@@ -119,9 +121,62 @@ type BoardCard struct {
 	// NewKey holds the key typed into the create-session input (two-way bound), read
 	// by CreateSession on submit. Per-tab signal, not authoritative session state.
 	NewKey via.SignalStr `via:"newkey"`
+	// NewRepo holds the repo dir typed into the create-session input (two-way bound),
+	// read by CreateSession on submit. A session is usable with just a repo, so the
+	// Lead can point a new session at any tree; empty inherits the server's repo.
+	NewRepo via.SignalStr `via:"newrepo"`
 	// RetireKey carries the key of the row whose retire button was clicked — set by
 	// that button (on.SetSignal) just before the post, then read by RetireSession.
 	RetireKey via.SignalStr `via:"retirekey"`
+	// FleetTick is a re-render trigger written by OnConnect's Stream when the fleet
+	// fingerprint changes (a session created/retired, counts moved). It is not rendered
+	// — writing it marks the card dirty so View re-projects liveReg and the board
+	// live-refreshes (see OnConnect).
+	FleetTick via.StateTabStr
+}
+
+// boardRefreshInterval is how often the board polls the fleet for changes. A calm
+// fleet view, not a hot path — a second is responsive without flooding SSE.
+const boardRefreshInterval = time.Second
+
+// OnConnect drives the board's live-refresh: it polls the fleet fingerprint each
+// interval and, only when it changes, writes FleetTick to re-render — so a session
+// another tab creates/retires (or a moving count) appears without a manual reload,
+// without re-pushing an unchanged board every tick. The Stream goroutine stops with
+// the connection (ctx disposal).
+func (c *BoardCard) OnConnect(ctx *via.Ctx) error {
+	last := fleetFingerprint(BoardRows())
+	via.Stream(ctx, boardRefreshInterval, func(ctx *via.Ctx, _ time.Time) {
+		if fp := fleetFingerprint(BoardRows()); fp != last {
+			last = fp
+			c.FleetTick.Write(ctx, fp)
+		}
+	})
+	return nil
+}
+
+// fleetFingerprint folds the board's mutable per-row state into one string, so
+// OnConnect can re-render only when the board would actually look different. It
+// covers the fields View renders and that change over time (membership, stock,
+// balance, the bet lifecycle, dispatch activity, hit/miss, backlog, open questions,
+// land, the live activity beat).
+func fleetFingerprint(rows []CardRow) string {
+	var b strings.Builder
+	for _, r := range rows {
+		b.WriteString(r.Key)
+		for _, n := range []int{r.Confirmed, r.Reinvested, r.InFlight, r.Rejected,
+			r.Balance, r.Queued, r.Running, r.Done, r.Caught, r.Misses,
+			r.BacklogRemaining, r.OpenQuestions} {
+			b.WriteByte(':')
+			b.WriteString(strconv.Itoa(n))
+		}
+		b.WriteByte('|')
+		b.WriteString(r.Land)
+		b.WriteByte('|')
+		b.WriteString(r.Activity)
+		b.WriteByte(';')
+	}
+	return b.String()
 }
 
 // RetireSession removes a session from the fleet view — the honest completion of
@@ -160,12 +215,50 @@ func (c *BoardCard) CreateSession(ctx *via.Ctx) {
 	if _, exists := liveReg.Load(key); exists {
 		return // never clobber a live economy
 	}
-	cfg, _ := readLiveState(defaultSessionKey) // inherit the default config (same repo/revs)
-	_, _ = AddSession(key, cfg)                // validated above; a bind error leaves the registry unchanged
+	cfg, _ := readLiveState(defaultSessionKey) // inherit the default config (same revs/test cmd)
+	// A typed repo dir points the new session at any tree (a session is usable with
+	// just a repo); a blank input inherits the server's repo. The new session carries
+	// no primary anchor — it is a prompt-first session the harness fills.
+	if repo := strings.TrimSpace(c.NewRepo.Read(ctx)); repo != "" {
+		cfg.RepoDir = repo
+	}
+	cfg.Anchor = reanchor.Anchor{} // prompt-first: no inherited anchor / catch-cycle
+	cfg.BaseRev, cfg.FixRev, cfg.TipRev = "", "", ""
+	slog, _ := AddSession(key, cfg) // validated above; a bind error leaves the registry unchanged
+	// Seed starting attention bandwidth so the Lead can place a prompt order
+	// immediately — a prompt-first session has no anchored catch flow to earn bandwidth
+	// from, so without this the place-order control would never appear (chicken-and-egg).
+	if slog != nil {
+		seedStartingBandwidth(slog)
+	}
 	// Start the long-lived harness exploring the repo NOW, so this session's first
 	// analyze/order resumes a warm context (DESIGN §6's resumed-per-session harness).
 	if e := lookupLiveEntry(key); e != nil && cfg.RepoDir != "" {
 		startWarmHarness(e, cfg.RepoDir)
+	}
+}
+
+// startingBandwidthSeeds is how many cleared attention intervals a new session is
+// seeded with. Each interval clears instantly (latency ≈ 0 → the fast-clear bonus),
+// so the meter starts well above the live-dispatch cost and a few prompt orders can
+// be placed before the Lead earns more by answering review questions.
+const startingBandwidthSeeds = 3
+
+// seedStartingBandwidth credits a new session with startingBandwidthSeeds cleared
+// intervals (block→unblock pairs) so a prompt order is fundable on first load —
+// using only the public ledger primitives, so the events are real cleared-attention
+// facts, just pre-seeded. A write error is best-effort: a session with no seeded
+// bandwidth simply shows no place control until the Lead earns some.
+func seedStartingBandwidth(log *ledger.Log) {
+	now := time.Now()
+	for i := 0; i < startingBandwidthSeeds; i++ {
+		id := "seed-bandwidth-" + strconv.Itoa(i)
+		if log.AppendBlock(id, now) != nil {
+			return
+		}
+		if log.AppendUnblock(id, now) != nil {
+			return
+		}
 	}
 }
 
@@ -191,15 +284,17 @@ func hitRateLabel(r CardRow) string {
 // forecast.
 func (c *BoardCard) View(_ *via.CtxR) h.H {
 	// The fleet content is the page's main landmark (named for screen-reader
-	// navigation). It is NOT aria-live: /board is a request-scoped GET with no SSE
-	// re-render, so marking it live would lie about its liveness. The nav is a sibling
-	// landmark (added in the final wrap), never nested inside main.
+	// navigation), and a LIVE region: OnConnect re-renders it over SSE when the fleet
+	// changes, so aria-live="polite" lets assistive tech announce a new/retired session
+	// without the user hunting for it. The nav is a sibling landmark (added in the final
+	// wrap), never nested inside main.
 	parts := []h.H{h.Class("board"), h.Data("state", "board"),
-		h.Role("main"), h.Attr("aria-label", "fleet board"),
+		h.Role("main"), h.Attr("aria-label", "fleet board"), h.Attr("aria-live", "polite"),
 		// The fleet view's one command: start a new session economy. A calm input +
 		// button, in the surface idiom — no modal, no menu.
 		h.Div(h.Class("board-create"),
 			h.Input(h.Type("text"), c.NewKey.Bind(), h.Class("pk-input board-create__key"), h.Placeholder("new session key")),
+			h.Input(h.Type("text"), c.NewRepo.Bind(), h.Class("pk-input board-create__repo"), h.Placeholder("repo dir (blank = server's repo)")),
 			h.Button(on.Click(c.CreateSession), h.Class("pk-btn board-create__btn"), h.Text("Create session")),
 		),
 	}

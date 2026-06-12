@@ -38,9 +38,9 @@ func TestLiveCard_liveEconomyIsAnnouncedToAssistiveTech(t *testing.T) {
 
 // The fleet board is the cross-session content surface. It exposes a named main
 // landmark (distinct from its nav) so an assistive-tech user can jump straight to
-// the fleet rather than tab through the chrome. It is NOT marked aria-live — the
-// board is a request-scoped GET (no SSE re-render), so announcing it would be a
-// lie about liveness. NOT parallel (shared globals).
+// the fleet rather than tab through the chrome. It IS marked aria-live="polite" —
+// the board now re-renders over SSE when the fleet changes (OnConnect), so announcing
+// updates is honest, not a lie about liveness. NOT parallel (shared globals).
 func TestBoardCard_fleetExposesANamedMainLandmark(t *testing.T) {
 	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
 	var server *httptest.Server
@@ -55,5 +55,5 @@ func TestBoardCard_fleetExposesANamedMainLandmark(t *testing.T) {
 	require.Contains(t, body, `role="main"`, "the fleet is the page's main landmark")
 	require.Contains(t, body, `aria-label="fleet board"`, "the main region is named for screen-reader navigation")
 	require.Contains(t, body, `aria-label="primary"`, "the nav is a named landmark, distinct from the content")
-	require.NotContains(t, body, `aria-live`, "the board is a static GET, not a live region — no false liveness")
+	require.Contains(t, body, `aria-live="polite"`, "the board live-refreshes over SSE, so its main region announces updates")
 }

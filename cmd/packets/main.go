@@ -196,68 +196,72 @@ func main() {
 		log.Fatal("packets: -producer needs -producer-listen <host:port> to bind the authenticated socket")
 	}
 
-	if *base == "" || *fix == "" || *file == "" || *line == 0 {
-		log.Fatal("packets: -base, -fix, -file and -line are required")
-	}
-	tipRev := *tip
-	if tipRev == "" {
-		tipRev = *fix // no separate trunk tip given → integrate onto the fix itself (clean by construction)
-	}
-
-	hash, err := lineHashAt(*repo, *base, *file, *line)
-	if err != nil {
-		log.Fatalf("packets: %v", err)
+	// The primary anchor is OPTIONAL: with all four flags set, the default session
+	// runs a catch cycle on that line; without them the server boots flag-less into
+	// the fleet board + settings (no default session, "/" is a calm landing) and
+	// sessions are created from the board.
+	configured := *base != "" && *fix != "" && *file != "" && *line != 0
+	if !configured && (len(backlog.specs) > 0 || len(live.specs) > 0) {
+		log.Fatal("packets: -backlog/-live seed the PRIMARY session — they need -base, -fix, -file, -line")
 	}
 
-	// Seed any -backlog specs as fundable work-order targets on the primary session,
-	// computing each anchor's line hash from git (the same re-anchor identity the
-	// primary target carries). Without this, DispatchBacklog is empty and Spend is a
-	// no-op via the CLI — the dispatch→fund→fill→review loop is unreachable.
-	var dispatchBacklog []ledger.Target
-	for _, spec := range backlog.specs {
-		tgt, err := parseBacklogSpec(spec)
-		if err != nil {
-			log.Fatalf("packets: %v", err)
-		}
-		tgt.LineHash, err = lineHashAt(*repo, tgt.BaseRev, tgt.Path, tgt.Line)
-		if err != nil {
-			log.Fatalf("packets: backlog %q: %v", spec, err)
-		}
-		dispatchBacklog = append(dispatchBacklog, tgt)
-	}
-
-	// Seed any -live specs as PROMPT-BEARING work-order targets — a real Claude Code
-	// harness produces the fix when the order is Spent (vs the pre-funded base→fix
-	// diff a -backlog target replays). Same LineHash anchor identity as -backlog.
-	for _, spec := range live.specs {
-		tgt, err := parseLiveSpec(spec)
-		if err != nil {
-			log.Fatalf("packets: %v", err)
-		}
-		tgt.LineHash, err = lineHashAt(*repo, tgt.BaseRev, tgt.Path, tgt.Line)
-		if err != nil {
-			log.Fatalf("packets: live %q: %v", spec, err)
-		}
-		dispatchBacklog = append(dispatchBacklog, tgt)
-	}
-
-	application, ledgerLog, err := app.NewServer(app.LiveConfig{
-		RepoDir:         *repo,
-		BaseRev:         *base,
-		FixRev:          *fix,
-		TipRev:          tipRev,
-		Anchor:          reanchor.Anchor{Path: *file, Start: *line, End: *line, LineHash: hash},
-		TestCmd:         []string{"go", "test", "./..."},
-		LedgerPath:      *ledgerPath,
-		DispatchBacklog: dispatchBacklog,
-		UseContainer:    *container,
-		ListenAddr:      *producerListen,
-		Grants:          producers.grants,
+	liveCfg := app.LiveConfig{
+		RepoDir:      *repo,
+		TestCmd:      []string{"go", "test", "./..."},
+		LedgerPath:   *ledgerPath,
+		UseContainer: *container,
+		ListenAddr:   *producerListen,
+		Grants:       producers.grants,
 		// Cap concurrent catch cycles: each is several full-suite runs (#15), and
 		// per-cycle wall-time stays flat through ~2 concurrent on the bench, so 2 is
 		// the honest default ceiling — connects beyond it queue, never pile on.
 		MaxConcurrent: 2,
-	})
+	}
+	if configured {
+		tipRev := *tip
+		if tipRev == "" {
+			tipRev = *fix // no separate trunk tip given → integrate onto the fix itself (clean by construction)
+		}
+		hash, err := lineHashAt(*repo, *base, *file, *line)
+		if err != nil {
+			log.Fatalf("packets: %v", err)
+		}
+		liveCfg.BaseRev = *base
+		liveCfg.FixRev = *fix
+		liveCfg.TipRev = tipRev
+		liveCfg.Anchor = reanchor.Anchor{Path: *file, Start: *line, End: *line, LineHash: hash}
+
+		// Seed any -backlog/-live specs as fundable work-order targets on the primary
+		// session (a -backlog target replays a pre-funded base→fix diff; a -live target
+		// carries a prompt a real harness fills). Computed only when there is a primary
+		// session to attach them to.
+		var dispatchBacklog []ledger.Target
+		for _, spec := range backlog.specs {
+			tgt, err := parseBacklogSpec(spec)
+			if err != nil {
+				log.Fatalf("packets: %v", err)
+			}
+			tgt.LineHash, err = lineHashAt(*repo, tgt.BaseRev, tgt.Path, tgt.Line)
+			if err != nil {
+				log.Fatalf("packets: backlog %q: %v", spec, err)
+			}
+			dispatchBacklog = append(dispatchBacklog, tgt)
+		}
+		for _, spec := range live.specs {
+			tgt, err := parseLiveSpec(spec)
+			if err != nil {
+				log.Fatalf("packets: %v", err)
+			}
+			tgt.LineHash, err = lineHashAt(*repo, tgt.BaseRev, tgt.Path, tgt.Line)
+			if err != nil {
+				log.Fatalf("packets: live %q: %v", spec, err)
+			}
+			dispatchBacklog = append(dispatchBacklog, tgt)
+		}
+		liveCfg.DispatchBacklog = dispatchBacklog
+	}
+
+	application, ledgerLog, err := app.NewServer(liveCfg)
 	if err != nil {
 		log.Fatalf("packets: %v", err)
 	}
@@ -267,8 +271,14 @@ func main() {
 	// bandwidth and can author + place a live order without first answering a review
 	// question to earn it. Each interval is a block→unblock pair cleared instantly
 	// (the throughput base + the fast-clear bonus). Uses only the public ledger
-	// primitives; the events are real cleared-attention facts, just pre-seeded.
-	for i := 0; i < *seedBandwidth; i++ {
+	// primitives; the events are real cleared-attention facts, just pre-seeded. The
+	// default session is usable with just a repo (prompt-authoring), so this is gated
+	// on a repo — not on the full primary anchor.
+	hasRepo := *repo != ""
+	if *seedBandwidth > 0 && !hasRepo {
+		log.Fatal("packets: -bandwidth seeds the PRIMARY session — it needs -repo")
+	}
+	for i := 0; hasRepo && i < *seedBandwidth; i++ {
 		now := time.Now()
 		id := fmt.Sprintf("seed-bandwidth-%d", i)
 		if err := ledgerLog.AppendBlock(id, now); err != nil {
@@ -278,7 +288,7 @@ func main() {
 			log.Fatalf("packets: seed bandwidth: %v", err)
 		}
 	}
-	if *seedBandwidth > 0 {
+	if *seedBandwidth > 0 && hasRepo {
 		if bw, err := ledgerLog.Bandwidth(); err == nil {
 			log.Printf("packets: seeded %d attention bandwidth on the primary session", bw)
 		}
@@ -326,7 +336,14 @@ func main() {
 	// is disk hygiene, not a hot path. Stops with ctx on SIGINT.
 	app.StartProducerGC(ctx, producerGCInterval)
 
-	log.Printf("packets: serving the review card on %s — open it and watch %s:%d resolve", *addr, *file, *line)
+	switch {
+	case configured:
+		log.Printf("packets: serving the review card on %s — open it and watch %s:%d resolve", *addr, *file, *line)
+	case hasRepo:
+		log.Printf("packets: serving the session card on %s — author prompt orders against %s, or create more sessions from the board", *addr, *repo)
+	default:
+		log.Printf("packets: serving the fleet board on %s — open it; create sessions from the board (no repo configured)", *addr)
+	}
 	log.Fatal(http.ListenAndServe(*addr, application))
 }
 
