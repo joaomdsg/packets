@@ -180,6 +180,7 @@ func main() {
 	addr := flag.String("addr", ":3000", "listen address")
 	cageImage := flag.String("cage-image", "packets-cage:dev", "Docker image the claim verifier runs producer-submitted work in")
 	container := flag.Bool("container", false, "run the primary session's LIVE work orders in the hardened agent container (harness.RunContainer) instead of the host subprocess; needs the packets-agent image + an ANTHROPIC_API_KEY")
+	seedBandwidth := flag.Int("bandwidth", 0, "seed N cleared attention intervals on the primary session at boot so live orders can be placed without first answering questions (dev/demo; each interval is worth ~3 attention bandwidth)")
 	var sessions sessionFlag
 	flag.Var(&sessions, "session", "additional keyed review target served at /?key=NAME; repeatable: key=NAME,base=SHA,fix=SHA,file=F,line=N[,tip=SHA]")
 	var backlog backlogFlag
@@ -261,6 +262,27 @@ func main() {
 		log.Fatalf("packets: %v", err)
 	}
 	defer ledgerLog.Close()
+
+	// Dev/demo: seed cleared attention intervals so the Lead starts with spendable
+	// bandwidth and can author + place a live order without first answering a review
+	// question to earn it. Each interval is a block→unblock pair cleared instantly
+	// (the throughput base + the fast-clear bonus). Uses only the public ledger
+	// primitives; the events are real cleared-attention facts, just pre-seeded.
+	for i := 0; i < *seedBandwidth; i++ {
+		now := time.Now()
+		id := fmt.Sprintf("seed-bandwidth-%d", i)
+		if err := ledgerLog.AppendBlock(id, now); err != nil {
+			log.Fatalf("packets: seed bandwidth: %v", err)
+		}
+		if err := ledgerLog.AppendUnblock(id, now); err != nil {
+			log.Fatalf("packets: seed bandwidth: %v", err)
+		}
+	}
+	if *seedBandwidth > 0 {
+		if bw, err := ledgerLog.Bandwidth(); err == nil {
+			log.Printf("packets: seeded %d attention bandwidth on the primary session", bw)
+		}
+	}
 
 	// Parse every -session and validate the whole set for key/ledger-path
 	// collisions BEFORE opening any session ledger — a clobbered registry entry

@@ -169,6 +169,11 @@ type liveEntry struct {
 	// AnalyzeDraft action. Ephemeral and OFF the economy ledger (a diagnostic, like
 	// findings — analyzing a draft mints nothing). Guarded by findingsMu.
 	analysis *draftAnalysis
+	// analysisCancel cancels the latest in-flight authoring-assist run. A new analyze
+	// cancels the prior one (beginAnalysis) so a fast-typing Lead's superseded reads
+	// are abandoned (the slow model call killed), never left racing to overwrite the
+	// cache out of order. Guarded by findingsMu.
+	analysisCancel context.CancelFunc
 	// answering is true while an answer re-run is in flight for this session. It
 	// serializes answer re-runs (one at a time): a re-run spawns a git worktree +
 	// oracle run, so two concurrent re-runs (a double-clicked submit) would race the
@@ -439,6 +444,22 @@ func (e *liveEntry) analysisSnapshot() *draftAnalysis {
 	e.findingsMu.Lock()
 	defer e.findingsMu.Unlock()
 	return e.analysis
+}
+
+// beginAnalysis starts a new authoring-assist run, CANCELLING any prior in-flight
+// run for this session first — so a fast-typing Lead's superseded reads are killed
+// immediately (the latest draft wins) instead of racing to overwrite the cache out
+// of order. Returns the context the new run must use; the handler must check its
+// Err() after the run and skip writing the cache when it was cancelled.
+func (e *liveEntry) beginAnalysis() context.Context {
+	e.findingsMu.Lock()
+	defer e.findingsMu.Unlock()
+	if e.analysisCancel != nil {
+		e.analysisCancel() // supersede the prior in-flight analysis
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	e.analysisCancel = cancel
+	return ctx
 }
 
 // regSeq is the monotonic source of liveEntry.seq — incremented once per session

@@ -29,13 +29,22 @@ type draftAnalysis struct {
 // unit-tested, like RunProcess); tests swap it for a scripted reply.
 var analyzeDraft = runAnalysisProcess
 
+// analysisArgs is the claude argv for the authoring assist. It runs HAIKU at LOW
+// effort because the assist reads the draft as the Lead types, so the read must be
+// fast — Haiku alone still reasons at full effort (~40s observed); --effort low cuts
+// the thinking so the read returns quickly. Plain one-shot text output (not a settled
+// stream): the assist wants the agent's reply, never to touch the tree or the economy.
+func analysisArgs(prompt string) []string {
+	return []string{"-p", prompt, "--output-format", "text", "--model", "haiku", "--effort", "low"}
+}
+
 // runAnalysisProcess runs claude headless on prompt in repoDir and returns its
 // stdout text. Unlike the order harness (which reduces a stream into settled
 // revisions), the authoring assist wants the agent's one-shot textual reply, so it
 // runs in plain text output and never settles anything — analyzing a draft must
 // touch neither the working tree nor the economy.
 func runAnalysisProcess(ctx context.Context, repoDir, prompt string) (string, error) {
-	cmd := exec.CommandContext(ctx, "claude", "-p", prompt, "--output-format", "text")
+	cmd := exec.CommandContext(ctx, "claude", analysisArgs(prompt)...)
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
 	if err != nil {
@@ -64,7 +73,13 @@ func (c *LiveCard) AnalyzeDraft(ctx *via.Ctx) {
 	if draft == "" {
 		return // nothing to analyze
 	}
-	raw, err := analyzeDraft(context.Background(), cfg.RepoDir, assist.AnalysisPrompt(draft))
+	// Cancel any prior in-flight read and run under a fresh context, so a fast-typing
+	// Lead's superseded analyses are abandoned, never left racing this one.
+	runCtx := e.beginAnalysis()
+	raw, err := analyzeDraft(runCtx, cfg.RepoDir, assist.AnalysisPrompt(draft))
+	if runCtx.Err() != nil {
+		return // superseded by a newer analyze — let that one own the cache
+	}
 	if err != nil {
 		e.setAnalysis(&draftAnalysis{Draft: draft, Reason: "the producer run failed — try again"})
 		c.Analysis.Write(ctx, "err")
@@ -231,11 +246,23 @@ const authoringEditorJS = `(function(){
     var pBtn = live ? live.querySelector('.compose__place') : null;
     if (aBtn) aBtn.addEventListener('click', analyze);
     if (pBtn) pBtn.addEventListener('click', place);
-    var timer;
-    ed.onDidChangeModelContent(function(){
-      clearTimeout(timer);
+    // Trigger the assist SPARINGLY: only when the caret moves DOWN past a blank
+    // (paragraph) line, or lands on a blank line just after content (a finished
+    // block) — never on every keystroke. Fast movement keeps clearing the pending
+    // timer, so only a settled pause fires; the server cancels any superseded
+    // in-flight run. A short 350ms settle keeps it responsive (the read runs Haiku).
+    var lastLine = 1, timer;
+    function blankLine(n){ return ed.getModel().getLineContent(n).trim() === ''; }
+    ed.onDidChangeCursorPosition(function(e){
+      var line = e.position.lineNumber, model = ed.getModel(), fire = false;
+      if (line > lastLine) {
+        for (var i = lastLine; i < line; i++) { if (model.getLineContent(i).trim() === '') { fire = true; break; } }
+      }
+      if (!fire && blankLine(line) && line > 1 && !blankLine(line - 1)) fire = true;
+      if (!fire) return;
+      clearTimeout(timer); // moving fast keeps cancelling the pending trigger
       if (ind) ind.dataset.state = 'pending';
-      timer = setTimeout(function(){ if (ind) ind.dataset.state = 'analyzing'; analyze(); }, 900);
+      timer = setTimeout(function(){ lastLine = line; if (ind) ind.dataset.state = 'analyzing'; analyze(); }, 350);
     });
     var dataEl = document.getElementById('authoring-analysis-data');
     if (dataEl && window.MutationObserver) {
