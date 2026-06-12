@@ -174,18 +174,23 @@ const authoringBootstrapJS = `(function(){
 // control carries an "Analyze draft" button (on.Click AnalyzeDraft reads the bound
 // OrderPrompt) so the Lead can author, analyze, sharpen, and place in one place.
 func renderAuthoring(c *LiveCard) h.H {
-	parts := []h.H{h.Class("authoring"), renderComposeWithAnalyze(c)}
+	var da *draftAnalysis
 	if e := lookupLiveEntry(c.Key); e != nil {
-		if a := renderAnalysis(e.analysisSnapshot()); a != nil {
-			parts = append(parts, a)
-		}
+		da = e.analysisSnapshot()
+	}
+	parts := []h.H{h.Class("authoring"), renderComposeWithAnalyze(c, da)}
+	if a := renderAnalysis(da); a != nil {
+		parts = append(parts, a)
 	}
 	return h.Div(parts...)
 }
 
-// renderComposeWithAnalyze is renderCompose plus the analyze-draft button — the assist
-// trigger, beside place, both reading the same authored OrderPrompt.
-func renderComposeWithAnalyze(c *LiveCard) h.H {
+// renderComposeWithAnalyze is the order composer: the draft textarea, the analyze +
+// place buttons (both reading the same authored OrderPrompt), the live debounced
+// re-analysis wiring (the producer listens as the Lead types), and — once an
+// analysis is cached — a readiness reflection beside place. da is the latest cached
+// analysis (nil before the first run).
+func renderComposeWithAnalyze(c *LiveCard, da *draftAnalysis) h.H {
 	parts := []h.H{
 		h.Class("compose"),
 		h.Attr("aria-label", "author a live order"),
@@ -193,6 +198,21 @@ func renderComposeWithAnalyze(c *LiveCard) h.H {
 			h.Placeholder("Describe the task for a live order…")),
 		h.Button(on.Click(c.AnalyzeDraft), h.Class("compose__analyze"), h.Text("Analyze draft")),
 		h.Button(on.Click(c.PlaceOrder), h.Class("compose__place"), h.Text("Place order")),
+		// The live read indicator (driven by the debounce script) and the script that
+		// re-analyzes on a typing pause by clicking the proven analyze action — so the
+		// producer keeps pace with the draft without a new server seam. Progressive
+		// enhancement: the manual button works with JS off.
+		h.Span(h.Class("compose__analyzing"), h.Data("state", "idle"), h.Text("analyzing…")),
+		h.Script(h.Raw(liveAnalyzeJS)),
+	}
+	// Once the producer has read the draft, reflect its readiness verdict beside
+	// place — a guide, never a gate (placing stays allowed at any readiness).
+	if da != nil && da.Result != nil {
+		state, note := "caution", "The producer flagged open questions — placing will run the draft as-is."
+		if da.Result.Ready {
+			state, note = "ready", "The producer judged this ready to run unattended."
+		}
+		parts = append(parts, h.Span(h.Class("compose__readiness"), h.Data("state", state), h.Text(note)))
 	}
 	if tokenStore == nil || !tokenStore.Configured() {
 		parts = append(parts, h.Div(
@@ -204,3 +224,22 @@ func renderComposeWithAnalyze(c *LiveCard) h.H {
 	}
 	return h.Div(parts...)
 }
+
+// liveAnalyzeJS makes the producer listen as the Lead types: on a pause in input
+// (debounced), it triggers the proven analyze action by clicking its button, and
+// flips the analyzing indicator while the read is pending — so the analysis keeps
+// pace with the draft without a second server seam. A dataset guard prevents
+// re-wiring across SSE re-renders; with JS off the manual button still analyzes.
+const liveAnalyzeJS = `(function(){
+  var t = document.querySelector('.compose__prompt');
+  var b = document.querySelector('.compose__analyze');
+  var ind = document.querySelector('.compose__analyzing');
+  if (!t || !b || t.dataset.liveWired) return;
+  t.dataset.liveWired = '1';
+  var timer;
+  t.addEventListener('input', function(){
+    clearTimeout(timer);
+    if (ind) ind.dataset.state = 'pending';
+    timer = setTimeout(function(){ if (ind) ind.dataset.state = 'analyzing'; b.click(); }, 900);
+  });
+})();`

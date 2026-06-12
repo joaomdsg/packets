@@ -147,6 +147,15 @@ body {
 .authoring-flag-question { text-decoration: underline dotted var(--pk-accent); }
 .authoring-flag-gap { text-decoration: underline wavy var(--pk-ink-dim); }
 .authoring-flag-note { text-decoration: underline dotted var(--pk-ink-dim); }
+/* the live-read indicator: dim and hidden at rest, a calm "analyzing…" while a
+   debounced re-read is pending/in-flight — never a spinner. */
+.compose__analyzing { color: var(--pk-ink-dim); font-size: 0.85em; opacity: 0; transition: opacity 0.2s; }
+.compose__analyzing[data-state="pending"], .compose__analyzing[data-state="analyzing"] { opacity: 1; }
+/* the readiness reflection beside place — a guide, not an alarm: caution reads
+   dim, ready reads in the balance hue. */
+.compose__readiness { font-size: 0.9em; }
+.compose__readiness[data-state="caution"] { color: var(--pk-ink-dim); }
+.compose__readiness[data-state="ready"] { color: var(--pk-balance); }
 
 /* ---- author a live order ---- */
 .compose { display: flex; flex-direction: column; gap: var(--pk-sm); margin: var(--pk-sm) 0; }

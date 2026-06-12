@@ -147,3 +147,63 @@ func TestLiveCard_rendersTheAnalyzeControlWhenFunded(t *testing.T) {
 	body := bodyOf(vt.NewClient(t, server, "/?key=authctl").HTML())
 	assert.Contains(t, body, "/_action/AnalyzeDraft", "the card renders the analyze-draft action binding")
 }
+
+// The producer should listen as the Lead types, not only on a button press: the
+// compose control must carry the live debounced re-analysis wiring (a pause in
+// typing triggers a fresh analysis) and an analyzing indicator, so the read keeps
+// pace with the draft. Progressive enhancement over the manual button. NOT parallel
+// (shared globals).
+func TestLiveCard_composeWiresLiveDebouncedReanalysis(t *testing.T) {
+	_, server := fundedAuthoringServer(t, "authlive")
+	body := bodyOf(vt.NewClient(t, server, "/?key=authlive").HTML())
+	assert.Contains(t, body, "compose__analyzing", "an analyzing indicator is present for the live read")
+	assert.Contains(t, body, "liveWired", "the compose control carries the debounced live re-analysis wiring")
+}
+
+// The producer's readiness verdict must inform the place decision: when the
+// producer judged the draft ready to run unattended, the place control reflects a
+// ready state; when it flagged open questions, it shows a calm caution (placing is
+// still allowed — the verdict guides, never gates). NOT parallel (shared globals).
+func TestLiveCard_placeReflectsTheAnalysisReadiness(t *testing.T) {
+	tests := []struct {
+		name  string
+		ready bool
+		want  string
+	}{
+		{"ready draft", true, `data-state="ready"`},
+		{"not-ready draft", false, `data-state="caution"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := analyzeDraft
+			t.Cleanup(func() { analyzeDraft = restore })
+			ready := tt.ready
+			analyzeDraft = func(_ context.Context, _, _ string) (string, error) {
+				if ready {
+					return `{"summary":"s","ready":true,"highlights":[],"questions":[]}`, nil
+				}
+				return `{"summary":"s","ready":false,"highlights":[],"questions":["q?"]}`, nil
+			}
+			key := "authready-" + tt.name[:5]
+			_, server := fundedAuthoringServer(t, sanitizeKey(key))
+			tc := vt.NewClient(t, server, "/?key="+sanitizeKey(key))
+			require.Equal(t, 200, tc.Action((&LiveCard{Key: sanitizeKey(key)}).AnalyzeDraft).
+				WithSignal("orderprompt", "Do the task.").Fire())
+
+			body := bodyOf(vt.NewClient(t, server, "/?key="+sanitizeKey(key)).HTML())
+			assert.Contains(t, body, "compose__readiness", "the place control carries a readiness reflection")
+			assert.Contains(t, body, tt.want, "the readiness reflection matches the producer's verdict")
+		})
+	}
+}
+
+// sanitizeKey makes a test name fragment a valid session subject token (letters only).
+func sanitizeKey(s string) string {
+	var b []rune
+	for _, r := range s {
+		if r >= 'a' && r <= 'z' {
+			b = append(b, r)
+		}
+	}
+	return string(b)
+}
