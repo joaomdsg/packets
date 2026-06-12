@@ -13,6 +13,13 @@ require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.7.0-default-no-op // indirect
+	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc // indirect
+	github.com/chromedp/chromedp v0.15.1 // indirect
+	github.com/chromedp/sysutil v1.1.0 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
+	github.com/gobwas/httphead v0.1.0 // indirect
+	github.com/gobwas/pool v0.2.1 // indirect
+	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
