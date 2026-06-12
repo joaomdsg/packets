@@ -9,7 +9,6 @@ import (
 
 	"github.com/go-via/via"
 	"github.com/go-via/via/h"
-	"github.com/go-via/via/on"
 
 	"github.com/joaomdsg/packets/internal/assist"
 )
@@ -84,9 +83,87 @@ func (c *LiveCard) AnalyzeDraft(ctx *via.Ctx) {
 // renderAnalysis renders the producer's structured read beneath the compose control:
 // a calm unavailable note when the run failed, otherwise the summary, a readiness
 // hook (ready|blocked, colored in the palette), the clarifying questions, and the
-// Monaco authoring island that decorates the analyzed draft with the flagged spans.
-// Returns nil when there is no analysis yet (nothing to show).
-func renderAnalysis(da *draftAnalysis) h.H {
+// renderAuthoring is the authoring-assist surface: an editable Monaco editor as the
+// single draft source, with the producer's structured read (summary + clarifying
+// questions) beneath it. The producer's flagged spans are decorated INLINE in the
+// editor itself (not a separate mirror), and the readiness verdict reflects beside
+// place. da is the latest cached analysis (nil before the first run).
+func renderAuthoring(c *LiveCard) h.H {
+	var da *draftAnalysis
+	if e := lookupLiveEntry(c.Key); e != nil {
+		da = e.analysisSnapshot()
+	}
+	parts := []h.H{h.Class("authoring"), composeSurface(da)}
+	if p := renderAnalysisPanel(da); p != nil {
+		parts = append(parts, p)
+	}
+	return h.Div(parts...)
+}
+
+// composeSurface is the editable Monaco composer. The PERSISTENT interactive subtree
+// (.compose__live, data-ignore-morph) holds the editor + buttons + indicator so its
+// DOM, the Lead's text, and the JS listeners survive every SSE re-render; the editor
+// is the single draft source. The buttons dispatch CustomEvents the wrapper's
+// data-on bridge lifts into $orderprompt before @posting the action (the maplibre /
+// answer-form pattern that works without data-bind and survives morphs). The
+// re-rendering bits (readiness, the highlights payload the editor decorates from) sit
+// OUTSIDE the shield so a fresh analysis updates them in place.
+func composeSurface(da *draftAnalysis) h.H {
+	live := h.Div(
+		h.Class("compose__live"),
+		h.DataIgnoreMorph(),
+		h.Attr("aria-label", "author a live order"),
+		// The bridge: each button's CustomEvent carries the editor's value, which the
+		// handler assigns to $orderprompt INLINE (so the signal is present at post time)
+		// then @posts the action AnalyzeDraft/PlaceOrder reads.
+		h.Data("on:viaanalyze", "$orderprompt=evt.detail.draft;@post('/_action/AnalyzeDraft')"),
+		h.Data("on:viaplace", "$orderprompt=evt.detail.draft;@post('/_action/PlaceOrder')"),
+		h.Div(h.ID("authoring-editor"), h.Class("compose__editor")),
+		h.Button(h.Type("button"), h.Class("compose__analyze"), h.Text("Analyze draft")),
+		h.Button(h.Type("button"), h.Class("compose__place"), h.Text("Place order")),
+		h.Span(h.Class("compose__analyzing"), h.Data("state", "idle"), h.Text("analyzing…")),
+		h.Script(h.Src(monacoLoaderURL)),
+		h.Script(h.Raw(authoringEditorJS)),
+	)
+	parts := []h.H{h.Class("compose"), live}
+	// Once the producer has read the draft, reflect its readiness beside place — a
+	// guide, never a gate (placing stays allowed at any readiness). Outside the shield
+	// so a fresh verdict re-renders in place.
+	if da != nil && da.Result != nil {
+		state, note := "caution", "The producer flagged open questions — placing will run the draft as-is."
+		if da.Result.Ready {
+			state, note = "ready", "The producer judged this ready to run unattended."
+		}
+		parts = append(parts, h.Span(h.Class("compose__readiness"), h.Data("state", state), h.Text(note)))
+	}
+	// The highlights payload the editor decorates from. Outside the shield so each
+	// fresh analysis replaces it; the editor's MutationObserver reapplies the
+	// decorations in place. Empty before the first run (no spans to anchor).
+	var hl []assist.Highlight
+	if da != nil && da.Result != nil {
+		hl = da.Result.Highlights
+	}
+	payload, _ := json.Marshal(struct {
+		Highlights []assist.Highlight `json:"highlights"`
+	}{Highlights: hl})
+	parts = append(parts, h.Script(h.Type("application/json"), h.ID("authoring-analysis-data"), h.Raw(string(payload))))
+	if tokenStore == nil || !tokenStore.Configured() {
+		parts = append(parts, h.Div(
+			h.Class("compose__needs-key"),
+			h.Text("No Anthropic API key configured — "),
+			h.A(h.Href("/settings"), h.Class("compose__needs-key-link"), h.Text("set one in settings")),
+			h.Text(" to run live orders."),
+		))
+	}
+	return h.Div(parts...)
+}
+
+// renderAnalysisPanel renders the producer's structured read beneath the editor: a
+// calm unavailable note when the run failed, otherwise the summary + the clarifying
+// questions to answer before re-analyzing. The flagged spans are decorated in the
+// editor itself; the readiness reflects beside place — so this panel is the prose,
+// not a second copy of the draft. Returns nil when there is no analysis yet.
+func renderAnalysisPanel(da *draftAnalysis) h.H {
 	if da == nil {
 		return nil
 	}
@@ -99,16 +176,14 @@ func renderAnalysis(da *draftAnalysis) h.H {
 	}
 	a := da.Result
 	state := "blocked"
-	readiness := "Not yet ready to run unattended — sharpen the draft below."
 	if a.Ready {
-		state, readiness = "ready", "Ready to run unattended."
+		state = "ready"
 	}
 	parts := []h.H{
 		h.Class("analysis"),
 		h.Data("state", state),
 		h.Attr("aria-label", "draft analysis"),
 		h.Span(h.Class("analysis__summary"), h.Text(a.Summary)),
-		h.Span(h.Class("analysis__readiness"), h.Data("state", state), h.Text(readiness)),
 	}
 	if len(a.Questions) > 0 {
 		qs := []h.H{h.Class("analysis__questions")}
@@ -119,127 +194,57 @@ func renderAnalysis(da *draftAnalysis) h.H {
 			h.Span(h.Class("analysis__questions-label"), h.Text("Answer these, then re-analyze:")),
 			h.Ul(qs...))
 	}
-	parts = append(parts, authoringIsland(da))
 	return h.Div(parts...)
 }
 
-// authoringIsland renders the Monaco mount point + a JSON payload the editor reads:
-// the analyzed draft and the flagged spans, so the editor anchors a decoration on
-// exactly the bytes the producer flagged (offsets are draft byte offsets; the
-// bootstrap maps them to positions via model.getPositionAt — exact for ASCII drafts,
-// the common case). The payload is the SAME analysis the server text above renders —
-// one source, no drift. Progressive enhancement: a loader/parse failure leaves the
-// server-rendered summary + questions intact.
-func authoringIsland(da *draftAnalysis) h.H {
-	payload, _ := json.Marshal(struct {
-		Draft      string             `json:"draft"`
-		Highlights []assist.Highlight `json:"highlights"`
-	}{Draft: da.Draft, Highlights: da.Result.Highlights})
-	return h.Div(
-		h.Class("authoring-island"),
-		h.DataIgnoreMorph(),
-		h.Script(h.Type("application/json"), h.ID("authoring-analysis-data"), h.Raw(string(payload))),
-		h.Div(h.ID("authoring-editor"), h.Class("authoring-editor")),
-		h.Script(h.Src(monacoLoaderURL)),
-		h.Script(h.Raw(authoringBootstrapJS)),
-	)
-}
-
-// authoringBootstrapJS mounts a read-only Monaco editor over the analyzed draft and
-// decorates each flagged span with its note as a hover. Defensive (guards +
-// try/catch); require is loaded by this island's loader.
-const authoringBootstrapJS = `(function(){
+// authoringEditorJS mounts the EDITABLE Monaco editor (the single draft source),
+// wires the buttons + a debounced live re-analysis to the CustomEvent bridge, and
+// decorates the flagged spans INLINE — reapplying them whenever a fresh analysis
+// payload arrives (a MutationObserver on the out-of-shield payload element). A
+// dataset guard keeps the mount idempotent across re-renders; require is loaded by
+// this surface's loader. Offsets map to positions via model.getPositionAt (exact for
+// ASCII drafts, the common case). Progressive enhancement: a loader/parse failure
+// leaves the server-rendered summary + questions intact.
+const authoringEditorJS = `(function(){
   if (typeof require === 'undefined') return;
   require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@` + monacoVersion + `/min/vs' } });
   require(['vs/editor/editor.main'], function(){
     var el = document.getElementById('authoring-editor');
-    var dataEl = document.getElementById('authoring-analysis-data');
-    if (!el || !dataEl || el.dataset.mounted) return;
+    if (!el || el.dataset.mounted) return;
     el.dataset.mounted = '1';
-    var d;
-    try { d = JSON.parse(dataEl.textContent); } catch (e) { return; }
-    var model = monaco.editor.createModel(d.draft || '', 'markdown');
-    var editor = monaco.editor.create(el, { model: model, readOnly: true, automaticLayout: true, theme: 'vs-dark', wordWrap: 'on', minimap: { enabled: false }, scrollBeyondLastLine: false, lineNumbers: 'off' });
-    var hs = d.highlights || [], decos = [];
-    for (var i = 0; i < hs.length; i++) {
-      var s = model.getPositionAt(hs[i].start), e = model.getPositionAt(hs[i].end);
-      decos.push({ range: new monaco.Range(s.lineNumber, s.column, e.lineNumber, e.column), options: { inlineClassName: 'authoring-flag-' + (hs[i].severity || 'note'), hoverMessage: { value: hs[i].note } } });
+    var live = el.closest('.compose__live');
+    var ed = monaco.editor.create(el, { value: '', language: 'markdown', readOnly: false, automaticLayout: true, theme: 'vs-dark', wordWrap: 'on', minimap: { enabled: false }, scrollBeyondLastLine: false, lineNumbers: 'off' });
+    var col = ed.createDecorationsCollection([]);
+    var ind = live ? live.querySelector('.compose__analyzing') : null;
+    function applyDecos(){
+      var dataEl = document.getElementById('authoring-analysis-data');
+      if (!dataEl) return;
+      var hs = [];
+      try { hs = (JSON.parse(dataEl.textContent) || {}).highlights || []; } catch (e) { return; }
+      var model = ed.getModel(), decos = [];
+      for (var i = 0; i < hs.length; i++) {
+        var s = model.getPositionAt(hs[i].start), e = model.getPositionAt(hs[i].end);
+        decos.push({ range: new monaco.Range(s.lineNumber, s.column, e.lineNumber, e.column), options: { inlineClassName: 'authoring-flag-' + (hs[i].severity || 'note'), hoverMessage: { value: hs[i].note } } });
+      }
+      col.set(decos);
     }
-    editor.createDecorationsCollection(decos);
-  });
-})();`
-
-// renderAuthoring renders the compose control plus, beneath it, the producer's
-// structured analysis when one is cached — the authoring assist surface. The compose
-// control carries an "Analyze draft" button (on.Click AnalyzeDraft reads the bound
-// OrderPrompt) so the Lead can author, analyze, sharpen, and place in one place.
-func renderAuthoring(c *LiveCard) h.H {
-	var da *draftAnalysis
-	if e := lookupLiveEntry(c.Key); e != nil {
-		da = e.analysisSnapshot()
-	}
-	parts := []h.H{h.Class("authoring"), renderComposeWithAnalyze(c, da)}
-	if a := renderAnalysis(da); a != nil {
-		parts = append(parts, a)
-	}
-	return h.Div(parts...)
-}
-
-// renderComposeWithAnalyze is the order composer: the draft textarea, the analyze +
-// place buttons (both reading the same authored OrderPrompt), the live debounced
-// re-analysis wiring (the producer listens as the Lead types), and — once an
-// analysis is cached — a readiness reflection beside place. da is the latest cached
-// analysis (nil before the first run).
-func renderComposeWithAnalyze(c *LiveCard, da *draftAnalysis) h.H {
-	parts := []h.H{
-		h.Class("compose"),
-		h.Attr("aria-label", "author a live order"),
-		h.Textarea(c.OrderPrompt.Bind(), h.Class("compose__prompt"),
-			h.Placeholder("Describe the task for a live order…")),
-		h.Button(on.Click(c.AnalyzeDraft), h.Class("compose__analyze"), h.Text("Analyze draft")),
-		h.Button(on.Click(c.PlaceOrder), h.Class("compose__place"), h.Text("Place order")),
-		// The live read indicator (driven by the debounce script) and the script that
-		// re-analyzes on a typing pause by clicking the proven analyze action — so the
-		// producer keeps pace with the draft without a new server seam. Progressive
-		// enhancement: the manual button works with JS off.
-		h.Span(h.Class("compose__analyzing"), h.Data("state", "idle"), h.Text("analyzing…")),
-		h.Script(h.Raw(liveAnalyzeJS)),
-	}
-	// Once the producer has read the draft, reflect its readiness verdict beside
-	// place — a guide, never a gate (placing stays allowed at any readiness).
-	if da != nil && da.Result != nil {
-		state, note := "caution", "The producer flagged open questions — placing will run the draft as-is."
-		if da.Result.Ready {
-			state, note = "ready", "The producer judged this ready to run unattended."
-		}
-		parts = append(parts, h.Span(h.Class("compose__readiness"), h.Data("state", state), h.Text(note)))
-	}
-	if tokenStore == nil || !tokenStore.Configured() {
-		parts = append(parts, h.Div(
-			h.Class("compose__needs-key"),
-			h.Text("No Anthropic API key configured — "),
-			h.A(h.Href("/settings"), h.Class("compose__needs-key-link"), h.Text("set one in settings")),
-			h.Text(" to run live orders."),
-		))
-	}
-	return h.Div(parts...)
-}
-
-// liveAnalyzeJS makes the producer listen as the Lead types: on a pause in input
-// (debounced), it triggers the proven analyze action by clicking its button, and
-// flips the analyzing indicator while the read is pending — so the analysis keeps
-// pace with the draft without a second server seam. A dataset guard prevents
-// re-wiring across SSE re-renders; with JS off the manual button still analyzes.
-const liveAnalyzeJS = `(function(){
-  var t = document.querySelector('.compose__prompt');
-  var b = document.querySelector('.compose__analyze');
-  var ind = document.querySelector('.compose__analyzing');
-  if (!t || !b || t.dataset.liveWired) return;
-  t.dataset.liveWired = '1';
-  var timer;
-  t.addEventListener('input', function(){
-    clearTimeout(timer);
-    if (ind) ind.dataset.state = 'pending';
-    timer = setTimeout(function(){ if (ind) ind.dataset.state = 'analyzing'; b.click(); }, 900);
+    function analyze(){ if (live) live.dispatchEvent(new CustomEvent('viaanalyze', { detail: { draft: ed.getValue() } })); }
+    function place(){ if (live) live.dispatchEvent(new CustomEvent('viaplace', { detail: { draft: ed.getValue() } })); }
+    var aBtn = live ? live.querySelector('.compose__analyze') : null;
+    var pBtn = live ? live.querySelector('.compose__place') : null;
+    if (aBtn) aBtn.addEventListener('click', analyze);
+    if (pBtn) pBtn.addEventListener('click', place);
+    var timer;
+    ed.onDidChangeModelContent(function(){
+      clearTimeout(timer);
+      if (ind) ind.dataset.state = 'pending';
+      timer = setTimeout(function(){ if (ind) ind.dataset.state = 'analyzing'; analyze(); }, 900);
+    });
+    var dataEl = document.getElementById('authoring-analysis-data');
+    if (dataEl && window.MutationObserver) {
+      new MutationObserver(function(){ applyDecos(); if (ind) ind.dataset.state = 'idle'; }).observe(dataEl, { childList: true, characterData: true, subtree: true });
+    }
+    applyDecos();
+    ed.focus();
   });
 })();`

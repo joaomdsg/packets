@@ -157,7 +157,7 @@ func TestLiveCard_composeWiresLiveDebouncedReanalysis(t *testing.T) {
 	_, server := fundedAuthoringServer(t, "authlive")
 	body := bodyOf(vt.NewClient(t, server, "/?key=authlive").HTML())
 	assert.Contains(t, body, "compose__analyzing", "an analyzing indicator is present for the live read")
-	assert.Contains(t, body, "liveWired", "the compose control carries the debounced live re-analysis wiring")
+	assert.Contains(t, body, "viaanalyze", "the editor carries the debounced live re-analysis bridge")
 }
 
 // The producer's readiness verdict must inform the place decision: when the

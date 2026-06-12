@@ -142,7 +142,9 @@ body {
 .analysis__questions-label { color: var(--pk-ink-dim); font-size: 0.92em; }
 .analysis__questions { margin: 0; padding-left: var(--pk-md); color: var(--pk-ink); }
 .analysis__unavailable { color: var(--pk-ink-dim); }
-.authoring-editor { height: 160px; border: 1px solid var(--pk-line); border-radius: 6px; }
+/* the editable Monaco editor — the single draft source (was a plain textarea). */
+.compose__live { display: flex; flex-direction: column; gap: var(--pk-sm); }
+.compose__editor { height: 180px; border: 1px solid var(--pk-line); border-radius: 6px; }
 /* the flagged spans, by severity — a calm underline, never a red squiggle. */
 .authoring-flag-question { text-decoration: underline dotted var(--pk-accent); }
 .authoring-flag-gap { text-decoration: underline wavy var(--pk-ink-dim); }
@@ -159,17 +161,6 @@ body {
 
 /* ---- author a live order ---- */
 .compose { display: flex; flex-direction: column; gap: var(--pk-sm); margin: var(--pk-sm) 0; }
-.compose__prompt {
-  padding: var(--pk-sm);
-  background: var(--pk-surface);
-  color: var(--pk-ink);
-  border: 1px solid var(--pk-line);
-  border-radius: 6px;
-  font: inherit;
-  min-height: 3.5em;
-  resize: vertical;
-}
-.compose__prompt:focus { outline: none; border-color: var(--pk-accent); }
 .compose__place {
   align-self: flex-start;
   padding: var(--pk-xs) var(--pk-md);

@@ -144,5 +144,6 @@ func TestLiveCard_rendersTheOrderAuthoringControlWhenFunded(t *testing.T) {
 
 	body := bodyOf(vt.NewClient(t, server, "/?key=compose").HTML())
 	require.Contains(t, body, "/_action/PlaceOrder", "the card renders the place-order action binding")
-	require.Contains(t, body, `data-bind="orderprompt"`, "with an input bound to the order-prompt signal")
+	require.Contains(t, body, "authoring-editor", "with the editable Monaco editor as the draft source")
+	require.Contains(t, body, "$orderprompt=evt.detail.draft", "whose value is lifted into the order-prompt signal at place time")
 }
