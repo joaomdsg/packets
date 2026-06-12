@@ -150,7 +150,7 @@ func TestContainerArgs_runsClaudeWithTheHeadlessStreamingFlags(t *testing.T) {
 	tail := args[i+1:]
 	require.NotEmpty(t, tail, "the image is followed by the command")
 	assert.Equal(t, "claude", tail[0], "the container runs claude")
-	assert.Equal(t, harness.ClaudeArgs("fix the bug at auth.go:42"), tail[1:], "with the exact headless-streaming ClaudeArgs")
+	assert.Equal(t, harness.ClaudeArgs("fix the bug at auth.go:42", ""), tail[1:], "with the exact headless-streaming ClaudeArgs")
 	assert.Contains(t, tail, "stream-json")
 	assert.Contains(t, tail, "--verbose")
 }

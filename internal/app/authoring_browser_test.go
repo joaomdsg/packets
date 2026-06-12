@@ -60,7 +60,7 @@ func TestAuthoringBrowser_editorMountsTypingDrivesAnalysisRendersBack(t *testing
 	// round-trip, not a live claude run. The summary is the marker we assert renders.
 	restore := analyzeDraft
 	t.Cleanup(func() { analyzeDraft = restore })
-	analyzeDraft = func(_ context.Context, _, _ string) (string, error) {
+	analyzeDraft = func(_ context.Context, _, _, _ string) (string, error) {
 		return `{"summary":"PRODUCER-SAW-THE-DRAFT","ready":false,` +
 			`"highlights":[{"start":0,"end":6,"note":"flagged span","severity":"question"}],` +
 			`"questions":["What is the retry budget?"]}`, nil

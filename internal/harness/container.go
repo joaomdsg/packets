@@ -25,6 +25,9 @@ type ContainerSpec struct {
 	RouteEnv  []EnvVar
 	PidsLimit int
 	Memory    string
+	// ResumeID, when set, is the warm session id the fill resumes + forks (warm repo
+	// context). Empty = cold start.
+	ResumeID string
 }
 
 // EnvVar is one host-set NAME=VALUE routing variable for the agent container.
@@ -64,5 +67,5 @@ func ContainerArgs(s ContainerSpec) []string {
 		args = append(args, "-e", re.Name+"="+re.Value) // non-secret routing for the read-only rootfs
 	}
 	args = append(args, s.Image, "claude")
-	return append(args, ClaudeArgs(s.Prompt)...)
+	return append(args, ClaudeArgs(s.Prompt, s.ResumeID)...)
 }

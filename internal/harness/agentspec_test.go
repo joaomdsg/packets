@@ -15,7 +15,7 @@ import (
 // correctly hardened AND actually works.
 func TestAgentSpec_buildsTheHardenedWritableHomeProfile(t *testing.T) {
 	t.Parallel()
-	s := agentSpec("/home/lead/proj", "fix the bug", "/tmp/seccomp.json", "1000:1000")
+	s := agentSpec("/home/lead/proj", "fix the bug", "/tmp/seccomp.json", "1000:1000", "")
 
 	assert.Equal(t, "/home/lead/proj", s.RepoDir)
 	assert.Equal(t, "fix the bug", s.Prompt)

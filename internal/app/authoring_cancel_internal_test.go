@@ -23,7 +23,7 @@ func TestLiveCard_analyzeDraftCancelsASupersededInFlightRun(t *testing.T) {
 	var calls int32
 	firstStarted := make(chan struct{})
 	firstCancelled := make(chan struct{})
-	analyzeDraft = func(ctx context.Context, _, _ string) (string, error) {
+	analyzeDraft = func(ctx context.Context, _, _, _ string) (string, error) {
 		if atomic.AddInt32(&calls, 1) == 1 {
 			close(firstStarted)
 			<-ctx.Done() // block until a newer analyze supersedes (cancels) this one

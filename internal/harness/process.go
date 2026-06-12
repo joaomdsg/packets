@@ -16,13 +16,40 @@ import (
 // stream the Supervisor reduces; bypassPermissions lets the headless agent edit
 // without an interactive prompt (the run is contained by the sandbox, a later
 // slice — not by in-process permission checks).
-func ClaudeArgs(prompt string) []string {
-	return []string{
+func ClaudeArgs(prompt, resumeID string) []string {
+	args := []string{
 		"-p", prompt,
 		"--output-format", "stream-json",
 		"--verbose",
 		"--permission-mode", "bypassPermissions",
 	}
+	if resumeID != "" {
+		// Resume the session's WARM explored harness, forking a branch — so the fill
+		// reuses the repo context the warm-up built instead of cold-starting, without
+		// colliding with concurrent work on the one base session id.
+		args = append(args, "--resume", resumeID, "--fork-session")
+	}
+	return args
+}
+
+// resumeCtxKey carries the warm session id to resume through the context, so the
+// runHarness seam keeps its signature (a widely-stubbed function var) while
+// RunProcess/RunContainer can still resume the session's warm harness.
+type resumeCtxKey struct{}
+
+// WithResume tags ctx with the warm session id the harness should --resume + fork.
+// An empty id is a no-op (the run cold-starts).
+func WithResume(ctx context.Context, sessionID string) context.Context {
+	if sessionID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, resumeCtxKey{}, sessionID)
+}
+
+// resumeFrom reads the warm session id tagged by WithResume, or "" when none.
+func resumeFrom(ctx context.Context) string {
+	id, _ := ctx.Value(resumeCtxKey{}).(string)
+	return id
 }
 
 // RunProcess spawns a real Claude Code harness on prompt in repoDir, reduces its
@@ -44,7 +71,7 @@ func RunProcess(ctx context.Context, repoDir, prompt string, onActivity func([]t
 	if onActivity != nil {
 		opts = append(opts, WithActivity(onActivity))
 	}
-	cmd := exec.CommandContext(ctx, "claude", ClaudeArgs(prompt)...)
+	cmd := exec.CommandContext(ctx, "claude", ClaudeArgs(prompt, resumeFrom(ctx))...)
 	cmd.Dir = repoDir
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

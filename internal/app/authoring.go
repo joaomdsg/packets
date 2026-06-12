@@ -34,17 +34,25 @@ var analyzeDraft = runAnalysisProcess
 // fast — Haiku alone still reasons at full effort (~40s observed); --effort low cuts
 // the thinking so the read returns quickly. Plain one-shot text output (not a settled
 // stream): the assist wants the agent's reply, never to touch the tree or the economy.
-func analysisArgs(prompt string) []string {
-	return []string{"-p", prompt, "--output-format", "text", "--model", "haiku", "--effort", "low"}
+func analysisArgs(prompt, resumeID string) []string {
+	args := []string{"-p", prompt, "--output-format", "text", "--model", "haiku", "--effort", "low"}
+	if resumeID != "" {
+		// Resume the session's WARM explored harness, forking a branch — so the read
+		// reuses the repo context the warm-up built, without colliding with concurrent
+		// reads or an order fill on the one base id.
+		args = append(args, "--resume", resumeID, "--fork-session")
+	}
+	return args
 }
 
 // runAnalysisProcess runs claude headless on prompt in repoDir and returns its
 // stdout text. Unlike the order harness (which reduces a stream into settled
 // revisions), the authoring assist wants the agent's one-shot textual reply, so it
 // runs in plain text output and never settles anything — analyzing a draft must
-// touch neither the working tree nor the economy.
-func runAnalysisProcess(ctx context.Context, repoDir, prompt string) (string, error) {
-	cmd := exec.CommandContext(ctx, "claude", analysisArgs(prompt)...)
+// touch neither the working tree nor the economy. resumeID, when set, resumes the
+// session's warm harness so the read carries the explored repo context.
+func runAnalysisProcess(ctx context.Context, repoDir, prompt, resumeID string) (string, error) {
+	cmd := exec.CommandContext(ctx, "claude", analysisArgs(prompt, resumeID)...)
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
 	if err != nil {
@@ -76,7 +84,7 @@ func (c *LiveCard) AnalyzeDraft(ctx *via.Ctx) {
 	// Cancel any prior in-flight read and run under a fresh context, so a fast-typing
 	// Lead's superseded analyses are abandoned, never left racing this one.
 	runCtx := e.beginAnalysis()
-	raw, err := analyzeDraft(runCtx, cfg.RepoDir, assist.AnalysisPrompt(draft))
+	raw, err := analyzeDraft(runCtx, cfg.RepoDir, assist.AnalysisPrompt(draft), e.resumeSessionID())
 	if runCtx.Err() != nil {
 		return // superseded by a newer analyze — let that one own the cache
 	}

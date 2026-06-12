@@ -22,13 +22,14 @@ var agentImage = "packets-agent"
 // by name (secret never in argv), HOME + tool caches routed onto the read-only
 // rootfs's writable /tmp (or the tools EROFS), and the run's identity threaded
 // through. Pure: it composes the ContainerSpec; ContainerArgs renders the argv.
-func agentSpec(repoDir, prompt, seccompPath, user string) ContainerSpec {
+func agentSpec(repoDir, prompt, seccompPath, user, resumeID string) ContainerSpec {
 	return ContainerSpec{
 		Image:          agentImage,
 		RepoDir:        repoDir,
 		Prompt:         prompt,
 		SeccompPath:    seccompPath,
 		User:           user,
+		ResumeID:       resumeID,
 		EnvPassthrough: []string{"ANTHROPIC_API_KEY"},
 		RouteEnv: []EnvVar{
 			{Name: "HOME", Value: "/tmp"},
@@ -62,7 +63,7 @@ func RunContainer(ctx context.Context, repoDir, prompt string, onActivity func([
 	defer cleanup()
 
 	user := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
-	argv := ContainerArgs(agentSpec(repoDir, prompt, seccompPath, user))
+	argv := ContainerArgs(agentSpec(repoDir, prompt, seccompPath, user, resumeFrom(ctx)))
 
 	name, err := agentContainerName()
 	if err != nil {

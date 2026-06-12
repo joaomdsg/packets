@@ -174,6 +174,13 @@ type liveEntry struct {
 	// are abandoned (the slow model call killed), never left racing to overwrite the
 	// cache out of order. Guarded by findingsMu.
 	analysisCancel context.CancelFunc
+	// harnessSessionID is this packets-session's resumable claude session id — the one
+	// the warm-up explores under, REMEMBERED so every later analyze + order resumes it
+	// (warm repo context). harnessWarm gates use: requests resume the id ONLY after the
+	// warm-up explore completes (before that they run cold, never resuming a session
+	// still being established). Both guarded by findingsMu; "" id = no warm harness.
+	harnessSessionID string
+	harnessWarm      bool
 	// answering is true while an answer re-run is in flight for this session. It
 	// serializes answer re-runs (one at a time): a re-run spawns a git worktree +
 	// oracle run, so two concurrent re-runs (a double-clicked submit) would race the
@@ -444,6 +451,27 @@ func (e *liveEntry) analysisSnapshot() *draftAnalysis {
 	e.findingsMu.Lock()
 	defer e.findingsMu.Unlock()
 	return e.analysis
+}
+
+// resumeSessionID returns the warm harness session id to --resume + --fork-session
+// from, or "" when this session has no warm harness yet — so a request before the
+// warm-up completes (or on a never-warmed session) runs COLD instead of resuming a
+// session that is still being established.
+func (e *liveEntry) resumeSessionID() string {
+	e.findingsMu.Lock()
+	defer e.findingsMu.Unlock()
+	if e.harnessWarm {
+		return e.harnessSessionID
+	}
+	return ""
+}
+
+// markWarm marks the session's harness as explored and ready, so subsequent requests
+// resume its warm context. Called when the warm-up explore run completes.
+func (e *liveEntry) markWarm() {
+	e.findingsMu.Lock()
+	e.harnessWarm = true
+	e.findingsMu.Unlock()
 }
 
 // beginAnalysis starts a new authoring-assist run, CANCELLING any prior in-flight
@@ -1137,6 +1165,10 @@ func runLiveOrder(e *liveEntry, order ledger.WorkOrderRecord) {
 	// Bound the agent run so a runaway harness can't burn the budget without limit
 	// (the cost-gate — the only token cap a live order has; council R69/R70).
 	hctx, cancel := context.WithTimeout(context.Background(), liveHarnessTimeout)
+	// Resume the session's WARM explored harness (forking a branch) so the fill works
+	// with the repo context the warm-up built — the remembered session, same as the
+	// analyze reads. "" until the warm-up completes (then the fill cold-starts).
+	hctx = harness.WithResume(hctx, e.resumeSessionID())
 	runner := runHarness // host subprocess by default; the container when the session opts in
 	if e.useContainerMode() {
 		runner = runHarnessContainer

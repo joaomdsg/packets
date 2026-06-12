@@ -16,7 +16,7 @@ import (
 // must pin them.
 func TestClaudeArgs_launchesHeadlessStreamingWithTheGivenPrompt(t *testing.T) {
 	t.Parallel()
-	args := harness.ClaudeArgs("fix the auth bug")
+	args := harness.ClaudeArgs("fix the auth bug", "")
 
 	require.Contains(t, args, "-p", "print mode is required for a headless run")
 	assert.Contains(t, args, "fix the auth bug", "the prompt must be passed to the harness")
@@ -26,11 +26,22 @@ func TestClaudeArgs_launchesHeadlessStreamingWithTheGivenPrompt(t *testing.T) {
 	requireFlagValue(t, args, "--permission-mode", "bypassPermissions")
 }
 
+// When the session has a warm explored harness, the order fill RESUMES it (forking
+// a branch) so the agent works with the repo context the warm-up built, instead of
+// cold-starting. --fork-session keeps the fill an isolated branch off the warm base.
+func TestClaudeArgs_resumesTheWarmSessionWhenGiven(t *testing.T) {
+	t.Parallel()
+	args := harness.ClaudeArgs("fix it", "sess-7")
+	requireFlagValue(t, args, "--resume", "sess-7")
+	assert.Contains(t, args, "--fork-session", "the order fill forks the warm explored session")
+	assert.Contains(t, args, "fix it", "the prompt is still carried")
+}
+
 // The prompt must be a distinct argv element from -p (not concatenated), or the
 // CLI would treat the whole thing as an unknown flag.
 func TestClaudeArgs_passesThePromptAsItsOwnArgument(t *testing.T) {
 	t.Parallel()
-	args := harness.ClaudeArgs("do the thing")
+	args := harness.ClaudeArgs("do the thing", "")
 	i := indexOf(args, "-p")
 	require.GreaterOrEqual(t, i, 0, "-p must be present")
 	require.Less(t, i+1, len(args), "-p must be followed by an argument")
@@ -41,7 +52,7 @@ func TestClaudeArgs_passesThePromptAsItsOwnArgument(t *testing.T) {
 // value, never emitted loose where a flag parser would read it as an option.
 func TestClaudeArgs_keepsADashLeadingPromptAttachedToTheFlag(t *testing.T) {
 	t.Parallel()
-	args := harness.ClaudeArgs("--rewrite everything")
+	args := harness.ClaudeArgs("--rewrite everything", "")
 	i := indexOf(args, "-p")
 	require.GreaterOrEqual(t, i, 0)
 	require.Less(t, i+1, len(args))

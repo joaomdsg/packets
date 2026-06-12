@@ -162,6 +162,11 @@ func (c *BoardCard) CreateSession(ctx *via.Ctx) {
 	}
 	cfg, _ := readLiveState(defaultSessionKey) // inherit the default config (same repo/revs)
 	_, _ = AddSession(key, cfg)                // validated above; a bind error leaves the registry unchanged
+	// Start the long-lived harness exploring the repo NOW, so this session's first
+	// analyze/order resumes a warm context (DESIGN §6's resumed-per-session harness).
+	if e := lookupLiveEntry(key); e != nil && cfg.RepoDir != "" {
+		startWarmHarness(e, cfg.RepoDir)
+	}
 }
 
 // hitRateLabel is the card's standing — the ONE honest progression number: Caught

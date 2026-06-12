@@ -52,7 +52,7 @@ func TestLiveCard_analyzeDraftRendersTheProducersStructuredRead(t *testing.T) {
 	restore := analyzeDraft
 	t.Cleanup(func() { analyzeDraft = restore })
 	var gotPrompt string
-	analyzeDraft = func(_ context.Context, _, prompt string) (string, error) {
+	analyzeDraft = func(_ context.Context, _, prompt, _ string) (string, error) {
 		gotPrompt = prompt
 		return `{"summary":"Clear goal, missing the retry budget.","ready":false,` +
 			`"highlights":[{"start":0,"end":3,"note":"how many retries?","severity":"question"}],` +
@@ -82,7 +82,7 @@ func TestLiveCard_analyzeDraftRendersTheProducersStructuredRead(t *testing.T) {
 func TestLiveCard_analyzeDraftEmitsTheHighlightPayloadForMonaco(t *testing.T) {
 	restore := analyzeDraft
 	t.Cleanup(func() { analyzeDraft = restore })
-	analyzeDraft = func(_ context.Context, _, _ string) (string, error) {
+	analyzeDraft = func(_ context.Context, _, _, _ string) (string, error) {
 		return `{"summary":"s","ready":true,"highlights":[{"start":0,"end":3,"note":"flagged","severity":"gap"}],"questions":[]}`, nil
 	}
 
@@ -104,7 +104,7 @@ func TestLiveCard_analyzeDraftEmitsTheHighlightPayloadForMonaco(t *testing.T) {
 func TestLiveCard_analyzeDraftDegradesCalmlyOnUnreadableOutput(t *testing.T) {
 	restore := analyzeDraft
 	t.Cleanup(func() { analyzeDraft = restore })
-	analyzeDraft = func(_ context.Context, _, _ string) (string, error) {
+	analyzeDraft = func(_ context.Context, _, _, _ string) (string, error) {
 		return "I could not produce an analysis.", nil // no JSON object → ParseAnalysis errors
 	}
 
@@ -126,7 +126,7 @@ func TestLiveCard_analyzeDraftIsANoOpOnAnEmptyDraft(t *testing.T) {
 	restore := analyzeDraft
 	t.Cleanup(func() { analyzeDraft = restore })
 	called := false
-	analyzeDraft = func(_ context.Context, _, _ string) (string, error) {
+	analyzeDraft = func(_ context.Context, _, _, _ string) (string, error) {
 		called = true
 		return "", nil
 	}
@@ -178,7 +178,7 @@ func TestLiveCard_placeReflectsTheAnalysisReadiness(t *testing.T) {
 			restore := analyzeDraft
 			t.Cleanup(func() { analyzeDraft = restore })
 			ready := tt.ready
-			analyzeDraft = func(_ context.Context, _, _ string) (string, error) {
+			analyzeDraft = func(_ context.Context, _, _, _ string) (string, error) {
 				if ready {
 					return `{"summary":"s","ready":true,"highlights":[],"questions":[]}`, nil
 				}
