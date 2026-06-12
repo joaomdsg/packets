@@ -80,9 +80,6 @@ func (c *LiveCard) AnalyzeDraft(ctx *via.Ctx) {
 	c.Analysis.Write(ctx, "ok")
 }
 
-// renderAnalysis renders the producer's structured read beneath the compose control:
-// a calm unavailable note when the run failed, otherwise the summary, a readiness
-// hook (ready|blocked, colored in the palette), the clarifying questions, and the
 // renderAuthoring is the authoring-assist surface: an editable Monaco editor as the
 // single draft source, with the producer's structured read (summary + clarifying
 // questions) beneath it. The producer's flagged spans are decorated INLINE in the

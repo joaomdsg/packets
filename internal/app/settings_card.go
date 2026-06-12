@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-via/via"
@@ -22,7 +23,7 @@ var tokenStore *tokenstore.Store
 // in-memory test/demo default) so a save still round-trips within the process.
 func tokenConfigPath(ledgerPath string) string {
 	if ledgerPath == "" {
-		return "" // tokenstore.New tolerates this; Save/Load operate on the empty path's temp below
+		return filepath.Join(os.TempDir(), "packets-anthropic.token")
 	}
 	return ledgerPath + ".token"
 }
