@@ -1,2 +1,8 @@
 # Local agent/session state
 .claude/
+
+# Runtime economy store + JetStream fabric (per-server, regenerated at boot)
+catches-fabric/
+
+# Saved Anthropic API key (a credential — never commit)
+catches.token
