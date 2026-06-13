@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	stdlog "log"
 	"os/exec"
 	"strings"
 
@@ -91,11 +92,22 @@ func (c *LiveCard) AnalyzeDraft(ctx *via.Ctx) {
 	// Cancel any prior in-flight read and run under a fresh context, so a fast-typing
 	// Lead's superseded analyses are abandoned, never left racing this one.
 	runCtx := e.beginAnalysis()
-	raw, err := analyzeDraft(runCtx, cfg.RepoDir, assist.AnalysisPrompt(draft), e.resumeSessionID())
+	prompt := assist.AnalysisPrompt(draft)
+	resumeID := e.resumeSessionID()
+	raw, err := analyzeDraft(runCtx, cfg.RepoDir, prompt, resumeID)
+	// A --resume run can fail because the warm harness session is missing or no longer
+	// resumable (a stale/half-established id) — that strands authoring even though a
+	// fresh read would work. Retry COLD (no resume) once before degrading, so a broken
+	// warm context falls back to a working analysis instead of "producer run failed".
+	if err != nil && resumeID != "" && runCtx.Err() == nil {
+		stdlog.Printf("authoring: resume analysis failed (%v) — retrying cold", err)
+		raw, err = analyzeDraft(runCtx, cfg.RepoDir, prompt, "")
+	}
 	if runCtx.Err() != nil {
 		return // superseded by a newer analyze — let that one own the cache
 	}
 	if err != nil {
+		stdlog.Printf("authoring: analysis run failed: %v", err)
 		e.setAnalysis(&draftAnalysis{Draft: draft, Reason: "the producer run failed — try again"})
 		c.Analysis.Write(ctx, "err")
 		return

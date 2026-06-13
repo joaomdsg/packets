@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -144,6 +145,95 @@ func TestLiveCard_analyzeDraftRerunsWhenTheDraftChanges(t *testing.T) {
 	require.Equal(t, 200, tc.Action((&LiveCard{Key: "authchg"}).AnalyzeDraft).WithSignal("orderprompt", "Add retry logic with a budget.").Fire())
 
 	assert.Equal(t, 2, runs, "a changed draft must re-run the producer")
+}
+
+// A warm session whose --resume run fails (the warm harness session is missing or
+// unresumable) must NOT strand authoring as "producer run failed": it retries COLD
+// (no --resume) before degrading, so a broken warm context falls back to a working
+// fresh read. NOT parallel (shared globals).
+func TestLiveCard_analyzeDraftFallsBackToColdWhenResumeFails(t *testing.T) {
+	restore := analyzeDraft
+	t.Cleanup(func() { analyzeDraft = restore })
+	var resumeAttempts, coldAttempts int
+	analyzeDraft = func(_ context.Context, _, _, resumeID string) (string, error) {
+		if resumeID != "" {
+			resumeAttempts++
+			return "", errors.New("authoring: run analysis: --resume requires a valid session ID")
+		}
+		coldAttempts++
+		return `{"summary":"cold read ok","ready":true,"highlights":[],"questions":[]}`, nil
+	}
+
+	_, server := fundedAuthoringServer(t, "authcold")
+	// Force a warm session so the first attempt carries --resume.
+	e := lookupLiveEntry("authcold")
+	require.NotNil(t, e)
+	e.findingsMu.Lock()
+	e.harnessSessionID = "sid-warm"
+	e.findingsMu.Unlock()
+	e.markWarm()
+
+	tc := vt.NewClient(t, server, "/?key=authcold")
+	require.Equal(t, 200, tc.Action((&LiveCard{Key: "authcold"}).AnalyzeDraft).
+		WithSignal("orderprompt", "Add retry logic to the uploader.").Fire())
+
+	assert.Equal(t, 1, resumeAttempts, "the first attempt resumes the warm session")
+	assert.Equal(t, 1, coldAttempts, "a resume failure retries cold instead of stranding the draft")
+
+	body := bodyOf(vt.NewClient(t, server, "/?key=authcold").HTML())
+	assert.Contains(t, body, "cold read ok", "the cold retry's analysis is surfaced")
+	assert.NotContains(t, body, "the producer run failed", "a recoverable resume failure does not degrade")
+}
+
+// A COLD session (no warm harness, resumeID empty) has no resume to fall back FROM,
+// so a failed run must NOT double-run the producer — it degrades after a single
+// attempt. NOT parallel (shared globals).
+func TestLiveCard_analyzeDraftDoesNotRetryAColdFailure(t *testing.T) {
+	restore := analyzeDraft
+	t.Cleanup(func() { analyzeDraft = restore })
+	runs := 0
+	analyzeDraft = func(_ context.Context, _, _, _ string) (string, error) {
+		runs++
+		return "", errors.New("boom")
+	}
+
+	_, server := fundedAuthoringServer(t, "authcoldfail") // never marked warm → resumeID ""
+
+	tc := vt.NewClient(t, server, "/?key=authcoldfail")
+	require.Equal(t, 200, tc.Action((&LiveCard{Key: "authcoldfail"}).AnalyzeDraft).
+		WithSignal("orderprompt", "Add retry logic.").Fire())
+
+	assert.Equal(t, 1, runs, "a cold failure runs once — there is no resume to retry from")
+	body := bodyOf(vt.NewClient(t, server, "/?key=authcoldfail").HTML())
+	assert.Contains(t, body, "the producer run failed", "a cold failure degrades calmly")
+}
+
+// When BOTH the resume attempt and the cold retry fail, authoring degrades calmly
+// (not a broken card) — the real cause is logged for diagnosis. NOT parallel.
+func TestLiveCard_analyzeDraftDegradesWhenBothResumeAndColdFail(t *testing.T) {
+	restore := analyzeDraft
+	t.Cleanup(func() { analyzeDraft = restore })
+	runs := 0
+	analyzeDraft = func(_ context.Context, _, _, _ string) (string, error) {
+		runs++
+		return "", errors.New("boom")
+	}
+
+	_, server := fundedAuthoringServer(t, "authbothfail")
+	e := lookupLiveEntry("authbothfail")
+	require.NotNil(t, e)
+	e.findingsMu.Lock()
+	e.harnessSessionID = "sid-warm"
+	e.findingsMu.Unlock()
+	e.markWarm()
+
+	tc := vt.NewClient(t, server, "/?key=authbothfail")
+	require.Equal(t, 200, tc.Action((&LiveCard{Key: "authbothfail"}).AnalyzeDraft).
+		WithSignal("orderprompt", "Add retry logic.").Fire())
+
+	assert.Equal(t, 2, runs, "a warm session tries resume, then cold, before degrading")
+	body := bodyOf(vt.NewClient(t, server, "/?key=authbothfail").HTML())
+	assert.Contains(t, body, "the producer run failed", "both attempts failing degrades calmly")
 }
 
 // The analysis feeds Monaco: the analyzed draft + the flagged spans must be emitted
