@@ -39,6 +39,16 @@ var verifyTestCmd = []string{"go", "test", "./..."}
 // objects (retention housekeeping). Generous — disk hygiene, not a hot path.
 const peerGCInterval = 10 * time.Minute
 
+// autoParkIdleAfter is how long a session's claim consumer may sit idle (no
+// claim resolved, no spend/send) before it is parked; autoParkInterval is how
+// often the sweep runs. A parked session wakes on its next claim via the
+// arrival watcher, so the threshold trades a little wake latency for not
+// holding a durable consumer open on a dormant session.
+const (
+	autoParkIdleAfter = 15 * time.Minute
+	autoParkInterval  = time.Minute
+)
+
 // runVerifyCatch is the `verify-catch` subcommand: it runs the SAME catch oracle
 // (pipe.RunCatchCycle) over the given revisions and writes the deterministic
 // verdict Transcript as JSON. This is the one binary that runs both in-process
@@ -361,6 +371,11 @@ func Main() {
 	// objects (never a session with a claim in flight). Generous interval — this
 	// is disk hygiene, not a hot path. Stops with ctx on SIGINT.
 	app.StartPeerGC(ctx, peerGCInterval)
+
+	// Shed idle sessions' claim consumers: park one that has been quiet past the
+	// threshold (its ticket is persisted durably), and let the arrival watcher
+	// wake it on the next claim. Stops with ctx on SIGINT.
+	app.StartAutoPark(ctx, autoParkIdleAfter, autoParkInterval)
 
 	switch {
 	case configured:

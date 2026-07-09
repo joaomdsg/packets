@@ -74,6 +74,22 @@ func TestNoteActivityNeverBlocksOnTheSpawnerLock(t *testing.T) {
 	consumerSpawner.mu.Unlock()
 }
 
+// StartAutoPark's ticker must actually drive the sweep: a session idle past the
+// threshold gets parked without anyone calling parkIdle by hand. This is the
+// production entry point wired at boot.
+func TestStartAutoPark_parksIdleSessionsOnItsTicker(t *testing.T) {
+	clk := &testClock{now: time.Unix(8_000_000, 0)}
+	autoparkServer(t, clk, 15*time.Minute)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	StartAutoPark(ctx, 15*time.Minute, 10*time.Millisecond)
+
+	clk.Advance(20 * time.Minute)
+	require.Eventually(t, func() bool { return sessionParked("default") }, 2*time.Second, 10*time.Millisecond,
+		"the auto-park ticker must park a session idle past the threshold on its own")
+}
+
 // A session whose consumer has sat idle past the threshold must be parked to
 // free it, while one with recent activity stays warm — the whole point of
 // auto-park is to shed idle consumers without dropping active ones.
