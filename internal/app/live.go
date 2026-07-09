@@ -1199,6 +1199,10 @@ type claimConsumerSpawner struct {
 	// idleAfter is the auto-park threshold; 0 disables parking (the default —
 	// auto-park is dormant until StartAutoPark sets it).
 	idleAfter time.Duration
+	// registry durably records which sessions are parked (their non-secret
+	// routing identity), so a parked session survives a restart; nil if it
+	// could not be opened, in which case persistence is skipped (best-effort).
+	registry *socket.ParkedRegistry
 	// now is the clock parkIdle reads; nil means time.Now (injected in tests).
 	now func() time.Time
 }
@@ -1251,6 +1255,7 @@ func resetConsumersForTest() {
 	consumerSpawner.resetActivity(nil)
 	consumerSpawner.idleAfter = 0
 	consumerSpawner.now = nil
+	consumerSpawner.registry = nil
 	resetCageGauntletForTest()
 }
 
@@ -1335,25 +1340,33 @@ func (s *claimConsumerSpawner) parkIdle() {
 		if s.activeSince(key, cutoff) {
 			continue // active within the window
 		}
-		// Establish the arrival watcher BEFORE stopping the consumer, so no claim
-		// can slip through the gap between park and subscribe. SubscribeNew
-		// (DeliverNew) only fires on claims from here on, never the backlog.
-		watchCtx, stop := context.WithCancel(s.ctx)
-		filter := fabric.EventSubject(key, LedgerInstance, fabric.StatusClaim, ">")
-		ch, err := liveFabric.SubscribeNew(watchCtx, filter)
-		if err != nil {
-			stop()
-			continue // can't watch: leave it warm rather than park it blind
-		}
-		ticket, err := sock.Park()
-		if err != nil {
-			stop()
-			continue // already closed/parked; drop the just-made subscription
-		}
-		delete(s.socks, key)
-		s.parked[key] = &parkedConsumer{ticket: ticket, stop: stop}
-		go s.watch(watchCtx, key, ch)
+		s.parkKeyLocked(key, sock)
 	}
+}
+
+// parkKeyLocked parks one warm session: it arms the arrival watcher, stops the
+// verify consumer, records the park durably, and hands the watcher the channel.
+// The subscription is established BEFORE the park so no claim can slip through
+// the gap. mu held. Used by both the idle sweep and boot restore.
+func (s *claimConsumerSpawner) parkKeyLocked(key string, sock *socket.Socket) {
+	watchCtx, stop := context.WithCancel(s.ctx)
+	filter := fabric.EventSubject(key, LedgerInstance, fabric.StatusClaim, ">")
+	ch, err := liveFabric.SubscribeNew(watchCtx, filter)
+	if err != nil {
+		stop()
+		return // can't watch: leave it warm rather than park it blind
+	}
+	ticket, err := sock.Park()
+	if err != nil {
+		stop()
+		return // already closed/parked; drop the just-made subscription
+	}
+	delete(s.socks, key)
+	s.parked[key] = &parkedConsumer{ticket: ticket, stop: stop}
+	if s.registry != nil {
+		_ = s.registry.Put(socket.ParkedEntry{Addr: key, Session: key, Instance: LedgerInstance})
+	}
+	go s.watch(watchCtx, key, ch)
 }
 
 // watch waits for the first claim on a parked session's subtree (or ctx
@@ -1390,6 +1403,9 @@ func (s *claimConsumerSpawner) resume(key string) {
 	}
 	s.socks[key] = sock
 	s.noteActivity(key)
+	if s.registry != nil {
+		_ = s.registry.Delete(key) // no longer parked
+	}
 }
 
 // stopConsumer stops and forgets a session's claim consumer — warm (close the
@@ -1407,6 +1423,9 @@ func (s *claimConsumerSpawner) stopConsumer(key string) {
 		delete(s.parked, key)
 	}
 	s.forgetActivity(key)
+	if s.registry != nil {
+		_ = s.registry.Delete(key) // retired: drop any persisted parked record
+	}
 }
 
 // stopAllLocked stops every consumer — warm sockets and parked watchers — and
@@ -1448,10 +1467,36 @@ func StartClaimConsumers(ctx context.Context, verifierFor func(LiveConfig) ledge
 	consumerSpawner.socks = map[string]*socket.Socket{} // this call owns a fresh consumer set
 	consumerSpawner.parked = map[string]*parkedConsumer{}
 	consumerSpawner.resetActivity(map[string]time.Time{})
+	if r, err := socket.OpenParkedRegistry(liveFabric); err == nil {
+		consumerSpawner.registry = r
+	}
 	liveReg.Range(func(k, v any) bool {
 		consumerSpawner.spawnLocked(k.(string), v.(*liveEntry))
 		return true
 	})
+	consumerSpawner.restoreParkedLocked()
+}
+
+// restoreParkedLocked reconciles the durable parked registry against the just-
+// spawned warm sessions: a session recorded as parked before a restart comes
+// back PARKED (not warm), and a record for a session no longer registered is
+// pruned. mu held. Makes the persisted record load-bearing rather than
+// write-only. Best-effort: a read error leaves warm sessions as-is.
+func (s *claimConsumerSpawner) restoreParkedLocked() {
+	if s.registry == nil {
+		return
+	}
+	entries, err := s.registry.List()
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if sock := s.socks[e.Addr]; sock != nil {
+			s.parkKeyLocked(e.Addr, sock) // was parked before the restart; restore it
+		} else if s.parked[e.Addr] == nil {
+			_ = s.registry.Delete(e.Addr) // stale: session no longer registered
+		}
+	}
 }
 
 // StartAutoPark arms the idle sweep: every interval it parks sessions whose
