@@ -131,6 +131,50 @@ func TestBoot_restoresPersistedParkedSessionsAndPrunesStale(t *testing.T) {
 		"a boot-restored parked session must still wake and mint on a claim")
 }
 
+// The real durability proof: park a session, TEAR THE SERVER DOWN (close the
+// fabric), then re-boot on the SAME store dir. The parked identity must survive
+// on disk and the session must come back parked — not warm, not lost. This is
+// what "persist" actually means, vs a same-fabric simulation.
+func TestParkedIdentitySurvivesARealServerRestart(t *testing.T) {
+	ledgerPath := filepath.Join(t.TempDir(), "catches") // stable across both boots
+	cfg := LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: ledgerPath,
+	}
+	verifierFor := func(LiveConfig) ledger.Verifier { return confirmingVerifier }
+
+	// --- Boot 1: park the default session, then tear the server down. ---
+	resetConsumersForTest()
+	clk := &testClock{now: time.Unix(9_000_000, 0)}
+	_, log1, err := NewServer(cfg)
+	require.NoError(t, err)
+	consumerSpawner.now = clk.Now
+	consumerSpawner.idleAfter = 15 * time.Minute
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	StartClaimConsumers(ctx1, verifierFor, 30*time.Second, nil)
+
+	clk.Advance(20 * time.Minute)
+	consumerSpawner.parkIdle()
+	require.True(t, sessionParked("default"), "default must be parked before the restart")
+	require.Contains(t, parkedAddrs(t), "default", "the park must be persisted before the restart")
+
+	cancel1()
+	require.NoError(t, log1.Close()) // tears the fabric (and its KV) down to disk
+
+	// --- Boot 2: same store dir, fresh process state. ---
+	resetConsumersForTest()
+	_, log2, err := NewServer(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log2.Close() })
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	t.Cleanup(cancel2)
+	StartClaimConsumers(ctx2, verifierFor, 30*time.Second, nil)
+
+	assert.Contains(t, parkedAddrs(t), "default", "the parked identity must survive the fabric teardown on disk")
+	assert.True(t, sessionParked("default"), "a session parked before a real restart comes back parked after it")
+	assert.False(t, sessionWarm("default"))
+}
+
 func contains(xs []string, v string) bool {
 	for _, x := range xs {
 		if x == v {
