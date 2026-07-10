@@ -1491,11 +1491,28 @@ func (s *claimConsumerSpawner) restoreParkedLocked() {
 		return
 	}
 	for _, e := range entries {
-		if sock := s.socks[e.Addr]; sock != nil {
-			s.parkKeyLocked(e.Addr, sock) // was parked before the restart; restore it
-		} else if s.parked[e.Addr] == nil {
-			_ = s.registry.Delete(e.Addr) // stale: session no longer registered
+		sock := s.socks[e.Addr]
+		if sock == nil {
+			if s.parked[e.Addr] == nil {
+				_ = s.registry.Delete(e.Addr) // stale: session no longer registered
+			}
+			continue
 		}
+		// A claim may have been on the stream unprocessed when the process died.
+		// The park-arrival watcher only wakes on NEW claims, so restoring such a
+		// session to parked would strand that backlog. Leave it warm to drain
+		// (the idle sweep re-parks it once quiet) and drop the parked record.
+		if v, ok := liveReg.Load(e.Addr); ok {
+			// Keep the session warm if it has a backlog OR if we cannot measure
+			// one: parking a session with unprocessed (or unmeasurable) claims
+			// would strand them behind the new-claims-only arrival watcher. The
+			// idle sweep re-parks it once it is genuinely quiet.
+			if n, err := v.(*liveEntry).log.ClaimsInFlight(); err != nil || n > 0 {
+				_ = s.registry.Delete(e.Addr)
+				continue
+			}
+		}
+		s.parkKeyLocked(e.Addr, sock) // quiet before the restart: restore it parked
 	}
 }
 

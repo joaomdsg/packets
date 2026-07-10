@@ -175,6 +175,39 @@ func TestParkedIdentitySurvivesARealServerRestart(t *testing.T) {
 	assert.False(t, sessionWarm("default"))
 }
 
+// The crash consequence: a claim can be on the stream unprocessed when the
+// process dies (published, not yet verdicted). On restart, restoring that
+// session to PARKED would strand the claim — the arrival watcher only fires on
+// NEW claims, so a pre-existing backlog would sit until the next claim. Restore
+// must drain a backlog instead of parking blind.
+func TestBoot_restoredSessionWithABacklogDrainsItNotStrands(t *testing.T) {
+	resetConsumersForTest()
+	defLogPath := filepath.Join(t.TempDir(), "default.jsonl")
+	_, log, err := NewServer(LiveConfig{
+		RepoDir: ".", BaseRev: "b", FixRev: "f", TipRev: "f", Anchor: anchorForCap(),
+		TestCmd: []string{"true"}, LedgerPath: defLogPath,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = log.Close() })
+
+	// A claim is already on the stream, unprocessed (no consumer has run yet) —
+	// the mid-flight state a crash leaves behind.
+	publishClaim(t, "default", validClaimTarget)
+
+	// And the registry says "default" was parked before the restart.
+	r, err := socket.OpenParkedRegistry(liveFabric)
+	require.NoError(t, err)
+	require.NoError(t, r.Put(socket.ParkedEntry{Addr: "default", Session: "default", Instance: LedgerInstance}))
+
+	// Boot the consumers: restore must NOT strand the buffered claim.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	StartClaimConsumers(ctx, func(LiveConfig) ledger.Verifier { return confirmingVerifier }, 30*time.Second, nil)
+
+	require.Eventually(t, func() bool { b, err := log.Balance(); return err == nil && b == 1 }, 5*time.Second, 20*time.Millisecond,
+		"a claim buffered while parked must drain on restore, not sit stranded until the next claim")
+}
+
 func contains(xs []string, v string) bool {
 	for _, x := range xs {
 		if x == v {

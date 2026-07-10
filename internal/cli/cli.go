@@ -214,6 +214,8 @@ func Main() {
 	var live liveFlag
 	flag.Var(&live, "live", "seed a PROMPT-BEARING live packet on the primary session (a real Claude Code harness produces the fix); repeatable: file=F,line=N,base=SHA[,tip=SHA],prompt=<task>")
 	peerListen := flag.String("peer-listen", "", "bind an AUTHENTICATED NATS socket (host:port) for cross-process peers to submit claims; empty keeps the fabric in-process-only")
+	parkIdle := flag.Duration("park-idle", autoParkIdleAfter, "auto-park a session's claim consumer after it has been idle this long (a claim wakes it); 0 disables auto-park")
+	parkInterval := flag.Duration("park-interval", autoParkInterval, "how often the auto-park idle sweep runs")
 	var peers peerFlag
 	flag.Var(&peers, "peer", "peer grant spec key:user:pass — authorizes a cross-process peer to submit claims to its session's claim subtree (never mint)")
 	flag.Parse()
@@ -374,8 +376,10 @@ func Main() {
 
 	// Shed idle sessions' claim consumers: park one that has been quiet past the
 	// threshold (its ticket is persisted durably), and let the arrival watcher
-	// wake it on the next claim. Stops with ctx on SIGINT.
-	app.StartAutoPark(ctx, autoParkIdleAfter, autoParkInterval)
+	// wake it on the next claim. Stops with ctx on SIGINT. -park-idle 0 disables.
+	if *parkIdle > 0 {
+		app.StartAutoPark(ctx, *parkIdle, *parkInterval)
+	}
 
 	switch {
 	case configured:
