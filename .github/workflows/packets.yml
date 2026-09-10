@@ -1,0 +1,25 @@
+name: packets
+on:
+  pull_request:
+    branches: ['**']
+jobs:
+  packets:
+    if: startsWith(github.head_ref, 'packets/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: command -v yq || sudo apt-get install -y yq
+      - name: Extract predicates from PR body
+        id: pred
+        run: |
+          echo "${{ github.event.pull_request.body }}" | awk '/^```yaml/{f=1;next}/^```/{f=0}f' > packet.yaml
+      - name: Setup toolchain
+        run: |
+          go mod download
+      - name: Run constraints
+        run: |
+          yq '.constraints[]' packet.yaml | while read -r c; do echo "+ $c"; sh -c "$c" || exit 1; done
+      - name: Run terminal
+        run: |
+          yq '.terminal[]' packet.yaml | sed 's/^human_approval$/true/' | while read -r t; do echo "+ $t"; sh -c "$t" || exit 1; done
