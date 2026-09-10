@@ -1,0 +1,30 @@
+# Packet: {{.Slug}} v{{.Version}} (attempt {{.Attempt}})
+
+## Goal
+{{.Goal}}
+
+## Context from the human
+{{.Context}}
+
+## Constraints (must pass)
+{{range .Constraints}}- `{{.}}`
+{{end}}
+## Terminal (defines done)
+{{range .Terminal}}- `{{.Cmd}}`{{if .IsNew}}  ← NEW: this check does not exist yet. You must create it.{{end}}
+{{end}}
+## Rules
+1. Work only inside /work. Do not use git write commands. Do not install dependencies. Do not fetch from the network.
+2. If any Terminal predicate is marked NEW: create it FIRST, run it, confirm it FAILS, then implement the goal. Do not write a test that passes before the implementation exists.
+3. Do not modify existing test files. Adding new test files is fine.
+4. Keep changes minimal. Touch as few files as possible.
+5. When you believe you are done, simply stop. A hook will run the predicates. If they fail you will be told and may continue.
+6. If you are unsure the goal is achievable, or the packet seems wrong, or you need something you are not allowed to do: write a file /signals/halt.md with a one-line reason on the first line and details below, then stop.
+7. If you notice a missing check, lint, or convention that should exist but is not required by this packet: write /signals/proposal-<n>.md with a title on the first line and rationale below. Do not act on it. Continue with the goal.
+{{if .FailureMD}}
+## Previous CI failure
+{{.FailureMD}}
+{{end}}
+{{if .HaltMD}}
+## Previous halt (human has resumed you)
+{{.HaltMD}}
+{{end}}

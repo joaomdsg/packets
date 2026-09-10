@@ -1,0 +1,35 @@
+package cli_test
+
+import (
+	"bytes"
+	"testing"
+
+	"github.com/joaomdsg/packets/internal/cli"
+	"github.com/joaomdsg/packets/internal/packet"
+	"github.com/joaomdsg/packets/internal/state"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestStatus_printsStateFieldsAndLogsWithHumanActor(t *testing.T) {
+	// t.Setenv (inside runFixture) forbids t.Parallel.
+	pkt := &packet.Packet{Goal: "fix x", Terminal: []string{"true"}, Budget: packet.Budget{Retries: 3, Minutes: 30}}
+	st := &state.State{Slug: "fix-x", Version: 2, State: state.Building, Branch: "packets/fix-x-v2"}
+	fabricSlug := runFixture(t, "fix-x", st, pkt)
+
+	out := &bytes.Buffer{}
+	root := cli.NewRoot()
+	root.SetOut(out)
+	root.SetArgs([]string{"status", "--fabric", fabricSlug, "fix-x"})
+
+	err := root.Execute()
+
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "state: building")
+	assert.Contains(t, out.String(), "branch: packets/fix-x-v2")
+
+	entries := readLogEntriesCLI(t, packetDirFor(t, fabricSlug, "fix-x"))
+	require.Len(t, entries, 1)
+	assert.Equal(t, "status", entries[0].Event)
+	assert.Equal(t, "human", entries[0].Actor)
+}

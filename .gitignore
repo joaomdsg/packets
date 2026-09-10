@@ -1,0 +1,9 @@
+# Local agent/session state
+.claude/
+
+# Credentials
+*.token
+.env
+
+# Built binary
+/packets

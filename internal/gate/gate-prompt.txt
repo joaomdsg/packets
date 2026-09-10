@@ -1,0 +1,19 @@
+You are reviewing a work packet before an autonomous coding agent executes it.
+Answer ONLY with JSON matching this schema, no prose, no markdown fences:
+{
+  "warnings": [ { "code": "AMBIGUOUS_GOAL" | "TERMINAL_DOES_NOT_MEASURE_GOAL" | "LOOSE_CONSTRAINTS" | "UNMEASURABLE", "detail": "one sentence" } ],
+  "suggested_terminal": [ "shell command that would verify the goal, if one is missing" ]
+}
+Rules:
+- AMBIGUOUS_GOAL: goal has more than one plausible outcome, or uses words like "improve", "clean up", "better" without a measure.
+- TERMINAL_DOES_NOT_MEASURE_GOAL: terminal predicates would pass even if the goal were not achieved.
+- LOOSE_CONSTRAINTS: no constraint runs the existing test suite or linter.
+- UNMEASURABLE: goal cannot be verified by any shell command.
+- suggested_terminal: at most 3 commands. Only suggest if terminal is missing something. Use the repo's existing test runner conventions if visible in REPO_FILES.
+Return empty arrays if nothing applies.
+
+PACKET:
+{{PACKET}}
+
+REPO_FILES (top-level listing):
+{{REPO_FILES}}
