@@ -22,12 +22,12 @@ func newStatusCommand() *cobra.Command {
 }
 
 func runStatus(cmd *cobra.Command, slug string) error {
-	fab, err := resolveFabric(cmd)
+	fab, err := resolveFabric(cmd, "status")
 	if err != nil {
 		return err
 	}
 	packetDir := filepath.Join(fab.PacketsDir, slug)
-	st, err := state.Load(filepath.Join(packetDir, "state.json"))
+	st, err := state.LoadForSlug(filepath.Join(packetDir, "state.json"), slug)
 	if err != nil {
 		return fmt.Errorf("status: %s", err)
 	}

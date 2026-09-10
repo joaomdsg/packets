@@ -66,6 +66,24 @@ func TestAppend_alwaysIncludesNullableFieldsExplicitly(t *testing.T) {
 	}`, strings.TrimRight(string(data), "\n"))
 }
 
+func TestReadAllTolerant_skipsUnparseableLinesAndCountsThem(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "log.jsonl")
+	// A torn last line is exactly what a crash mid-append leaves behind.
+	require.NoError(t, os.WriteFile(path, []byte(
+		`{"event":"emit","actor":"human"}`+"\n"+
+			`not json`+"\n"+
+			`{"event":"terminate","actor":"harness"}`+"\n"), 0o600))
+
+	entries, skipped, err := journal.ReadAllTolerant(path)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, skipped)
+	assert.Len(t, entries, 2)
+	assert.Equal(t, journal.EventEmit, entries[0].Event)
+	assert.Equal(t, journal.EventTerminate, entries[1].Event)
+}
+
 func TestAppend_appendsToExistingFile(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "log.jsonl")

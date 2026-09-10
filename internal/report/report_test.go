@@ -156,4 +156,49 @@ func TestCompute_computesMeanAmendsAndAmendToTerminateGap(t *testing.T) {
 	assert.InDelta(t, 60, r.AmendMeanMinutes, 0.001)
 }
 
+func TestCompute_skipsUnparseableLinesInsteadOfFailing(t *testing.T) {
+	t.Parallel()
+	fabDir := t.TempDir()
+
+	fabricLogPath := filepath.Join(fabDir, "log.jsonl")
+	require.NoError(t, journal.Append(fabricLogPath, journal.Entry{Event: journal.EventEmitReject}))
+	appendRawLine(t, fabricLogPath, "not json")
+
+	registryPath := filepath.Join(fabDir, "registry.jsonl")
+	require.NoError(t, registry.Append(registryPath, registry.Entry{Cause: registry.CauseProposal}))
+	appendRawLine(t, registryPath, "not json")
+
+	packetDir := filepath.Join(fabDir, "packets", "fix-x")
+	require.NoError(t, os.MkdirAll(packetDir, 0o700))
+	packetLogPath := filepath.Join(packetDir, "log.jsonl")
+	require.NoError(t, journal.Append(packetLogPath, journal.Entry{Event: journal.EventTerminate}))
+	appendRawLine(t, packetLogPath, "not json")
+
+	r, err := report.Compute(fabDir)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, r.GateRejects)
+	assert.Equal(t, 1, r.AccretionByCause[registry.CauseProposal])
+	assert.Equal(t, 1, r.TerminateWithoutApproval)
+	require.Len(t, r.Skipped, 3)
+	paths := map[string]int{}
+	for _, s := range r.Skipped {
+		paths[s.Path] = s.Skipped
+	}
+	assert.Equal(t, 1, paths[fabricLogPath])
+	assert.Equal(t, 1, paths[registryPath])
+	assert.Equal(t, 1, paths[packetLogPath])
+}
+
+// appendRawLine writes a line that is not valid JSON, simulating a torn
+// last line left behind by a crash mid-append.
+func appendRawLine(t *testing.T, path, line string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	require.NoError(t, err)
+	defer f.Close()
+	_, err = f.WriteString(line + "\n")
+	require.NoError(t, err)
+}
+
 func strPtr(s string) *string { return &s }

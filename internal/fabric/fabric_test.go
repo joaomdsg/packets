@@ -1,6 +1,7 @@
 package fabric_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -51,6 +52,26 @@ func TestSaveLoad_roundTripsAllFields(t *testing.T) {
 func TestLoad_errorsOnMissingFile(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "does-not-exist.yaml")
+
+	_, err := fabric.Load(path)
+
+	assert.Error(t, err)
+}
+
+func TestLoad_errorsOnEmptyFile(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "fabric.yaml")
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+
+	_, err := fabric.Load(path)
+
+	assert.Error(t, err)
+}
+
+func TestLoad_errorsOnMalformedYAML(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "fabric.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("not: [valid: yaml"), 0o600))
 
 	_, err := fabric.Load(path)
 

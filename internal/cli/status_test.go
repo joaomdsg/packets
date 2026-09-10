@@ -33,3 +33,21 @@ func TestStatus_printsStateFieldsAndLogsWithHumanActor(t *testing.T) {
 	assert.Equal(t, "status", entries[0].Event)
 	assert.Equal(t, "human", entries[0].Actor)
 }
+
+func TestStatus_reportsErrorWhenDirSlugDoesNotMatchStateSlug(t *testing.T) {
+	// t.Setenv (inside runFixture) forbids t.Parallel. The packet dir is
+	// "fake" but its state.json claims slug "other" — a desync that must
+	// be reported rather than trusted.
+	pkt := &packet.Packet{Goal: "fix x", Terminal: []string{"true"}, Budget: packet.Budget{Retries: 3, Minutes: 30}}
+	st := &state.State{Slug: "other", Version: 1, State: state.Building}
+	fabricSlug := runFixture(t, "fake", st, pkt)
+
+	root := cli.NewRoot()
+	root.SetArgs([]string{"status", "--fabric", fabricSlug, "fake"})
+
+	err := root.Execute()
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "fake")
+	assert.Contains(t, err.Error(), "other")
+}

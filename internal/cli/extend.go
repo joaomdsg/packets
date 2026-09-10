@@ -32,7 +32,7 @@ func runExtend(cmd *cobra.Command, slug string, retries int) error {
 		return fmt.Errorf("extend: --retries must be > 0")
 	}
 
-	fab, err := resolveFabric(cmd)
+	fab, err := resolveFabric(cmd, "extend")
 	if err != nil {
 		return err
 	}
@@ -40,7 +40,7 @@ func runExtend(cmd *cobra.Command, slug string, retries int) error {
 	statePath := filepath.Join(packetDir, "state.json")
 	packetPath := filepath.Join(packetDir, "packet.yaml")
 
-	st, err := state.Load(statePath)
+	st, err := state.LoadForSlug(statePath, slug)
 	if err != nil {
 		return fmt.Errorf("extend: %s", err)
 	}

@@ -37,6 +37,19 @@ type Report struct {
 
 	HaltsByReason map[string]int
 	BudgetHalts   int
+
+	// Skipped records, per log file, how many lines failed to parse and
+	// were left out of every metric above. A torn last line is exactly
+	// what a crash mid-append leaves behind; Compute tolerates it rather
+	// than refusing to report on the rest of the fabric's history.
+	Skipped []SkippedFile
+}
+
+// SkippedFile names one log or registry file that had unparseable lines
+// and how many were skipped.
+type SkippedFile struct {
+	Path    string
+	Skipped int
 }
 
 type packetLog struct {
@@ -46,20 +59,34 @@ type packetLog struct {
 }
 
 // Compute reads fabDir's fabric-level log.jsonl, registry.jsonl, and
-// every packets/<slug>/log.jsonl, and derives every §16 metric.
+// every packets/<slug>/log.jsonl, and derives every §16 metric. Lines
+// that fail to parse are skipped, not fatal; see Report.Skipped.
 func Compute(fabDir string) (*Report, error) {
-	fabricEntries, err := journal.ReadAll(filepath.Join(fabDir, "log.jsonl"))
+	var skipped []SkippedFile
+
+	fabricLogPath := filepath.Join(fabDir, "log.jsonl")
+	fabricEntries, n, err := journal.ReadAllTolerant(fabricLogPath)
 	if err != nil {
 		return nil, err
 	}
-	regEntries, err := registry.ReadAll(filepath.Join(fabDir, "registry.jsonl"))
+	if n > 0 {
+		skipped = append(skipped, SkippedFile{Path: fabricLogPath, Skipped: n})
+	}
+
+	registryPath := filepath.Join(fabDir, "registry.jsonl")
+	regEntries, n, err := registry.ReadAllTolerant(registryPath)
 	if err != nil {
 		return nil, err
 	}
-	packets, err := loadPackets(fabDir)
+	if n > 0 {
+		skipped = append(skipped, SkippedFile{Path: registryPath, Skipped: n})
+	}
+
+	packets, packetSkips, err := loadPackets(fabDir)
 	if err != nil {
 		return nil, err
 	}
+	skipped = append(skipped, packetSkips...)
 
 	r := &Report{
 		WarningCodeCounts: map[string]int{},
@@ -67,6 +94,7 @@ func Compute(fabDir string) (*Report, error) {
 		CIFailureRepeats:  map[string]int{},
 		HaltsByReason:     map[string]int{},
 		PacketCount:       len(packets),
+		Skipped:           skipped,
 	}
 
 	countGateAndHalts(r, fabricEntries)
@@ -81,23 +109,28 @@ func Compute(fabDir string) (*Report, error) {
 	return r, nil
 }
 
-func loadPackets(fabDir string) ([]packetLog, error) {
+func loadPackets(fabDir string) ([]packetLog, []SkippedFile, error) {
 	dirEntries, err := os.ReadDir(filepath.Join(fabDir, "packets"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	var packets []packetLog
+	var skipped []SkippedFile
 	for _, d := range dirEntries {
 		if !d.IsDir() {
 			continue
 		}
 		packetDir := filepath.Join(fabDir, "packets", d.Name())
-		entries, err := journal.ReadAll(filepath.Join(packetDir, "log.jsonl"))
+		logPath := filepath.Join(packetDir, "log.jsonl")
+		entries, n, err := journal.ReadAllTolerant(logPath)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		if n > 0 {
+			skipped = append(skipped, SkippedFile{Path: logPath, Skipped: n})
 		}
 		// A packet.yaml that fails to load (e.g. mid-emit crash) still
 		// contributes its log to every other metric; only the
@@ -105,7 +138,7 @@ func loadPackets(fabDir string) ([]packetLog, error) {
 		pkt, _ := packet.Load(filepath.Join(packetDir, "packet.yaml"))
 		packets = append(packets, packetLog{slug: d.Name(), entries: entries, pkt: pkt})
 	}
-	return packets, nil
+	return packets, skipped, nil
 }
 
 func countGateAndHalts(r *Report, entries []journal.Entry) {

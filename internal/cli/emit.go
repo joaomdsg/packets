@@ -31,22 +31,41 @@ func runEmit(cmd *cobra.Command, path string, llm gate.LLM) error {
 		return fmt.Errorf("emit: %s did not parse", path)
 	}
 
-	fab, err := resolveFabric(cmd)
-	if err != nil {
-		return err
+	// Stage A is purely mechanical and must not require a fabric: a user
+	// authoring their first packet before `packets init` still needs their
+	// rule violations reported. Fabric resolution is deferred until we know
+	// whether it's actually needed (caused_by check, then Stage B/create).
+	fab, fabErr := resolveFabric(cmd, "emit")
+	packetsDir := ""
+	if fabErr == nil {
+		packetsDir = fab.PacketsDir
 	}
 
-	failures := packet.Validate(p, fab.PacketsDir)
+	failures := packet.Validate(p, packetsDir)
+	if fabErr != nil && p.CausedBy != nil && *p.CausedBy != "" {
+		failures = append(failures, fmt.Sprintf(
+			"caused_by: cannot verify packet %q exists: %s", *p.CausedBy, fabErr))
+	}
+
 	if len(failures) > 0 {
 		for _, f := range failures {
 			fmt.Fprintln(cmd.OutOrStdout(), f)
 		}
 		// No packet dir exists yet at Stage A, so this rejection has
-		// nowhere else to live; see fabriclog.go.
-		if err := logFabricEvent(fab, journal.EventEmitReject, map[string]any{"failures": failures}); err != nil {
-			return fmt.Errorf("emit: %s", err)
+		// nowhere else to live; see fabriclog.go. Only possible once a
+		// fabric resolved, since the fabric log lives under its data dir.
+		if fabErr == nil {
+			if err := logFabricEvent(fab, journal.EventEmitReject, map[string]any{"failures": failures}); err != nil {
+				return fmt.Errorf("emit: %s", err)
+			}
 		}
 		return fmt.Errorf("emit: %s failed validation", path)
+	}
+
+	// Stage A passed; everything past here (slug/dir creation, repo
+	// listing for Stage B) genuinely needs a fabric.
+	if fabErr != nil {
+		return fabErr
 	}
 
 	// Slug depends only on the goal, so it's resolved before Stage B and

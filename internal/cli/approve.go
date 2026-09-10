@@ -25,7 +25,7 @@ func newApproveCommand(ciDeps ci.Deps) *cobra.Command {
 }
 
 func runApprove(cmd *cobra.Command, slug string, ciDeps ci.Deps) error {
-	fab, err := resolveFabric(cmd)
+	fab, err := resolveFabric(cmd, "approve")
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func runApprove(cmd *cobra.Command, slug string, ciDeps ci.Deps) error {
 	if err != nil {
 		return fmt.Errorf("approve: %s", err)
 	}
-	st, err := state.Load(statePath)
+	st, err := state.LoadForSlug(statePath, slug)
 	if err != nil {
 		return fmt.Errorf("approve: %s", err)
 	}

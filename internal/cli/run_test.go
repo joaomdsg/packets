@@ -60,6 +60,18 @@ func packetDirFor(t *testing.T, fabricSlug, slug string) string {
 	return filepath.Join(dataDir, "packets", fabricSlug, "packets", slug)
 }
 
+// repoDirFor reads repo_path back out of the fixture's registered index,
+// for tests that need to chdir into it to exercise the cwd-default lookup.
+func repoDirFor(t *testing.T, fabricSlug string) string {
+	t.Helper()
+	configDir := os.Getenv("XDG_CONFIG_HOME")
+	idx, err := fabric.LoadIndex(filepath.Join(configDir, "packets", "fabrics.yaml"))
+	require.NoError(t, err)
+	entry, ok := idx.BySlug(fabricSlug)
+	require.True(t, ok)
+	return entry.RepoPath
+}
+
 // readLogEntriesCLI parses every line of a packet's log.jsonl, letting
 // tests assert on more than just the event name (e.g. actor).
 func readLogEntriesCLI(t *testing.T, packetDir string) []journal.Entry {

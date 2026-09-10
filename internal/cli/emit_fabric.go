@@ -19,20 +19,25 @@ type resolvedFabric struct {
 
 // resolveFabric applies the §7 default-fabric rule: --fabric selects a
 // fabric by slug; with no flag, it's the fabric whose repo_path contains
-// the current working directory.
-func resolveFabric(cmd *cobra.Command) (resolvedFabric, error) {
+// the current working directory. name is the calling command's name, used
+// to prefix every error so each command reports its own errors rather than
+// borrowing another command's label.
+func resolveFabric(cmd *cobra.Command, name string) (resolvedFabric, error) {
 	fabricSlug, err := cmd.Flags().GetString("fabric")
 	if err != nil {
-		return resolvedFabric{}, fmt.Errorf("emit: %s", err)
+		return resolvedFabric{}, fmt.Errorf("%s: %s", name, err)
+	}
+	if cmd.Flags().Changed("fabric") && fabricSlug == "" {
+		return resolvedFabric{}, fmt.Errorf("%s: --fabric requires a non-empty slug", name)
 	}
 
 	configDir, err := xdgpath.ConfigDir()
 	if err != nil {
-		return resolvedFabric{}, fmt.Errorf("emit: %s", err)
+		return resolvedFabric{}, fmt.Errorf("%s: %s", name, err)
 	}
 	idx, err := fabric.LoadIndex(filepath.Join(configDir, "fabrics.yaml"))
 	if err != nil {
-		return resolvedFabric{}, fmt.Errorf("emit: %s", err)
+		return resolvedFabric{}, fmt.Errorf("%s: %s", name, err)
 	}
 
 	var entry fabric.IndexEntry
@@ -40,22 +45,22 @@ func resolveFabric(cmd *cobra.Command) (resolvedFabric, error) {
 		var ok bool
 		entry, ok = idx.BySlug(fabricSlug)
 		if !ok {
-			return resolvedFabric{}, fmt.Errorf("emit: fabric %q is not registered", fabricSlug)
+			return resolvedFabric{}, fmt.Errorf("%s: fabric %q is not registered", name, fabricSlug)
 		}
 	} else {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return resolvedFabric{}, fmt.Errorf("emit: %s", err)
+			return resolvedFabric{}, fmt.Errorf("%s: %s", name, err)
 		}
 		entry, err = idx.ByCWD(cwd)
 		if err != nil {
-			return resolvedFabric{}, fmt.Errorf("emit: %s", err)
+			return resolvedFabric{}, fmt.Errorf("%s: %s", name, err)
 		}
 	}
 
 	dataDir, err := xdgpath.DataDir()
 	if err != nil {
-		return resolvedFabric{}, fmt.Errorf("emit: %s", err)
+		return resolvedFabric{}, fmt.Errorf("%s: %s", name, err)
 	}
 	return resolvedFabric{
 		IndexEntry: entry,

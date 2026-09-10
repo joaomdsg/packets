@@ -33,7 +33,7 @@ var alreadyDone = map[string]bool{
 }
 
 func runRun(cmd *cobra.Command, slug string, buildDeps build.Deps, ciDeps ci.Deps) error {
-	fab, err := resolveFabric(cmd)
+	fab, err := resolveFabric(cmd, "run")
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func runRun(cmd *cobra.Command, slug string, buildDeps build.Deps, ciDeps ci.Dep
 	if err != nil {
 		return fmt.Errorf("run: %s", err)
 	}
-	st, err := state.Load(statePath)
+	st, err := state.LoadForSlug(statePath, slug)
 	if err != nil {
 		return fmt.Errorf("run: %s", err)
 	}

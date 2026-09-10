@@ -30,7 +30,7 @@ func newAmendCommand(llm gate.LLM, editor Editor) *cobra.Command {
 // it, and restart the packet at build. §5 allows amend from halted or
 // awaiting_approval only.
 func runAmend(cmd *cobra.Command, slug string, llm gate.LLM, editor Editor) error {
-	fab, err := resolveFabric(cmd)
+	fab, err := resolveFabric(cmd, "amend")
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func runAmend(cmd *cobra.Command, slug string, llm gate.LLM, editor Editor) erro
 	packetPath := filepath.Join(packetDir, "packet.yaml")
 	logPath := filepath.Join(packetDir, "log.jsonl")
 
-	st, err := state.Load(statePath)
+	st, err := state.LoadForSlug(statePath, slug)
 	if err != nil {
 		return fmt.Errorf("amend: %s", err)
 	}

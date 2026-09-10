@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 )
 
 func newApproveProposalCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "approve-proposal <slug> <n>",
 		Short: "Draft a new packet.yaml from an existing proposal",
 		Args:  cobra.ExactArgs(2),
@@ -22,10 +23,19 @@ func newApproveProposalCommand() *cobra.Command {
 			return runApproveProposal(cmd, args[0], args[1])
 		},
 	}
+	// A negative index (e.g. "-1") would otherwise be parsed as an unknown
+	// shorthand flag; stop flag scanning at the first positional (slug) so
+	// the index reaches RunE for its own validation instead.
+	cmd.Flags().SetInterspersed(false)
+	return cmd
 }
 
 func runApproveProposal(cmd *cobra.Command, slug, n string) error {
-	fab, err := resolveFabric(cmd)
+	if idx, err := strconv.Atoi(n); err != nil || idx < 0 {
+		return fmt.Errorf("approve-proposal: proposal index must be a non-negative integer, got %q", n)
+	}
+
+	fab, err := resolveFabric(cmd, "approve-proposal")
 	if err != nil {
 		return err
 	}
@@ -37,6 +47,9 @@ func runApproveProposal(cmd *cobra.Command, slug, n string) error {
 		return fmt.Errorf("approve-proposal: %s", err)
 	}
 	title, body := splitProposal(string(data))
+	if title == "" {
+		return fmt.Errorf("approve-proposal: %s has no title on its first line", proposalPath)
+	}
 
 	draft := &packet.Packet{
 		Goal:     title,

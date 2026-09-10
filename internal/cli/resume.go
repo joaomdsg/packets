@@ -22,14 +22,14 @@ func newResumeCommand() *cobra.Command {
 }
 
 func runResume(cmd *cobra.Command, slug string) error {
-	fab, err := resolveFabric(cmd)
+	fab, err := resolveFabric(cmd, "resume")
 	if err != nil {
 		return err
 	}
 	packetDir := filepath.Join(fab.PacketsDir, slug)
 	statePath := filepath.Join(packetDir, "state.json")
 
-	st, err := state.Load(statePath)
+	st, err := state.LoadForSlug(statePath, slug)
 	if err != nil {
 		return fmt.Errorf("resume: %s", err)
 	}

@@ -23,7 +23,7 @@ func newProposalsCommand() *cobra.Command {
 }
 
 func runProposals(cmd *cobra.Command, slug string) error {
-	fab, err := resolveFabric(cmd)
+	fab, err := resolveFabric(cmd, "proposals")
 	if err != nil {
 		return err
 	}

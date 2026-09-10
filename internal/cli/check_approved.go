@@ -25,11 +25,11 @@ func newCheckApprovedCommand() *cobra.Command {
 }
 
 func runCheckApproved(cmd *cobra.Command, slug string) error {
-	fab, err := resolveFabric(cmd)
+	fab, err := resolveFabric(cmd, "check-approved")
 	if err != nil {
 		return err
 	}
-	st, err := state.Load(filepath.Join(fab.PacketsDir, slug, "state.json"))
+	st, err := state.LoadForSlug(filepath.Join(fab.PacketsDir, slug, "state.json"), slug)
 	if err != nil {
 		return err
 	}

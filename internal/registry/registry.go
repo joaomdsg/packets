@@ -80,3 +80,40 @@ func ReadAll(path string) ([]Entry, error) {
 	}
 	return entries, nil
 }
+
+// ReadAllTolerant is ReadAll but skips lines that fail to parse instead of
+// failing outright, returning how many were skipped. A torn last line is
+// exactly what a crash mid-append leaves behind; callers that need to
+// report metrics from a fabric's full history (packets report) cannot let
+// one such line make every line unreadable.
+func ReadAllTolerant(path string) ([]Entry, int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, 0, nil
+		}
+		return nil, 0, fmt.Errorf("registry: open %s: %s", path, err)
+	}
+	defer f.Close()
+
+	var entries []Entry
+	var skipped int
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var e Entry
+		if err := json.Unmarshal(line, &e); err != nil {
+			skipped++
+			continue
+		}
+		entries = append(entries, e)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, skipped, fmt.Errorf("registry: read %s: %s", path, err)
+	}
+	return entries, skipped, nil
+}

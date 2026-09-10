@@ -60,6 +60,11 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fabric: read %s: %s", path, err)
 	}
+	if len(data) == 0 {
+		// yaml.Unmarshal treats an empty document as a no-op, not an
+		// error, which would otherwise silently yield a zero-value Config.
+		return nil, fmt.Errorf("fabric: %s is empty", path)
+	}
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("fabric: parse %s: %s", path, err)

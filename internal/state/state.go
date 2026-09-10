@@ -62,6 +62,23 @@ func Load(path string) (*State, error) {
 	return &s, nil
 }
 
+// LoadForSlug loads state.json at path and confirms its slug field matches
+// the directory it was loaded from. A mismatch means the packet dir was
+// renamed or its state.json copied from elsewhere; trusting the directory
+// name over the file would silently operate on the wrong packet.
+func LoadForSlug(path, slug string) (*State, error) {
+	s, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	if s.Slug != slug {
+		return nil, fmt.Errorf(
+			"state: %s: directory slug %q does not match state.json slug %q",
+			path, slug, s.Slug)
+	}
+	return s, nil
+}
+
 // Save atomically writes s to path: it writes path+".tmp", fsyncs, then
 // renames over path. A crash between the write and the rename leaves the
 // prior contents of path untouched.

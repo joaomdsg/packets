@@ -35,3 +35,21 @@ func TestAppend_writesOneJSONLinePerEntry(t *testing.T) {
 	assert.Equal(t, "test/x_test.go", first.Path)
 	assert.Equal(t, registry.CauseGateSuggested, first.Cause)
 }
+
+func TestReadAllTolerant_skipsUnparseableLinesAndCountsThem(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "registry.jsonl")
+	// A torn last line is exactly what a crash mid-append leaves behind.
+	require.NoError(t, os.WriteFile(path, []byte(
+		`{"cause":"proposal"}`+"\n"+
+			`not json`+"\n"+
+			`{"cause":"ci_failure"}`+"\n"), 0o600))
+
+	entries, skipped, err := registry.ReadAllTolerant(path)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, skipped)
+	assert.Len(t, entries, 2)
+	assert.Equal(t, registry.CauseProposal, entries[0].Cause)
+	assert.Equal(t, registry.CauseCIFailure, entries[1].Cause)
+}

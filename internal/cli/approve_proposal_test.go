@@ -58,3 +58,43 @@ func TestApproveProposal_writesDraftPacketAndRegistryEntry(t *testing.T) {
 	assert.Equal(t, "proposal", entries[len(entries)-1].Event)
 	assert.Equal(t, "human", entries[len(entries)-1].Actor)
 }
+
+func TestApproveProposal_rejectsAnEmptyProposalFile(t *testing.T) {
+	// t.Setenv (inside runFixture) forbids t.Parallel.
+	pkt := &packet.Packet{Goal: "fix x", Terminal: []string{"true"}, Budget: packet.Budget{Retries: 3, Minutes: 30}}
+	st := &state.State{Slug: "fix-x", Version: 1, State: state.Building}
+	fabricSlug := runFixture(t, "fix-x", st, pkt)
+
+	packetDir := packetDirFor(t, fabricSlug, "fix-x")
+	require.NoError(t, os.MkdirAll(filepath.Join(packetDir, "proposals"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(packetDir, "proposals", "1.md"), nil, 0o600))
+
+	root := cli.NewRoot()
+	root.SetArgs([]string{"approve-proposal", "--fabric", fabricSlug, "fix-x", "1"})
+
+	err := root.Execute()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "approve-proposal:")
+	assert.Contains(t, err.Error(), "1.md")
+}
+
+func TestApproveProposal_rejectsNegativeIndexWithAClearError(t *testing.T) {
+	// t.Setenv (inside runFixture) forbids t.Parallel. Cobra treats a
+	// leading "-" as a shorthand flag unless the command stops scanning
+	// for flags after the first positional; this proves "-1" reaches
+	// validation instead of dying in flag parsing.
+	pkt := &packet.Packet{Goal: "fix x", Terminal: []string{"true"}, Budget: packet.Budget{Retries: 3, Minutes: 30}}
+	st := &state.State{Slug: "fix-x", Version: 1, State: state.Building}
+	fabricSlug := runFixture(t, "fix-x", st, pkt)
+
+	root := cli.NewRoot()
+	root.SetArgs([]string{"approve-proposal", "--fabric", fabricSlug, "fix-x", "-1"})
+
+	err := root.Execute()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "approve-proposal:")
+	assert.Contains(t, err.Error(), "-1")
+	assert.NotContains(t, err.Error(), "unknown shorthand flag")
+}

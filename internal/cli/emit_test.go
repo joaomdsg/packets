@@ -85,6 +85,30 @@ budget:
 	assert.Contains(t, string(fabricLogData), `"actor":"human"`)
 }
 
+func TestEmit_reportsValidationFailuresWithNoFabricRegistered(t *testing.T) {
+	// t.Setenv forbids t.Parallel. No fabric is registered at all, unlike
+	// emitFixture's isolated-but-registered setup.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	path := writePacketFile(t, t.TempDir(), `
+goal: ""
+terminal: []
+budget:
+  retries: 0
+  minutes: 0
+`)
+	out := &bytes.Buffer{}
+	root := cli.NewRoot(cli.WithGateLLM(&queueLLM{}))
+	root.SetOut(out)
+	root.SetArgs([]string{"emit", path})
+
+	err := root.Execute()
+
+	assert.Error(t, err)
+	assert.Contains(t, out.String(), "goal: must not be empty")
+	assert.Contains(t, out.String(), "terminal: must contain at least one entry")
+}
+
 // mustPacketsDir re-derives the packets dir for a fabric slug registered
 // under the current test's XDG env, mirroring what resolveFabric computes.
 func mustPacketsDir(t *testing.T, fabricSlug string) string {
