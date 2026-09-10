@@ -12,6 +12,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is what `packets --version` reports. Hardcoded while the harness
+// is a prototype; a release pipeline can stamp it via -ldflags later.
+const version = "0.1.0"
+
 // fileExists is the production Exists boundary for claudeauth.Resolve,
 // shared by init and build's Deps wiring.
 func fileExists(path string) bool {
@@ -92,6 +96,7 @@ func NewRoot(opts ...Option) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "packets",
 		Short:         "Run autonomous coding packets against a fabric",
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

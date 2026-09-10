@@ -1,0 +1,15 @@
+goal: Add a --version flag to the packets CLI that prints the build version
+context: |
+  The CLI currently has no --version flag; `packets --version` fails with
+  "unknown flag: --version". Add one to the root command in internal/cli.
+  Keep it simple: a hardcoded version constant is fine for v0. Do not add
+  dependencies and do not change any existing command's output.
+constraints:
+  - go build ./...
+  - go vet ./...
+  - go test ./...
+terminal:
+  - go build -o /tmp/pkv ./cmd/packets && /tmp/pkv --version | grep -qE '[0-9]+\.[0-9]+'
+budget:
+  retries: 2
+  minutes: 25
